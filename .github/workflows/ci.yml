@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install package
+        run: python -m pip install -e .
+
+      - name: Run contract tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Compile Python files
+        run: python -m compileall -q src tests
+
+      - name: Check package entry point
+        run: python -m nextwave --version
