@@ -1,14 +1,25 @@
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import pipeline
+from nextwave.contracts import CandidateStatus
+
+from . import database, pipeline
 from .models import Analysis, AnalysisRequest, AnalysisSummary, Coverage, Stage, Trend
 
-app = FastAPI(title="Радар зарождающихся технологий", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    database.init_database()
+    database.mark_interrupted_analyses()
+    yield
+
+
+app = FastAPI(title="Радар зарождающихся технологий", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,30 +28,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Демонстрационное хранилище работает в памяти одного процесса.
-# Интегрированная версия сохраняет анализы в PostgreSQL.
-_analyses: dict[str, Analysis] = {}
 _tasks: set[asyncio.Task] = set()
 
 
-async def _execute(analysis: Analysis) -> None:
+async def _execute(analysis_id: str) -> None:
+    analysis = database.get_analysis(analysis_id)
+    if analysis is None:
+        return
+
     def on_stage(stage: Stage, progress: float) -> None:
-        analysis.status = "running"
-        analysis.stage = stage.label
-        analysis.progress = progress
+        nonlocal analysis
+        analysis = analysis.model_copy(
+            update={"status": "running", "stage": stage.label, "progress": progress}
+        )
+        database.save_analysis(analysis)
 
     try:
         trends = await pipeline.run(analysis.query, on_stage)
-    except Exception as exc:  # noqa: BLE001 — состояние ошибки видно пользователю (US-06)
-        analysis.status = "error"
-        analysis.notice = f"Анализ прерван: {exc}"
+    except Exception as exc:  # noqa: BLE001 — состояние ошибки видно пользователю
+        analysis = analysis.model_copy(
+            update={"status": "error", "notice": f"Анализ прерван: {exc}"}
+        )
     else:
-        analysis.trends = trends
-        analysis.status = "done" if trends else "empty"
-        analysis.notice = _notice(trends)
-    analysis.progress = 1.0
-    analysis.stage = None
-    analysis.finished_at = datetime.now(UTC)
+        analysis = analysis.model_copy(
+            update={
+                "trends": trends,
+                "status": "done" if trends else "empty",
+                "notice": _notice(trends),
+            }
+        )
+    analysis = analysis.model_copy(
+        update={"progress": 1.0, "stage": None, "finished_at": datetime.now(UTC)}
+    )
+    database.save_analysis(analysis)
 
 
 def _notice(trends: list[Trend]) -> str | None:
@@ -49,7 +69,7 @@ def _notice(trends: list[Trend]) -> str | None:
             "Направление вне покрытия корпуса. Доступные направления: "
             f"{', '.join(pipeline.DIRECTIONS)}. Нерелевантная выдача не подставляется."
         )
-    main = [t for t in trends if t.bucket == "main"]
+    main = [trend for trend in trends if trend.status is CandidateStatus.MAIN]
     if len(main) < pipeline.TOP_N:
         return (
             f"В основной список прошли {len(main)} кандидатов из {pipeline.TOP_N}: "
@@ -83,36 +103,30 @@ async def create_analysis(body: AnalysisRequest) -> Analysis:
         corpus_version=pipeline.CORPUS_VERSION,
         method_version=pipeline.METHOD_VERSION,
     )
-    _analyses[analysis.id] = analysis
-    task = asyncio.create_task(_execute(analysis))
-    _tasks.add(task)  # без ссылки задачу может собрать сборщик мусора
+    database.save_analysis(analysis)
+    task = asyncio.create_task(_execute(analysis.id))
+    _tasks.add(task)
     task.add_done_callback(_tasks.discard)
     return analysis
 
 
 @app.get("/api/analyses")
 def list_analyses() -> list[AnalysisSummary]:
-    items = sorted(_analyses.values(), key=lambda a: a.created_at, reverse=True)
-    return [
-        AnalysisSummary(
-            id=a.id, query=a.query, status=a.status, created_at=a.created_at, trend_count=len(a.trends)
-        )
-        for a in items
-    ]
+    return database.list_analyses()
 
 
 @app.get("/api/analyses/{analysis_id}")
 def get_analysis(analysis_id: str) -> Analysis:
-    analysis = _analyses.get(analysis_id)
+    analysis = database.get_analysis(analysis_id)
     if analysis is None:
-        raise HTTPException(404, "Анализ не найден. Возможно, сервер был перезапущен.")
+        raise HTTPException(404, "Анализ не найден.")
     return analysis
 
 
 @app.get("/api/analyses/{analysis_id}/trends/{trend_id}")
 def get_trend(analysis_id: str, trend_id: str) -> Trend:
     analysis = get_analysis(analysis_id)
-    trend = next((t for t in analysis.trends if t.id == trend_id), None)
+    trend = next((item for item in analysis.trends if item.candidate_id == trend_id), None)
     if trend is None:
         raise HTTPException(404, "Тренд не найден в этой выдаче.")
     return trend

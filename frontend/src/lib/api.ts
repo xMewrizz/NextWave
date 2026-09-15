@@ -1,102 +1,39 @@
-// Типы повторяют backend/app/models.py. Меняется контракт — меняются оба файла.
+import type {
+  Analysis,
+  AnalysisStatus,
+  AnalysisSummary,
+  CandidateStatus,
+  Coverage,
+  FactorKey,
+  SourceType,
+  Stage,
+  Trend,
+} from '@/lib/contracts.generated'
 
-export type AnalysisStatus = 'pending' | 'running' | 'done' | 'empty' | 'error'
-export type SourceType = 'preprint' | 'journal' | 'patent' | 'vendor' | 'conference' | 'report'
-export type FactorKey = 'growth' | 'novelty' | 'independence' | 'evidence'
-export type Bucket = 'main' | 'watchlist' | 'excluded'
+export type {
+  Analysis,
+  AnalysisStatus,
+  AnalysisSummary,
+  CandidateAssessment,
+  CandidateFeatures,
+  CandidateStatus,
+  Coverage,
+  DevelopmentStage,
+  Evidence,
+  ExclusionReason,
+  FactorKey,
+  ModelPrediction,
+  ScoreFactor,
+  SourceStat,
+  SourceType,
+  Stage,
+  TimelinePoint,
+  Trend,
+  TrustLevel,
+  UseCase,
+} from '@/lib/contracts.generated'
 
-export interface SourceRef {
-  title: string
-  url: string
-  source_type: SourceType
-  published_at: string | null
-}
-
-export interface TimelinePoint {
-  period: string
-  documents: number
-  share: number
-}
-
-export interface ScoreFactor {
-  key: FactorKey
-  value: number
-  explanation: string
-}
-
-export interface UseCase {
-  title: string
-  organization: string | null
-  description: string
-  url: string
-}
-
-export interface Trend {
-  id: string
-  rank: number
-  bucket: Bucket
-  bucket_reason: string
-  title: string
-  summary: string
-  score: number
-  factors: ScoreFactor[]
-  problem: string
-  advantage: string
-  hypothesis: string | null
-  use_case: UseCase
-  first_seen: string
-  timeline: TimelinePoint[]
-  sources: SourceRef[]
-  document_count: number
-  independent_sources: number
-  limitations: string[]
-}
-
-export interface SourceStat {
-  name: string
-  source_type: SourceType
-  documents: number
-}
-
-export interface Coverage {
-  directions: string[]
-  examples: string[]
-  documents_from: string
-  documents_to: string
-  document_count: number
-  sources: SourceStat[]
-  corpus_version: string
-  method_version: string
-  updated_at: string
-  thresholds: Record<string, number>
-}
-
-export interface Stage {
-  key: string
-  label: string
-}
-
-export interface Analysis {
-  id: string
-  query: string
-  status: AnalysisStatus
-  stage: string | null
-  progress: number
-  notice: string | null
-  created_at: string
-  finished_at: string | null
-  corpus_version: string
-  method_version: string
-  trends: Trend[]
-}
-
-export interface AnalysisSummary {
-  id: string
-  query: string
-  status: AnalysisStatus
-  created_at: string
-  trend_count: number
-}
+export type Bucket = CandidateStatus
 
 export const TERMINAL: AnalysisStatus[] = ['done', 'empty', 'error']
 
@@ -119,6 +56,13 @@ export const api = {
   analysis: (id: string) => request<Analysis>(`/analyses/${id}`),
   startAnalysis: (query: string) =>
     request<Analysis>('/analyses', { method: 'POST', body: JSON.stringify({ query }) }),
+}
+
+/** Canonical ranking score normalized to the 0..1 scale used by the UI. */
+export function trendScore(trend: Trend): number {
+  return trend.priority_score === null
+    ? trend.prediction.weak_signal_score
+    : trend.priority_score / 100
 }
 
 export const FACTOR_LABELS: Record<FactorKey, string> = {
@@ -166,10 +110,15 @@ export const BUCKETS: {
 ]
 
 export const SOURCE_LABELS: Record<SourceType, string> = {
-  preprint: 'препринт',
-  journal: 'журнал',
+  scientific_publication: 'научная публикация',
   patent: 'патент',
-  vendor: 'вендор',
+  standard: 'стандарт',
+  regulator: 'регулятор',
+  university: 'университет',
+  company: 'компания',
+  industry_media: 'отраслевое медиа',
+  analytical_report: 'аналитический отчёт',
   conference: 'конференция',
-  report: 'отчёт',
+  social_or_blog: 'блог или соцсеть',
+  other: 'другое',
 }

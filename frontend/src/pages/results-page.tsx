@@ -10,17 +10,18 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { api, BUCKETS, type Bucket, type Trend } from '@/lib/api'
+import { api, BUCKETS, trendScore, type Bucket, type Trend } from '@/lib/api'
 import { formatDate, statusLabel } from '@/lib/format'
 import { useAnalysis } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 
 const sorts = {
-  score: { label: 'по рейтингу', compare: (a: Trend, b: Trend) => b.score - a.score },
+  score: { label: 'по рейтингу', compare: (a: Trend, b: Trend) => trendScore(b) - trendScore(a) },
   documents: { label: 'по числу документов', compare: (a: Trend, b: Trend) => b.document_count - a.document_count },
   independence: {
     label: 'по независимым источникам',
-    compare: (a: Trend, b: Trend) => b.independent_sources - a.independent_sources,
+    compare: (a: Trend, b: Trend) =>
+      b.features.independent_source_count - a.features.independent_source_count,
   },
 }
 
@@ -31,7 +32,7 @@ export function ResultsPage() {
   const [bucket, setBucket] = useState<Bucket>('main')
 
   const trendsIn = (key: Bucket) =>
-    (analysis?.trends ?? []).filter((t) => t.bucket === key).sort(sorts[sort].compare)
+    (analysis?.trends ?? []).filter((trend) => trend.status === key).sort(sorts[sort].compare)
 
   if (error) {
     return (
@@ -130,13 +131,17 @@ export function ResultsPage() {
 
         {analysis.status === 'done' && (
           <Tabs value={bucket} onValueChange={(value) => setBucket(value as Bucket)}>
-            <TabsList className="grid h-auto w-full grid-cols-3 rounded-xl p-1">
+            <TabsList className="grid min-h-12 w-full grid-cols-3 items-stretch gap-1 rounded-2xl border border-border/70 bg-muted/75 p-1.5">
               {BUCKETS.map((item) => (
-                <TabsTrigger key={item.key} value={item.key} className="min-h-9 gap-1.5 px-2 text-xs sm:text-sm">
+                <TabsTrigger
+                  key={item.key}
+                  value={item.key}
+                  className="h-auto min-h-9 w-full rounded-xl px-2 text-xs sm:text-sm"
+                >
                   <span className={cn('size-1.5 rounded-full', item.dot)} />
                   <span className="truncate">{item.short}</span>
                   <span className="tabular-nums text-muted-foreground">
-                    {analysis.trends.filter((t) => t.bucket === item.key).length}
+                    {analysis.trends.filter((trend) => trend.status === item.key).length}
                   </span>
                 </TabsTrigger>
               ))}
@@ -163,7 +168,7 @@ export function ResultsPage() {
                       {trends.length} кандидатов, отсортированы {sorts[sort].label}
                     </p>
                     <Select value={sort} onValueChange={(v) => setSort(v as keyof typeof sorts)}>
-                      <SelectTrigger className="w-full sm:w-56" aria-label="Сортировка">
+                      <SelectTrigger className="w-full sm:w-72" aria-label="Сортировка">
                         <SelectValue>Сортировка {sorts[sort].label}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
@@ -180,9 +185,9 @@ export function ResultsPage() {
                 <div className="flex flex-col gap-3">
                   {trends.map((trend) => (
                     <TrendCard
-                      key={trend.id}
+                      key={trend.candidate_id}
                       trend={trend}
-                      to={`/analyses/${analysis.id}/trends/${trend.id}`}
+                      to={`/analyses/${analysis.id}/trends/${trend.candidate_id}`}
                     />
                   ))}
                 </div>

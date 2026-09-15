@@ -6,10 +6,10 @@
 import asyncio
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
 from app import pipeline
 from app.main import app
+from generate_frontend_contracts import TARGET, render_typescript_contracts
+from httpx import ASGITransport, AsyncClient
 
 
 @pytest.fixture
@@ -27,23 +27,32 @@ async def _wait(client: AsyncClient, analysis_id: str) -> dict:
     raise AssertionError("анализ не завершился")
 
 
+def test_frontend_contract_is_generated_from_backend_models():
+    assert TARGET.read_text(encoding="utf-8") == render_typescript_contracts()
+
+
 def test_ranking_is_reproducible():
     trends = pipeline._demo["trends"]
     first = pipeline.rank(trends)
     second = pipeline.rank(list(reversed(trends)))
-    assert [t.id for t in first] == [t.id for t in second], "порядок должен зависеть только от баллов"
-    assert all(0 <= t.score <= 1 for t in first)
+    assert [t.candidate_id for t in first] == [
+        t.candidate_id for t in second
+    ], "порядок должен зависеть только от баллов"
+    assert all(0 <= t.prediction.weak_signal_score <= 1 for t in first)
 
 
 def test_buckets_are_capped_numbered_and_explained():
     ranked = pipeline.rank(pipeline._demo["trends"])
-    by_bucket = {b: [t for t in ranked if t.bucket == b] for b in ("main", "watchlist", "excluded")}
+    by_bucket = {b: [t for t in ranked if t.status == b] for b in ("main", "watchlist", "excluded")}
 
     assert len(by_bucket["main"]) <= pipeline.TOP_N, "основной список не может быть длиннее ТОП-15"
     for bucket, trends in by_bucket.items():
-        assert [t.rank for t in trends] == list(range(1, len(trends) + 1)), f"{bucket}: сквозная нумерация"
-        assert [t.score for t in trends] == sorted((t.score for t in trends), reverse=True)
-        assert all(t.bucket_reason for t in trends), f"{bucket}: карточка без причины попадания"
+        assert [t.rank for t in trends] == list(range(1, len(trends) + 1)), (
+            f"{bucket}: сквозная нумерация"
+        )
+        scores = [t.prediction.weak_signal_score for t in trends]
+        assert scores == sorted(scores, reverse=True)
+        assert all(t.explanation for t in trends), f"{bucket}: карточка без причины попадания"
 
     # Кандидат не может оказаться в основном списке, не пройдя пороги
     for trend in by_bucket["main"]:
@@ -51,7 +60,7 @@ def test_buckets_are_capped_numbered_and_explained():
         assert factors["novelty"] >= pipeline.THRESHOLDS["novelty_min"]
         assert factors["growth"] >= pipeline.THRESHOLDS["growth_min"]
         assert factors["evidence"] >= pipeline.THRESHOLDS["evidence_min"]
-        assert trend.independent_sources >= pipeline.THRESHOLDS["independent_min"]
+        assert trend.features.independent_source_count >= pipeline.THRESHOLDS["independent_min"]
         assert trend.document_count >= pipeline.THRESHOLDS["documents_min"]
 
     # Отсев — только по новизне или зарождаемости, а не по слабым доказательствам
@@ -60,13 +69,13 @@ def test_buckets_are_capped_numbered_and_explained():
         assert (
             factors["novelty"] < pipeline.THRESHOLDS["novelty_min"]
             or factors["growth"] < pipeline.THRESHOLDS["growth_min"]
-        ), f"{trend.id}: отсеян без основания"
+        ), f"{trend.candidate_id}: отсеян без основания"
 
 
 def test_every_card_has_evidence():
     for trend in pipeline.rank(pipeline._demo["trends"]):
-        assert trend.sources, f"{trend.id}: карточка без источников не попадает в выдачу"
-        assert trend.use_case.url, f"{trend.id}: кейс без подтверждающей ссылки"
+        assert trend.evidence, f"{trend.candidate_id}: карточка без источников не попадает в выдачу"
+        assert trend.use_case.url, f"{trend.candidate_id}: кейс без подтверждающей ссылки"
         assert {f.key for f in trend.factors} == set(pipeline.FACTOR_WEIGHTS)
 
 
@@ -79,7 +88,31 @@ async def test_covered_query_returns_ranked_trends(client: AsyncClient):
     assert body["trends"], "покрытое направление должно давать непустую выдачу"
     assert body["corpus_version"] == pipeline.CORPUS_VERSION
 
-    trend_id = body["trends"][0]["id"]
+    trend = body["trends"][0]
+    canonical_fields = {
+        "candidate_id",
+        "canonical_name",
+        "status",
+        "features",
+        "prediction",
+        "explanation",
+        "evidence",
+        "exclusion_reason",
+        "priority_score",
+    }
+    legacy_fields = {
+        "id",
+        "title",
+        "bucket",
+        "bucket_reason",
+        "score",
+        "sources",
+        "independent_sources",
+    }
+    assert canonical_fields <= trend.keys()
+    assert legacy_fields.isdisjoint(trend.keys())
+
+    trend_id = trend["candidate_id"]
     assert (await client.get(f"/api/analyses/{created['id']}/trends/{trend_id}")).status_code == 200
 
 

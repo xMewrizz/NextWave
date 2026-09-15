@@ -1,31 +1,22 @@
-"""Контракт API. Фронтенд повторяет эти типы в frontend/src/lib/api.ts."""
+"""Backend API models built on the canonical NextWave ML contracts."""
 
 from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from nextwave.contracts import CandidateAssessment, CandidateStatus, SourceType
+
 AnalysisStatus = Literal["pending", "running", "done", "empty", "error"]
-# main — ТОП зарождающихся; watchlist — признаки есть, доказательств мало;
-# excluded — тема не прошла проверку на новизну или зарождаемость
-Bucket = Literal["main", "watchlist", "excluded"]
-BUCKETS: tuple[Bucket, ...] = ("main", "watchlist", "excluded")
-SourceType = Literal["preprint", "journal", "patent", "vendor", "conference", "report"]
+Bucket = CandidateStatus
+BUCKETS = tuple(CandidateStatus)
 FactorKey = Literal["growth", "novelty", "independence", "evidence"]
 
 
-class SourceRef(BaseModel):
-    title: str
-    url: str
-    source_type: SourceType
-    # None = дата публикации неизвестна; дата загрузки её не подменяет (ARCHITECTURE.md)
-    published_at: date | None = None
-
-
 class TimelinePoint(BaseModel):
-    period: str  # YYYY-MM
-    documents: int
-    share: float = Field(description="доля документов темы в корпусе направления за период")
+    period: str
+    documents: int = Field(ge=0)
+    share: float = Field(ge=0)
 
 
 class ScoreFactor(BaseModel):
@@ -41,31 +32,26 @@ class UseCase(BaseModel):
     url: str
 
 
-class Trend(BaseModel):
-    id: str
-    rank: int = Field(description="порядковый номер внутри своей корзины")
-    bucket: Bucket
-    bucket_reason: str = Field(description="почему кандидат попал именно в эту корзину")
-    title: str
+class Trend(CandidateAssessment):
+    """Canonical candidate plus presentation data required by the UI."""
+
+    rank: int = Field(ge=1)
     summary: str
-    score: float = Field(ge=0, le=1, description="оценка для ранжирования, не вероятность успеха")
     factors: list[ScoreFactor]
     problem: str
     advantage: str
-    hypothesis: str | None = Field(default=None, description="применение в банке, предположение команды")
+    hypothesis: str | None = None
     use_case: UseCase
-    first_seen: str = Field(description="первое найденное упоминание в корпусе, YYYY-MM")
+    first_seen: str
     timeline: list[TimelinePoint]
-    sources: list[SourceRef]
-    document_count: int
-    independent_sources: int
+    document_count: int = Field(ge=0)
     limitations: list[str]
 
 
 class SourceStat(BaseModel):
     name: str
     source_type: SourceType
-    documents: int
+    documents: int = Field(ge=0)
 
 
 class Coverage(BaseModel):
@@ -78,7 +64,7 @@ class Coverage(BaseModel):
     corpus_version: str
     method_version: str
     updated_at: datetime
-    thresholds: dict[str, float] = Field(description="пороги отбора по корзинам, часть версии метода")
+    thresholds: dict[str, float]
 
 
 class Stage(BaseModel):
@@ -92,7 +78,7 @@ class Analysis(BaseModel):
     status: AnalysisStatus
     stage: str | None = None
     progress: float = Field(default=0, ge=0, le=1)
-    notice: str | None = Field(default=None, description="причина пустой/неполной выдачи или текст ошибки")
+    notice: str | None = None
     created_at: datetime
     finished_at: datetime | None = None
     corpus_version: str
