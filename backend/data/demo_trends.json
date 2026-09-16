@@ -12,7 +12,7 @@
         "title": "Многошаговый поиск по нормативной базе",
         "organization": "исследовательская группа, открытая публикация",
         "description": "Агент отвечает на составной вопрос по регуляторике, последовательно запрашивая разные разделы корпуса и показывая цепочку обращений.",
-        "url": "https://arxiv.org/abs/2409.00000"
+        "url": "https://example.invalid/nextwave-demo/agentic-rag/use-case"
       },
       "first_seen": "2025-11",
       "timeline": [
@@ -67,19 +67,19 @@
       "sources": [
         {
           "title": "Agentic Retrieval-Augmented Generation: A Survey",
-          "url": "https://arxiv.org/abs/2409.00000",
+          "url": "https://example.invalid/nextwave-demo/agentic-rag/source-1",
           "source_type": "preprint",
           "published_at": "2026-06-02"
         },
         {
           "title": "Building Agentic RAG Systems for Enterprise Search",
-          "url": "https://arxiv.org/abs/2408.00000",
+          "url": "https://example.invalid/nextwave-demo/agentic-rag/source-2",
           "source_type": "preprint",
           "published_at": "2026-05-14"
         },
         {
           "title": "Multi-hop QA benchmarks revisited",
-          "url": "https://arxiv.org/abs/2407.00000",
+          "url": "https://example.invalid/nextwave-demo/agentic-rag/source-3",
           "source_type": "conference",
           "published_at": "2026-04-08"
         }
@@ -102,7 +102,7 @@
         "title": "Локальная классификация внутренних документов",
         "organization": "открытая публикация технического отчёта",
         "description": "Модель классификации документов развёрнута на собственных серверах без обращения к внешнему API.",
-        "url": "https://arxiv.org/abs/2412.00000"
+        "url": "https://example.invalid/nextwave-demo/small-language-models/use-case"
       },
       "first_seen": "2025-12",
       "timeline": [
@@ -152,13 +152,13 @@
       "sources": [
         {
           "title": "Phi-4 Technical Report",
-          "url": "https://arxiv.org/abs/2412.00000",
+          "url": "https://example.invalid/nextwave-demo/small-language-models/source-1",
           "source_type": "preprint",
           "published_at": "2026-04-10"
         },
         {
           "title": "Task-specialized small models in regulated industries",
-          "url": "https://arxiv.org/abs/2405.00000",
+          "url": "https://example.invalid/nextwave-demo/small-language-models/source-2",
           "source_type": "report",
           "published_at": "2026-03-01"
         }
@@ -181,7 +181,7 @@
         "title": "Сверка финансовой формулы символьным движком",
         "organization": "исследовательская группа, открытая публикация",
         "description": "Система рассчитывает показатель с помощью LLM, а символьный движок независимо сверяет формулу и помечает расхождения.",
-        "url": "https://arxiv.org/abs/2411.00000"
+        "url": "https://example.invalid/nextwave-demo/neurosymbolic-verification/use-case"
       },
       "first_seen": "2025-10",
       "timeline": [
@@ -231,13 +231,13 @@
       "sources": [
         {
           "title": "Neurosymbolic Approaches to Trustworthy AI",
-          "url": "https://arxiv.org/abs/2411.00000",
+          "url": "https://example.invalid/nextwave-demo/neurosymbolic-verification/source-1",
           "source_type": "preprint",
           "published_at": "2026-03-22"
         },
         {
           "title": "Formal verification layers for LLM outputs",
-          "url": "https://arxiv.org/abs/2406.00000",
+          "url": "https://example.invalid/nextwave-demo/neurosymbolic-verification/source-2",
           "source_type": "conference",
           "published_at": "2026-05-30"
         }
@@ -260,7 +260,7 @@
         "title": "Параллельная генерация длинных ответов",
         "organization": "исследовательская лаборатория, открытая публикация",
         "description": "Модель генерирует структурированный отчёт за фиксированное число шагов уточнения вместо последовательного декодирования.",
-        "url": "https://arxiv.org/abs/2502.00000"
+        "url": "https://example.invalid/nextwave-demo/diffusion-language-models/use-case"
       },
       "first_seen": "2025-09",
       "timeline": [
@@ -310,13 +310,13 @@
       "sources": [
         {
           "title": "Diffusion Language Models at Scale",
-          "url": "https://arxiv.org/abs/2502.00000",
+          "url": "https://example.invalid/nextwave-demo/diffusion-language-models/source-1",
           "source_type": "preprint",
           "published_at": "2026-02-18"
         },
         {
           "title": "Parallel decoding trade-offs",
-          "url": "https://arxiv.org/abs/2504.00000",
+          "url": "https://example.invalid/nextwave-demo/diffusion-language-models/source-2",
           "source_type": "preprint",
           "published_at": "2026-05-06"
         }
@@ -339,7 +339,7 @@
         "title": "Удаление подмножества данных из обученной модели",
         "organization": "университетская группа, открытая публикация",
         "description": "Из обученной модели удаляется влияние заданного подмножества примеров, результат проверяется атаками на воспроизведение.",
-        "url": "https://arxiv.org/abs/2503.00000"
+        "url": "https://example.invalid/nextwave-demo/machine-unlearning/use-case"
       },
       "first_seen": "2025-08",
       "timeline": [
@@ -389,13 +389,13 @@
       "sources": [
         {
           "title": "Machine Unlearning for Large Language Models",
-          "url": "https://arxiv.org/abs/2503.00000",
+          "url": "https://example.invalid/nextwave-demo/machine-unlearning/source-1",
           "source_type": "preprint",
           "published_at": "2026-03-11"
         },
         {
           "title": "Evaluating unlearning: what guarantees hold",
-          "url": "https://arxiv.org/abs/2506.00000",
+          "url": "https://example.invalid/nextwave-demo/machine-unlearning/source-2",
           "source_type": "conference",
           "published_at": "2026-06-20"
         }
@@ -418,7 +418,7 @@
         "title": "Динамическое сокращение цепочки рассуждений",
         "organization": "исследовательская группа, открытая публикация",
         "description": "Система оценивает сложность запроса и выделяет число шагов рассуждения под неё, с замером стоимости и качества.",
-        "url": "https://arxiv.org/abs/2505.00000"
+        "url": "https://example.invalid/nextwave-demo/adaptive-reasoning-budget/use-case"
       },
       "first_seen": "2025-11",
       "timeline": [
@@ -468,13 +468,13 @@
       "sources": [
         {
           "title": "Adaptive Compute Allocation at Inference Time",
-          "url": "https://arxiv.org/abs/2505.00000",
+          "url": "https://example.invalid/nextwave-demo/adaptive-reasoning-budget/source-1",
           "source_type": "preprint",
           "published_at": "2026-05-19"
         },
         {
           "title": "When to think longer",
-          "url": "https://arxiv.org/abs/2507.00000",
+          "url": "https://example.invalid/nextwave-demo/adaptive-reasoning-budget/source-2",
           "source_type": "preprint",
           "published_at": "2026-07-02"
         }
@@ -496,7 +496,7 @@
         "title": "Обработка документа целиком без нарезки",
         "organization": "исследовательская лаборатория, открытая публикация",
         "description": "Модель обрабатывает длинный отчёт одним контекстом, без разбиения на фрагменты и повторной сборки.",
-        "url": "https://arxiv.org/abs/2501.00000"
+        "url": "https://example.invalid/nextwave-demo/hybrid-state-space/use-case"
       },
       "first_seen": "2024-02",
       "timeline": [
@@ -556,13 +556,13 @@
       "sources": [
         {
           "title": "Hybrid State-Space Attention Architectures",
-          "url": "https://arxiv.org/abs/2501.00000",
+          "url": "https://example.invalid/nextwave-demo/hybrid-state-space/source-1",
           "source_type": "preprint",
           "published_at": "2026-01-28"
         },
         {
           "title": "Long-context benchmarks beyond retrieval",
-          "url": "https://arxiv.org/abs/2503.10000",
+          "url": "https://example.invalid/nextwave-demo/hybrid-state-space/source-2",
           "source_type": "conference",
           "published_at": "2026-04-15"
         }
@@ -584,7 +584,7 @@
         "title": "Разбор агентного сбоя по трассировке",
         "organization": "открытый инструментарий, публикация вендора",
         "description": "Для неверного ответа агента поднимается полная трассировка вызовов и определяется шаг, на котором произошло расхождение.",
-        "url": "https://arxiv.org/abs/2504.10000"
+        "url": "https://example.invalid/nextwave-demo/agent-observability/use-case"
       },
       "first_seen": "2025-10",
       "timeline": [
@@ -634,13 +634,13 @@
       "sources": [
         {
           "title": "Trace-based Evaluation of LLM Agents",
-          "url": "https://arxiv.org/abs/2504.10000",
+          "url": "https://example.invalid/nextwave-demo/agent-observability/source-1",
           "source_type": "preprint",
           "published_at": "2026-04-22"
         },
         {
           "title": "Observability practices for agent deployments",
-          "url": "https://arxiv.org/abs/2506.10000",
+          "url": "https://example.invalid/nextwave-demo/agent-observability/source-2",
           "source_type": "report",
           "published_at": "2026-06-11"
         }
@@ -663,7 +663,7 @@
         "title": "Выборка для разработки без исходных записей",
         "organization": "университетская группа, открытая публикация",
         "description": "Команда разработки получает синтетическую выборку с зафиксированным бюджетом приватности вместо исходных данных.",
-        "url": "https://arxiv.org/abs/2502.10000"
+        "url": "https://example.invalid/nextwave-demo/private-synthetic-data/use-case"
       },
       "first_seen": "2025-09",
       "timeline": [
@@ -713,13 +713,13 @@
       "sources": [
         {
           "title": "Differentially Private Synthetic Text Generation",
-          "url": "https://arxiv.org/abs/2502.10000",
+          "url": "https://example.invalid/nextwave-demo/private-synthetic-data/source-1",
           "source_type": "preprint",
           "published_at": "2026-02-09"
         },
         {
           "title": "Utility cost of privacy budgets",
-          "url": "https://arxiv.org/abs/2505.10000",
+          "url": "https://example.invalid/nextwave-demo/private-synthetic-data/source-2",
           "source_type": "journal",
           "published_at": "2026-05-25"
         }
@@ -741,7 +741,7 @@
         "title": "Развёртывание модели на ограниченном оборудовании",
         "organization": "исследовательская группа, открытая публикация",
         "description": "Модель с квантизованными весами запускается на оборудовании, где исходная версия не помещается в память.",
-        "url": "https://arxiv.org/abs/2503.20000"
+        "url": "https://example.invalid/nextwave-demo/extreme-quantization/use-case"
       },
       "first_seen": "2024-01",
       "timeline": [
@@ -801,13 +801,13 @@
       "sources": [
         {
           "title": "Sub-2-bit Quantization of Language Models",
-          "url": "https://arxiv.org/abs/2503.20000",
+          "url": "https://example.invalid/nextwave-demo/extreme-quantization/source-1",
           "source_type": "preprint",
           "published_at": "2026-03-30"
         },
         {
           "title": "Quantization-aware training revisited",
-          "url": "https://arxiv.org/abs/2506.20000",
+          "url": "https://example.invalid/nextwave-demo/extreme-quantization/source-2",
           "source_type": "conference",
           "published_at": "2026-06-14"
         }
@@ -830,7 +830,7 @@
         "title": "Извлечение полей из сканированных форм",
         "organization": "исследовательская группа, открытая публикация",
         "description": "Модель извлекает поля из скана формы со сложной таблицей, используя координаты элементов, а не только распознанный текст.",
-        "url": "https://arxiv.org/abs/2501.20000"
+        "url": "https://example.invalid/nextwave-demo/document-multimodal/use-case"
       },
       "first_seen": "2024-01",
       "timeline": [
@@ -890,13 +890,13 @@
       "sources": [
         {
           "title": "Layout-aware Multimodal Document Models",
-          "url": "https://arxiv.org/abs/2501.20000",
+          "url": "https://example.invalid/nextwave-demo/document-multimodal/source-1",
           "source_type": "preprint",
           "published_at": "2026-01-16"
         },
         {
           "title": "Table extraction under layout shift",
-          "url": "https://arxiv.org/abs/2504.20000",
+          "url": "https://example.invalid/nextwave-demo/document-multimodal/source-2",
           "source_type": "journal",
           "published_at": "2026-04-29"
         }
@@ -919,7 +919,7 @@
         "title": "Блокировка запрещённого вызова инструмента",
         "organization": "открытый инструментарий, публикация вендора",
         "description": "Агент пытается выполнить действие вне разрешённого набора, исполнитель блокирует вызов по декларативному правилу и записывает попытку.",
-        "url": "https://arxiv.org/abs/2505.20000"
+        "url": "https://example.invalid/nextwave-demo/policy-as-code-guardrails/use-case"
       },
       "first_seen": "2025-12",
       "timeline": [
@@ -969,13 +969,13 @@
       "sources": [
         {
           "title": "Policy-as-Code Guardrails for Tool-Using Agents",
-          "url": "https://arxiv.org/abs/2505.20000",
+          "url": "https://example.invalid/nextwave-demo/policy-as-code-guardrails/source-1",
           "source_type": "preprint",
           "published_at": "2026-05-08"
         },
         {
           "title": "Sandboxing agent actions in production",
-          "url": "https://arxiv.org/abs/2507.20000",
+          "url": "https://example.invalid/nextwave-demo/policy-as-code-guardrails/source-2",
           "source_type": "report",
           "published_at": "2026-07-19"
         }
@@ -998,7 +998,7 @@
         "title": "Объяснение подозрительной цепочки связей",
         "organization": "исследовательская группа, открытая публикация",
         "description": "Система находит цепочку связей в графе и формирует объяснение со ссылками на конкретные рёбра графа.",
-        "url": "https://arxiv.org/abs/2504.30000"
+        "url": "https://example.invalid/nextwave-demo/kg-llm-fraud/use-case"
       },
       "first_seen": "2025-09",
       "timeline": [
@@ -1048,13 +1048,13 @@
       "sources": [
         {
           "title": "Knowledge Graphs and LLMs for Explainable Link Analysis",
-          "url": "https://arxiv.org/abs/2504.30000",
+          "url": "https://example.invalid/nextwave-demo/kg-llm-fraud/source-1",
           "source_type": "preprint",
           "published_at": "2026-04-03"
         },
         {
           "title": "Graph query generation with language models",
-          "url": "https://arxiv.org/abs/2506.30000",
+          "url": "https://example.invalid/nextwave-demo/kg-llm-fraud/source-2",
           "source_type": "conference",
           "published_at": "2026-06-27"
         }
@@ -1076,7 +1076,7 @@
         "title": "Обучение на данных нескольких подразделений",
         "organization": "университетская группа, открытая публикация",
         "description": "Модель дообучается на данных нескольких владельцев, которые обмениваются только обновлениями параметров.",
-        "url": "https://arxiv.org/abs/2503.30000"
+        "url": "https://example.invalid/nextwave-demo/federated-finetuning/use-case"
       },
       "first_seen": "2024-02",
       "timeline": [
@@ -1136,13 +1136,13 @@
       "sources": [
         {
           "title": "Federated Fine-tuning of Language Models",
-          "url": "https://arxiv.org/abs/2503.30000",
+          "url": "https://example.invalid/nextwave-demo/federated-finetuning/source-1",
           "source_type": "preprint",
           "published_at": "2026-03-17"
         },
         {
           "title": "Communication costs in federated LLM training",
-          "url": "https://arxiv.org/abs/2505.30000",
+          "url": "https://example.invalid/nextwave-demo/federated-finetuning/source-2",
           "source_type": "journal",
           "published_at": "2026-05-21"
         }
@@ -1165,7 +1165,7 @@
         "title": "Адаптация к сдвигу распределения на потоке",
         "organization": "исследовательская лаборатория, открытая публикация",
         "description": "Модель обновляет часть параметров по мере поступления данных и сохраняет качество на потоке со сдвигом распределения.",
-        "url": "https://arxiv.org/abs/2506.40000"
+        "url": "https://example.invalid/nextwave-demo/continual-test-time-training/use-case"
       },
       "first_seen": "2025-10",
       "timeline": [
@@ -1215,13 +1215,13 @@
       "sources": [
         {
           "title": "Test-Time Training under Distribution Shift",
-          "url": "https://arxiv.org/abs/2506.40000",
+          "url": "https://example.invalid/nextwave-demo/continual-test-time-training/source-1",
           "source_type": "preprint",
           "published_at": "2026-06-05"
         },
         {
           "title": "Continual adaptation without catastrophic forgetting",
-          "url": "https://arxiv.org/abs/2507.40000",
+          "url": "https://example.invalid/nextwave-demo/continual-test-time-training/source-2",
           "source_type": "conference",
           "published_at": "2026-07-23"
         }
@@ -1244,7 +1244,7 @@
         "title": "Проверка плана действий до его выполнения",
         "organization": "исследовательская лаборатория, открытая публикация",
         "description": "Агент проигрывает несколько вариантов плана во внутренней модели среды и выполняет только прошедший проверку.",
-        "url": "https://arxiv.org/abs/2503.50000"
+        "url": "https://example.invalid/nextwave-demo/world-models-planning/use-case"
       },
       "first_seen": "2025-10",
       "timeline": [
@@ -1294,13 +1294,13 @@
       "sources": [
         {
           "title": "World Models for Agent Planning",
-          "url": "https://arxiv.org/abs/2503.50000",
+          "url": "https://example.invalid/nextwave-demo/world-models-planning/source-1",
           "source_type": "preprint",
           "published_at": "2026-03-25"
         },
         {
           "title": "Learned simulators as safety filters",
-          "url": "https://arxiv.org/abs/2506.50000",
+          "url": "https://example.invalid/nextwave-demo/world-models-planning/source-2",
           "source_type": "conference",
           "published_at": "2026-06-18"
         }
@@ -1323,7 +1323,7 @@
         "title": "Автоматическая оптимизация ядра под ускоритель",
         "organization": "исследовательская группа, открытая публикация",
         "description": "Модель генерирует варианты ядра, каждый проверяется на эталонной реализации и замеряется по времени выполнения.",
-        "url": "https://arxiv.org/abs/2502.50000"
+        "url": "https://example.invalid/nextwave-demo/llm-kernel-generation/use-case"
       },
       "first_seen": "2025-11",
       "timeline": [
@@ -1373,13 +1373,13 @@
       "sources": [
         {
           "title": "LLM-generated GPU Kernels",
-          "url": "https://arxiv.org/abs/2502.50000",
+          "url": "https://example.invalid/nextwave-demo/llm-kernel-generation/source-1",
           "source_type": "preprint",
           "published_at": "2026-02-27"
         },
         {
           "title": "Verified code generation for accelerators",
-          "url": "https://arxiv.org/abs/2505.50000",
+          "url": "https://example.invalid/nextwave-demo/llm-kernel-generation/source-2",
           "source_type": "conference",
           "published_at": "2026-05-12"
         }
@@ -1402,7 +1402,7 @@
         "title": "Ускорение выдачи ответа без смены основной модели",
         "organization": "исследовательская лаборатория, открытая публикация",
         "description": "Система генерирует дерево продолжений черновой моделью и проверяет ветви основной моделью за один проход.",
-        "url": "https://arxiv.org/abs/2501.50000"
+        "url": "https://example.invalid/nextwave-demo/speculative-decoding-trees/use-case"
       },
       "first_seen": "2025-09",
       "timeline": [
@@ -1452,13 +1452,13 @@
       "sources": [
         {
           "title": "Tree-based Speculative Decoding",
-          "url": "https://arxiv.org/abs/2501.50000",
+          "url": "https://example.invalid/nextwave-demo/speculative-decoding-trees/source-1",
           "source_type": "preprint",
           "published_at": "2026-01-22"
         },
         {
           "title": "Throughput gains in production inference engines",
-          "url": "https://arxiv.org/abs/2504.50000",
+          "url": "https://example.invalid/nextwave-demo/speculative-decoding-trees/source-2",
           "source_type": "report",
           "published_at": "2026-04-17"
         }
@@ -1481,7 +1481,7 @@
         "title": "Обучение на результатах прогона тестов",
         "organization": "исследовательская лаборатория, открытая публикация",
         "description": "Модель дообучается на сигнале от запуска сгенерированного кода в изолированной среде с фиксированным набором тестов.",
-        "url": "https://arxiv.org/abs/2504.60000"
+        "url": "https://example.invalid/nextwave-demo/rl-execution-feedback/use-case"
       },
       "first_seen": "2025-08",
       "timeline": [
@@ -1531,13 +1531,13 @@
       "sources": [
         {
           "title": "Reinforcement Learning from Execution Feedback",
-          "url": "https://arxiv.org/abs/2504.60000",
+          "url": "https://example.invalid/nextwave-demo/rl-execution-feedback/source-1",
           "source_type": "preprint",
           "published_at": "2026-04-11"
         },
         {
           "title": "Sandboxed evaluation of generated programs",
-          "url": "https://arxiv.org/abs/2507.60000",
+          "url": "https://example.invalid/nextwave-demo/rl-execution-feedback/source-2",
           "source_type": "conference",
           "published_at": "2026-07-08"
         }
@@ -1560,7 +1560,7 @@
         "title": "Пересмотр устаревшего факта в памяти агента",
         "organization": "исследовательская группа, открытая публикация",
         "description": "Агент обнаруживает противоречие между новым документом и сохранённым фактом и помечает устаревшую запись.",
-        "url": "https://arxiv.org/abs/2505.60000"
+        "url": "https://example.invalid/nextwave-demo/memory-augmented-agents/use-case"
       },
       "first_seen": "2025-11",
       "timeline": [
@@ -1610,13 +1610,13 @@
       "sources": [
         {
           "title": "Revisable Long-term Memory for Agents",
-          "url": "https://arxiv.org/abs/2505.60000",
+          "url": "https://example.invalid/nextwave-demo/memory-augmented-agents/source-1",
           "source_type": "preprint",
           "published_at": "2026-05-27"
         },
         {
           "title": "Benchmarking memory consistency",
-          "url": "https://arxiv.org/abs/2507.70000",
+          "url": "https://example.invalid/nextwave-demo/memory-augmented-agents/source-2",
           "source_type": "preprint",
           "published_at": "2026-07-14"
         }
@@ -1639,7 +1639,7 @@
         "title": "Обработка запроса с удалённой аттестацией среды",
         "organization": "открытая публикация с замерами накладных расходов",
         "description": "Клиент проверяет аттестацию доверенной среды до отправки запроса и получает ответ без раскрытия данных оператору.",
-        "url": "https://arxiv.org/abs/2506.70000"
+        "url": "https://example.invalid/nextwave-demo/confidential-inference/use-case"
       },
       "first_seen": "2025-09",
       "timeline": [
@@ -1689,13 +1689,13 @@
       "sources": [
         {
           "title": "Confidential LLM Inference in Trusted Execution Environments",
-          "url": "https://arxiv.org/abs/2506.70000",
+          "url": "https://example.invalid/nextwave-demo/confidential-inference/source-1",
           "source_type": "preprint",
           "published_at": "2026-06-09"
         },
         {
           "title": "Attestation overheads in practice",
-          "url": "https://arxiv.org/abs/2503.70000",
+          "url": "https://example.invalid/nextwave-demo/confidential-inference/source-2",
           "source_type": "report",
           "published_at": "2026-03-05"
         }
@@ -1718,7 +1718,7 @@
         "title": "Пересмотр конфигурации агента по логам запусков",
         "organization": "исследовательская группа, открытая публикация",
         "description": "Агент анализирует неудачные запуски и предлагает изменение собственных инструкций, изменение применяется после проверки.",
-        "url": "https://arxiv.org/abs/2506.80000"
+        "url": "https://example.invalid/nextwave-demo/self-evolving-agents/use-case"
       },
       "first_seen": "2026-01",
       "timeline": [
@@ -1768,13 +1768,13 @@
       "sources": [
         {
           "title": "Self-improving Agent Configurations",
-          "url": "https://arxiv.org/abs/2506.80000",
+          "url": "https://example.invalid/nextwave-demo/self-evolving-agents/source-1",
           "source_type": "preprint",
           "published_at": "2026-06-24"
         },
         {
           "title": "Prompt self-revision from execution logs",
-          "url": "https://arxiv.org/abs/2507.80000",
+          "url": "https://example.invalid/nextwave-demo/self-evolving-agents/source-2",
           "source_type": "preprint",
           "published_at": "2026-07-30"
         }
@@ -1797,7 +1797,7 @@
         "title": "Доказательство сгенерированной гипотезы в формальной системе",
         "organization": "университетская группа, открытая публикация",
         "description": "Модель формулирует утверждение и строит доказательство, которое проверяется формальной системой без участия человека.",
-        "url": "https://arxiv.org/abs/2505.80000"
+        "url": "https://example.invalid/nextwave-demo/llm-theorem-discovery/use-case"
       },
       "first_seen": "2026-02",
       "timeline": [
@@ -1847,13 +1847,13 @@
       "sources": [
         {
           "title": "Autonomous Conjecture Generation and Proof",
-          "url": "https://arxiv.org/abs/2505.80000",
+          "url": "https://example.invalid/nextwave-demo/llm-theorem-discovery/source-1",
           "source_type": "preprint",
           "published_at": "2026-05-15"
         },
         {
           "title": "Formal verification of machine-generated theorems",
-          "url": "https://arxiv.org/abs/2507.90000",
+          "url": "https://example.invalid/nextwave-demo/llm-theorem-discovery/source-2",
           "source_type": "journal",
           "published_at": "2026-07-21"
         }
@@ -1876,7 +1876,7 @@
         "title": "Запуск модели на спайковом ускорителе",
         "organization": "производитель оборудования, материал вендора",
         "description": "Модель адаптирована под спайковую архитектуру и запущена на нейроморфном чипе с замером энергопотребления.",
-        "url": "https://arxiv.org/abs/2504.90000"
+        "url": "https://example.invalid/nextwave-demo/neuromorphic-inference/use-case"
       },
       "first_seen": "2025-12",
       "timeline": [
@@ -1926,13 +1926,13 @@
       "sources": [
         {
           "title": "Neuromorphic Accelerators for Language Model Inference",
-          "url": "https://arxiv.org/abs/2504.90000",
+          "url": "https://example.invalid/nextwave-demo/neuromorphic-inference/source-1",
           "source_type": "vendor",
           "published_at": "2026-04-26"
         },
         {
           "title": "Spiking architectures: an assessment",
-          "url": "https://arxiv.org/abs/2506.90000",
+          "url": "https://example.invalid/nextwave-demo/neuromorphic-inference/source-2",
           "source_type": "preprint",
           "published_at": "2026-06-30"
         }
@@ -1955,7 +1955,7 @@
         "title": "Согласование ответа между несколькими экземплярами модели",
         "organization": "исследовательская группа, открытая публикация",
         "description": "Несколько экземпляров модели обсуждают задачу в несколько раундов, итоговый ответ выбирается по результату обсуждения.",
-        "url": "https://arxiv.org/abs/2502.90000"
+        "url": "https://example.invalid/nextwave-demo/multi-agent-debate/use-case"
       },
       "first_seen": "2025-03",
       "timeline": [
@@ -2005,13 +2005,13 @@
       "sources": [
         {
           "title": "Multi-Agent Debate Revisited",
-          "url": "https://arxiv.org/abs/2502.90000",
+          "url": "https://example.invalid/nextwave-demo/multi-agent-debate/source-1",
           "source_type": "preprint",
           "published_at": "2026-02-14"
         },
         {
           "title": "Does debate beat self-consistency?",
-          "url": "https://arxiv.org/abs/2506.95000",
+          "url": "https://example.invalid/nextwave-demo/multi-agent-debate/source-2",
           "source_type": "conference",
           "published_at": "2026-06-03"
         }
@@ -2022,5 +2022,6 @@
         "Стоимость в несколько раз выше одиночного запуска при сопоставимом качестве."
       ]
     }
-  ]
+  ],
+  "data_status": "synthetic_ui_fixture"
 }
