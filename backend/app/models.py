@@ -18,7 +18,7 @@ class SourceRef(BaseModel):
     title: str
     url: str
     source_type: SourceType
-    # None = дата публикации неизвестна; дата загрузки её не подменяет (methodology.md)
+    # None = дата публикации неизвестна; дата загрузки её не подменяет (ARCHITECTURE.md)
     published_at: date | None = None
 
 

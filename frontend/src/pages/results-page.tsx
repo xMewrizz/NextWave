@@ -92,6 +92,16 @@ export function ResultsPage() {
           </Badge>
         </div>
 
+        {analysis.corpus_version.startsWith('synthetic-') && (
+          <Alert className="mb-5">
+            <Info />
+            <AlertTitle>Демонстрационный режим</AlertTitle>
+            <AlertDescription>
+              Карточки проверяют интерфейс и API. Они не являются результатами обученной модели.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {running && <AnalysisProgress analysis={analysis} />}
 
         {analysis.status === 'error' && (

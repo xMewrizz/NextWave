@@ -97,8 +97,9 @@ export function SearchPage() {
         {coverage.error && <span>Сведения о корпусе временно недоступны</span>}
         {coverage.data && (
           <span>
-            {coverage.data.document_count.toLocaleString('ru-RU')} документов · корпус{' '}
-            {coverage.data.corpus_version} · обновлён {formatDate(coverage.data.updated_at)}
+            {coverage.data.corpus_version.startsWith('synthetic-')
+              ? 'Синтетический UI-корпус: результаты не являются выводами модели'
+              : `${coverage.data.document_count.toLocaleString('ru-RU')} документов · корпус ${coverage.data.corpus_version} · обновлён ${formatDate(coverage.data.updated_at)}`}
           </span>
         )}
       </div>

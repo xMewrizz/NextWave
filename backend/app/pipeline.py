@@ -1,8 +1,9 @@
 """Шов между API и анализом.
 
-Сейчас `run` отдаёт зафиксированный демо-корпус. Реальный пайплайн
-(сбор → очистка → кластеризация → динамика → ранжирование) подставляется
-внутрь `run`, не меняя контракт из models.py и фронтенд.
+Сейчас `run` отдаёт синтетический UI-fixture. Его числа и материалы проверяют
+контракт API и интерфейс, но не являются результатами модели. Реальный пайплайн
+(сбор → кандидаты → evidence → признаки → решение) подставляется внутрь `run`,
+не меняя контракт из models.py и фронтенд.
 """
 
 import asyncio
@@ -15,14 +16,14 @@ from .models import BUCKETS, Bucket, Coverage, SourceStat, Stage, Trend
 
 DATA = Path(__file__).parent.parent / "data"
 
-CORPUS_VERSION = "demo-2026.09.11"
-METHOD_VERSION = "tfidf-baseline-0.1"
+CORPUS_VERSION = "synthetic-ui-demo-2026.09.11"
+METHOD_VERSION = "weighted-rules-demo-0.1"
 TOP_N = 15
 
-# Веса фиксируются версией метода и проверяются на данных (methodology.md, «Основания рейтинга»)
+# Эти веса нужны только для проверки UI-контракта. Обученная модель заменит их в V1-06.
 FACTOR_WEIGHTS = {"growth": 0.35, "novelty": 0.25, "independence": 0.2, "evidence": 0.2}
 
-# Пороги отбора по корзинам. Тоже часть версии метода: меняются вместе с METHOD_VERSION.
+# Демонстрационные пороги меняются вместе с METHOD_VERSION и не являются измеренными метриками.
 THRESHOLDS = {
     "novelty_min": 0.6,
     "growth_min": 0.5,
