@@ -97,7 +97,7 @@ class Analysis(BaseModel):
     finished_at: datetime | None = None
     corpus_version: str
     method_version: str
-    trends: list[Trend] = []
+    trends: list[Trend] = Field(default_factory=list)
 
 
 class AnalysisSummary(BaseModel):

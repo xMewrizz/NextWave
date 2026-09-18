@@ -1,10 +1,8 @@
-"""Minimal package entry point used by the repository smoke check."""
-
 from __future__ import annotations
 
 import argparse
 
-from nextwave import __version__
+from . import __version__
 
 
 def main() -> None:

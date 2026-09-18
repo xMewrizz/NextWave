@@ -23,6 +23,10 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Frontend dependencies and build output
+node_modules/
+frontend/dist/
+
 # Notebooks
 .ipynb_checkpoints/
 
@@ -38,6 +42,8 @@ runtime/
 # Data and generated artifacts
 data/raw/*
 !data/raw/.gitkeep
+data/development/labels.csv
+data/development/*.local.csv
 data/interim/
 data/processed/
 artifacts/
