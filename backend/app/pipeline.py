@@ -1,9 +1,8 @@
 """Шов между API и анализом.
 
-Сейчас `run` отдаёт синтетический UI-fixture. Его числа и материалы проверяют
-контракт API и интерфейс, но не являются результатами модели. Реальный пайплайн
-(сбор → кандидаты → evidence → признаки → решение) подставляется внутрь `run`,
-не меняя контракт из models.py и фронтенд.
+Сейчас `run` отдаёт синтетический набор для проверки интерфейса. Его числа и
+материалы не являются результатами модели. Production API фиксируется после
+реализации feature builder и Evidence Duel.
 """
 
 import asyncio
@@ -14,13 +13,13 @@ from pathlib import Path
 
 from .models import BUCKETS, Bucket, Coverage, SourceStat, Stage, Trend
 
-DATA = Path(__file__).parent.parent / "data"
+DATA = Path(__file__).parent / "data"
 
 CORPUS_VERSION = "synthetic-ui-demo-2026.09.11"
 METHOD_VERSION = "weighted-rules-demo-0.1"
 TOP_N = 15
 
-# Эти веса нужны только для проверки UI-контракта. Обученная модель заменит их в V1-06.
+# Эти веса нужны только для проверки UI-контракта. Обученная модель заменит их в V1-07.
 FACTOR_WEIGHTS = {"growth": 0.35, "novelty": 0.25, "independence": 0.2, "evidence": 0.2}
 
 # Демонстрационные пороги меняются вместе с METHOD_VERSION и не являются измеренными метриками.
@@ -44,7 +43,7 @@ STAGES = [
 ]
 
 _demo = json.loads((DATA / "demo_trends.json").read_text(encoding="utf-8"))
-# ponytail: покрытие — один демо-корпус; при подключении второго направления это станет словарём
+# Демонстрационный каркас поддерживает одно направление.
 DIRECTIONS = [_demo["direction"]]
 KEYWORDS = {"ии", "ai", "искусственн", "машинн", "llm", "нейросет", "языков", "интеллект"}
 
@@ -151,7 +150,7 @@ async def run(query: str, on_stage: Callable[[Stage, float], None]) -> list[Tren
     covered = is_covered(query)
     for i, stage in enumerate(STAGES, start=1):
         on_stage(stage, i / len(STAGES))
-        # ponytail: задержка имитирует работу пайплайна, чтобы фронт показывал реальные состояния
+        # Небольшая задержка позволяет проверить состояния прогресса в интерфейсе.
         await asyncio.sleep(0.45)
         if not covered and stage.key == "select":
             return []

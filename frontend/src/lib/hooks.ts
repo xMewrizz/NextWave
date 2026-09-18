@@ -40,7 +40,7 @@ export function useAnalysis(id: string | undefined): Resource<Analysis> {
         const data = await api.analysis(id)
         if (!alive) return
         setState({ data, error: null, loading: false })
-        // ponytail: опрос раз в 400 мс; при долгих анализах заменить на SSE с того же эндпоинта
+        // Короткий опрос нужен только демонстрационному контуру; production job использует SSE.
         if (!TERMINAL.includes(data.status)) timer = setTimeout(poll, 400)
       } catch (e) {
         if (alive) setState({ data: null, error: (e as Error).message, loading: false })

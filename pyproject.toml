@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "Evidence-backed detection of emerging technology trends"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
-dependencies = []
+dependencies = [
+    "openpyxl>=3.1,<4",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
