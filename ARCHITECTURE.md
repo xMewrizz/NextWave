@@ -77,9 +77,61 @@ Candidate gate проверяет:
 
 ## Доменные сущности
 
+Доменная сущность — объект предметной области, который имеет устойчивый идентификатор и жизненный цикл. Это не технологическая область вроде ИИ или биотеха. Для MVP сущности разделены на четыре логических контура внутри одного PostgreSQL:
+
+### Словарь названий
+
+Английские имена используются в коде и названиях таблиц. Русские пояснения описывают их роль в продукте.
+
+| Имя в коде | Перевод | Что означает в NextWave |
+| --- | --- | --- |
+| `AnalysisScope` | Область анализа | Зафиксированная широкая тема, относительно которой считается динамика. Например, «технологии обработки естественного языка». |
+| `Analysis` | Запуск анализа | Один пользовательский запрос со статусом, датой среза и результатами. Повторный запуск создаёт новую запись. |
+| `Snapshot` | Снимок данных | Неизменяемый набор входных данных, использованный в конкретном запуске. Нужен, чтобы воспроизвести результат. |
+| `ConnectorRun` | Запуск коннектора | Одна попытка получить данные из OpenAlex, Crossref или GDELT с параметрами, временем и статусом ошибки. |
+| `SourceDocument` | Документ-источник | Конкретный найденный материал: научная работа, отчёт, патент, новость или техническая публикация. |
+| `OriginGroup` | Группа происхождения | Документы, которые восходят к одному первоисточнику или событию. Помогает не считать перепечатки независимыми доказательствами. |
+| `Organization` | Организация | Нормализованная компания, университет, лаборатория или ведомство, связанное с документом. |
+| `Candidate` | Технологический кандидат | Конкретная технология, которую система проверяет как возможный слабый сигнал. Например, speculative decoding — спекулятивное декодирование. |
+| `CandidateAlias` | Альтернативное название | Синоним, аббревиатура, перевод или другое написание названия кандидата. |
+| `CandidateDocument` | Связь кандидата с документом | Показывает, какой документ относится к кандидату и для чего он использован: обнаружение, проверка, признаки или доказательство. |
+| `AnalysisCandidate` | Кандидат в запуске | Появление кандидата в конкретном анализе и результат входного фильтра candidate gate. |
+| `EvidenceClaim` | Доказательное утверждение | Конкретный проверяемый факт из документа, который поддерживает слабый сигнал или выступает контраргументом. |
+| `FeatureVector` | Вектор признаков | Версионируемый набор чисел, флагов и неизвестных значений, который передаётся модели. |
+| `ModelVersion` | Версия модели | Зафиксированные алгоритм, параметры, порог, обучающий набор и файл модели. |
+| `Prediction` | Выход модели | Исходная оценка модели до применения продуктовых правил зрелости, покрытия и качества доказательств. |
+| `Assessment` | Итоговая оценка | Финальное решение `main`, `watchlist` или `excluded`, полученное после модели и явной decision policy. |
+| `DatasetVersion` | Версия датасета | Зафиксированный состав обучающего набора с manifest и checksum. |
+| `CandidateLabel` | Метка кандидата | Проверенный класс кандидата: `weak_signal`, `mature` или `marketing_hype`, а также происхождение и статус проверки метки. |
+
+Дополнительные термины:
+
+- `candidate gate` — входной фильтр, который удаляет общие понятия, организации, ошибки извлечения и дубликаты до основной модели;
+- `decision policy` — явные правила, которые преобразуют результат модели в итоговый статус;
+- `anti-echo` — защита от информационного эха через объединение зависимых публикаций;
+- `Evidence Duel` — сопоставление доказательств в пользу слабого сигнала и контраргументов;
+- `manifest` — файл с составом, версией и контрольными суммами набора данных;
+- `checksum` — контрольная сумма, позволяющая проверить, что файл не изменился;
+- `locator` — точное место подтверждения внутри источника: страница, раздел, абзац или поле API;
+- `cutoff_date` — дата среза, после которой документы не могут влиять на историческую оценку.
+
+| Контур | Назначение | Основные сущности |
+| --- | --- | --- |
+| Сбор и происхождение | Воспроизвести запрос к источнику и понять происхождение каждого документа | `AnalysisScope`, `Analysis`, `Snapshot`, `ConnectorRun`, `SourceDocument`, `OriginGroup` |
+| Кандидаты и доказательства | Объединить названия одной технологии и связать её с проверяемыми утверждениями | `Candidate`, `CandidateAlias`, `CandidateDocument`, `EvidenceClaim`, `Organization` |
+| ML | Зафиксировать признаки, версию модели и её исходный результат | `FeatureVector`, `ModelVersion`, `Prediction`, `DatasetVersion`, `CandidateLabel` |
+| Продуктовая выдача | Применить явные правила после модели и сохранить показанный пользователю результат | `AnalysisCandidate`, `Assessment` |
+
+### AnalysisScope, Analysis и Snapshot
+
+- `AnalysisScope` — зафиксированная широкая область поиска и знаменатель временной динамики. Она не меняется для отдельных кандидатов одного запуска.
+- `Analysis` — пользовательский запуск: исходный запрос, дата среза, статус и выбранный scope.
+- `Snapshot` — неизменяемая версия входных данных анализа. Она связывает параметры запросов, ответы источников и checksum файлов, чтобы результат можно было повторить.
+- `ConnectorRun` — одна попытка обращения к конкретному источнику: параметры, время, статус, ошибка и ссылка на сырой ответ.
+
 ### SourceDocument
 
-Документ хранит:
+`SourceDocument` — нормализованная запись, полученная конкретным коннектором. Документ хранит:
 
 - идентификатор коннектора и устойчивый внешний идентификатор;
 - оригинальное название, URL и canonical URL;
@@ -91,6 +143,13 @@ Candidate gate проверяет:
 - `origin_id`;
 - отметки перевода и генеративного резюме;
 - версию snapshot.
+
+Одна научная работа может прийти из OpenAlex и Crossref как две записи. Это не два независимых доказательства: обе записи получают общий `origin_id`.
+
+### OriginGroup и Organization
+
+- `OriginGroup` объединяет оригинал, перепечатки, переводы и записи разных коннекторов об одном материале или событии. Именно количество origin groups используется как число независимых оснований.
+- `Organization` хранит нормализованное название организации. Связь документа с организациями нужна, чтобы десять публикаций одной компании не считались десятью независимыми участниками.
 
 ### EvidenceClaim
 
@@ -106,7 +165,7 @@ Candidate gate проверяет:
 
 ### Candidate
 
-Кандидат содержит:
+`Candidate` — каноническая технология вне конкретного запуска. Кандидат содержит:
 
 - каноническое название и aliases;
 - исходный запрос и область;
@@ -115,6 +174,8 @@ Candidate gate проверяет:
 - дату среза;
 - `group_id`;
 - версии discovery, нормализации и snapshot.
+
+`CandidateAlias` хранит альтернативное название. `CandidateDocument` связывает кандидата с документом и фиксирует роль документа: обнаружение, проверка, расчёт признаков или доказательство. `AnalysisCandidate` связывает глобального кандидата с конкретным пользовательским запуском и хранит результат candidate gate.
 
 ### FeatureVector
 
@@ -133,6 +194,177 @@ FeatureVector разделён на группы:
 | Текст | Компактное представление названия и автоматически найденных материалов |
 
 Признаки строятся одной версионируемой функцией. Fit-зависимые преобразования текста обучаются отдельно внутри каждого fold.
+
+### ModelVersion, Prediction и Assessment
+
+- `ModelVersion` хранит алгоритм, параметры, порог, версии признаков и обучающего набора, а также checksum файла модели.
+- `Prediction` хранит неизменённый выход модели для конкретного FeatureVector: `model_score` и факт прохождения порога.
+- `Assessment` хранит итог после decision policy: `main`, `watchlist` или `excluded`, код причины, место в выдаче и версию правил. Prediction и Assessment разделены, чтобы явные продуктовые ограничения не выдавались за вывод модели.
+
+### DatasetVersion и CandidateLabel
+
+- `DatasetVersion` описывает версию обучающего набора и ссылается на manifest.
+- `CandidateLabel` хранит класс, дату среза, происхождение метки, статус проверки и автора. Первоначальная и итоговая метки не перезаписывают друг друга.
+- Организаторские экспертные аннотации хранятся отдельно от полей, доступных feature builder.
+
+## ER-диаграмма
+
+```mermaid
+erDiagram
+    ANALYSIS_SCOPE ||--o{ ANALYSIS : configures
+    ANALYSIS ||--|| SNAPSHOT : freezes
+    SNAPSHOT ||--o{ CONNECTOR_RUN : contains
+    CONNECTOR_RUN ||--o{ SOURCE_DOCUMENT : produces
+    ORIGIN_GROUP ||--o{ SOURCE_DOCUMENT : groups
+    SOURCE_DOCUMENT }o--o{ ORGANIZATION : mentions
+
+    ANALYSIS ||--o{ ANALYSIS_CANDIDATE : discovers
+    CANDIDATE ||--o{ ANALYSIS_CANDIDATE : appears_in
+    CANDIDATE ||--o{ CANDIDATE_ALIAS : has
+    CANDIDATE ||--o{ CANDIDATE_DOCUMENT : supported_by
+    SOURCE_DOCUMENT ||--o{ CANDIDATE_DOCUMENT : linked_to
+    CANDIDATE ||--o{ EVIDENCE_CLAIM : has
+    SOURCE_DOCUMENT ||--o{ EVIDENCE_CLAIM : grounds
+
+    ANALYSIS_CANDIDATE ||--o{ FEATURE_VECTOR : receives
+    SNAPSHOT ||--o{ FEATURE_VECTOR : supplies
+    MODEL_VERSION ||--o{ PREDICTION : generates
+    FEATURE_VECTOR ||--o{ PREDICTION : scored_as
+    ANALYSIS_CANDIDATE ||--o{ ASSESSMENT : resolved_as
+    PREDICTION o|--o{ ASSESSMENT : used_by
+    ASSESSMENT }o--o{ EVIDENCE_CLAIM : cites
+
+    DATASET_VERSION ||--o{ CANDIDATE_LABEL : contains
+    CANDIDATE ||--o{ CANDIDATE_LABEL : labelled_as
+
+    ANALYSIS_SCOPE {
+        uuid id PK
+        string scope_version
+        string normalized_query
+        json source_filters
+    }
+    ANALYSIS {
+        uuid id PK
+        uuid scope_id FK
+        string user_query
+        date cutoff_date
+        string status
+    }
+    SNAPSHOT {
+        uuid id PK
+        uuid analysis_id FK
+        string snapshot_version
+        datetime created_at
+    }
+    CONNECTOR_RUN {
+        uuid id PK
+        uuid snapshot_id FK
+        string connector
+        string status
+        string raw_response_uri
+        string checksum
+    }
+    SOURCE_DOCUMENT {
+        uuid id PK
+        uuid connector_run_id FK
+        uuid origin_id FK
+        string external_id
+        string canonical_url
+        date published_at
+        string trust_tier
+    }
+    ORIGIN_GROUP {
+        uuid id PK
+        string origin_key
+        string resolution_method
+        float confidence
+    }
+    ORGANIZATION {
+        uuid id PK
+        string canonical_name
+    }
+    CANDIDATE {
+        uuid id PK
+        uuid group_id
+        string canonical_name
+        string normalization_version
+    }
+    CANDIDATE_ALIAS {
+        uuid candidate_id FK
+        string alias
+        string language
+    }
+    ANALYSIS_CANDIDATE {
+        uuid id PK
+        uuid analysis_id FK
+        uuid candidate_id FK
+        string gate_status
+        string gate_reason
+    }
+    CANDIDATE_DOCUMENT {
+        uuid candidate_id FK
+        uuid document_id FK
+        string relation_role
+    }
+    EVIDENCE_CLAIM {
+        uuid id PK
+        uuid candidate_id FK
+        uuid document_id FK
+        string claim_type
+        string direction
+        string locator
+        string review_status
+    }
+    FEATURE_VECTOR {
+        uuid id PK
+        uuid analysis_candidate_id FK
+        uuid snapshot_id FK
+        string feature_version
+        json values
+        json missing_flags
+    }
+    MODEL_VERSION {
+        uuid id PK
+        uuid dataset_version_id FK
+        string feature_version
+        float threshold
+        string artifact_uri
+        string checksum
+    }
+    PREDICTION {
+        uuid id PK
+        uuid feature_vector_id FK
+        uuid model_version_id FK
+        float model_score
+        bool passed_threshold
+    }
+    ASSESSMENT {
+        uuid id PK
+        uuid analysis_candidate_id FK
+        uuid prediction_id FK
+        string status
+        string reason_code
+        int rank
+        string policy_version
+    }
+    DATASET_VERSION {
+        uuid id PK
+        string dataset_type
+        string manifest_uri
+        string checksum
+    }
+    CANDIDATE_LABEL {
+        uuid id PK
+        uuid dataset_version_id FK
+        uuid candidate_id FK
+        string label
+        date cutoff_date
+        string label_origin
+        string review_status
+    }
+```
+
+Связующие таблицы `candidate_document` и `analysis_candidate` нужны из-за отношений многие-ко-многим. Например, один документ может подтверждать несколько технологий, а один кандидат может появляться в нескольких пользовательских анализах.
 
 ## Историческое обогащение
 
@@ -188,6 +420,30 @@ LLM допускается для извлечения структуриров�
 
 ## Хранение
 
+Для MVP используется один PostgreSQL. Отдельные физические базы для документов, модели и интерфейса не создаются. Это уменьшает число отказов и упрощает локальный Docker-запуск.
+
+```mermaid
+flowchart LR
+    XLSX["XLSX организаторов"] --> ADAPTER["Dataset adapter"]
+    ADAPTER --> DATA["data/interim: JSONL + manifest"]
+    DATA --> TRAIN["Обучение и оценка"]
+
+    OA["OpenAlex"] --> CONNECTORS["Коннекторы"]
+    CR["Crossref"] --> CONNECTORS
+    GD["GDELT"] --> CONNECTORS
+    CONNECTORS --> RAW["runtime/snapshots: сырые ответы"]
+    CONNECTORS --> PG[("PostgreSQL: метаданные и сущности")]
+    RAW -. "URI + checksum" .-> PG
+
+    PG --> FEATURES["Feature builder"]
+    FEATURES --> TRAIN
+    TRAIN --> ARTIFACTS["artifacts: модель и отчёт"]
+    ARTIFACTS -. "версия + checksum" .-> PG
+    PG --> POLICY["Model inference + decision policy"]
+    POLICY --> API["FastAPI"]
+    API --> UI["Web-интерфейс"]
+```
+
 PostgreSQL интегрированной версии хранит:
 
 - snapshots запросов и ответы коннекторов;
@@ -198,7 +454,9 @@ PostgreSQL интегрированной версии хранит:
 - версии модели и оценки;
 - analyses, статусы и причины исключения.
 
-Большие тексты и модельные файлы могут храниться вне базы с checksum и ссылкой. Демонстрационный in-memory backend остаётся отдельным UI-каркасом и не считается реализацией этого контура.
+Сырые ответы API хранятся в `runtime/snapshots`, а модели, отчёты и out-of-fold предсказания — в `artifacts`. В PostgreSQL находятся URI, checksum и версия каждого файла. Эти каталоги подключаются как Docker volumes и не коммитятся в Git. Интерфейс не читает файлы напрямую: все данные проходят через FastAPI.
+
+Демонстрационный in-memory backend остаётся отдельным UI-каркасом и не считается реализацией этого контура.
 
 ## Отказоустойчивость и воспроизводимость
 
