@@ -1,5 +1,13 @@
 """Dataset adapters and artifact contracts for NextWave."""
 
+from .artifacts import (
+    POSITIVE_ANNOTATIONS_FILENAME,
+    POSITIVE_CANDIDATES_FILENAME,
+    OrganizerArtifactError,
+    OrganizerJsonlPaths,
+    render_jsonl,
+    write_organizer_jsonl,
+)
 from .contracts import (
     ANNOTATION_SCHEMA_VERSION,
     MANIFEST_SCHEMA_VERSION,
@@ -22,6 +30,12 @@ from .organizer_xlsx import (
 )
 
 __all__ = [
+    "POSITIVE_ANNOTATIONS_FILENAME",
+    "POSITIVE_CANDIDATES_FILENAME",
+    "OrganizerArtifactError",
+    "OrganizerJsonlPaths",
+    "render_jsonl",
+    "write_organizer_jsonl",
     "ANNOTATION_SCHEMA_VERSION",
     "MANIFEST_SCHEMA_VERSION",
     "ORGANIZER_SCOPE_KEYS",
