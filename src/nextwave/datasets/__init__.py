@@ -12,6 +12,14 @@ from .contracts import (
     OrganizerDatasetManifest,
     PositiveCandidateRecord,
 )
+from .organizer_xlsx import (
+    EXPECTED_HEADERS,
+    EXPECTED_RECORD_COUNT,
+    ORGANIZER_CUTOFF_DATE,
+    OrganizerWorkbookError,
+    ParsedOrganizerDataset,
+    read_organizer_workbook,
+)
 
 __all__ = [
     "ANNOTATION_SCHEMA_VERSION",
@@ -24,4 +32,10 @@ __all__ = [
     "OrganizerAnnotationRecord",
     "OrganizerDatasetManifest",
     "PositiveCandidateRecord",
+    "EXPECTED_HEADERS",
+    "EXPECTED_RECORD_COUNT",
+    "ORGANIZER_CUTOFF_DATE",
+    "OrganizerWorkbookError",
+    "ParsedOrganizerDataset",
+    "read_organizer_workbook",
 ]
