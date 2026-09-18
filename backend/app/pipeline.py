@@ -32,7 +32,7 @@ THRESHOLDS = {
     "documents_min": 10,
 }
 
-pct = lambda value: round(value * 100)  # noqa: E731 — короткая подпись для текста причин
+pct = lambda value: round(value * 100)
 
 STAGES = [
     Stage(key="collect", label="Загрузка документов из источников"),
