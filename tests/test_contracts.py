@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import date
+from datetime import UTC, date, datetime
 
 from nextwave.contracts import (
     CandidateAssessment,
@@ -206,6 +206,37 @@ class ContractTests(unittest.TestCase):
                 features=make_features(),
                 prediction=None,
                 explanation="Only pre-cutoff documents may affect the assessment.",
+                documents=(future_document,),
+            )
+
+    def test_future_observation_is_rejected_at_historical_cutoff(self) -> None:
+        future_document = SourceDocument(
+            document_id="document-future-observation",
+            connector_id="gdelt",
+            external_id="article-001",
+            snapshot_id="snapshot-historical",
+            title="Later media report",
+            url="https://example.org/future-report",
+            canonical_url="https://example.org/future-report",
+            source_type=SourceType.OTHER,
+            language="en",
+            trust_tier=TrustTier.UNKNOWN,
+            origin_id="url:https://example.org/future-report",
+            observed_at=datetime(2026, 10, 1, tzinfo=UTC),
+        )
+        with self.assertRaisesRegex(ValueError, "observed after cutoff_date"):
+            CandidateAssessment(
+                candidate_id="candidate-historical",
+                group_id="technology-family-historical",
+                canonical_name="Historical candidate",
+                aliases=(),
+                query="industrial AI",
+                analysis_scope_id="scope-industrial-ai-v1",
+                cutoff_date=date(2026, 9, 15),
+                status=CandidateStatus.WATCHLIST,
+                features=make_features(),
+                prediction=None,
+                explanation="Only pre-cutoff observations may affect the assessment.",
                 documents=(future_document,),
             )
 

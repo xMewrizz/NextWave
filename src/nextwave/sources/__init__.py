@@ -30,6 +30,19 @@ from .crossref_parser import (
     parse_crossref_response,
     parse_crossref_work,
 )
+from .gdelt import (
+    GDELT_DOC_ENDPOINT,
+    GdeltConnector,
+    build_gdelt_request,
+    gdelt_request_url,
+)
+from .gdelt_parser import (
+    GdeltParseIssue,
+    GdeltParseResult,
+    canonicalize_article_url,
+    parse_gdelt_article,
+    parse_gdelt_response,
+)
 from .http import HttpResponse, HttpTransport, UrllibHttpTransport
 from .identifiers import doi_url, normalize_doi
 from .openalex import (
@@ -52,6 +65,7 @@ __all__ = [
     "CONNECTOR_REQUEST_SCHEMA_VERSION",
     "CROSSREF_SELECT_FIELDS",
     "CROSSREF_WORKS_ENDPOINT",
+    "GDELT_DOC_ENDPOINT",
     "SNAPSHOT_MANIFEST_SCHEMA_VERSION",
     "SOURCE_QUERY_SCHEMA_VERSION",
     "ConnectorError",
@@ -62,6 +76,9 @@ __all__ = [
     "CrossrefConnector",
     "CrossrefParseIssue",
     "CrossrefParseResult",
+    "GdeltConnector",
+    "GdeltParseIssue",
+    "GdeltParseResult",
     "HttpResponse",
     "HttpTransport",
     "OPENALEX_SELECT_FIELDS",
@@ -80,13 +97,18 @@ __all__ = [
     "UrllibHttpTransport",
     "build_openalex_request",
     "build_crossref_request",
+    "build_gdelt_request",
+    "canonicalize_article_url",
     "crossref_request_url",
     "doi_url",
+    "gdelt_request_url",
     "normalize_doi",
     "openalex_request_url",
     "parse_openalex_response",
     "parse_openalex_work",
     "parse_crossref_response",
     "parse_crossref_work",
+    "parse_gdelt_article",
+    "parse_gdelt_response",
     "reconstruct_openalex_abstract",
 ]

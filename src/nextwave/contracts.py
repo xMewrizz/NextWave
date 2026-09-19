@@ -127,6 +127,7 @@ class SourceDocument:
     authors: tuple[str, ...] = ()
     organizations: tuple[str, ...] = ()
     published_at: date | None = None
+    observed_at: datetime | None = None
     retrieved_at: datetime | None = None
     publisher: str | None = None
     excerpt: str | None = None
@@ -156,9 +157,12 @@ class SourceDocument:
             _require_text(self.doi, "doi")
         _require_unique_texts(self.authors, "authors")
         _require_unique_texts(self.organizations, "organizations")
-        if self.retrieved_at is not None:
-            if self.retrieved_at.tzinfo is None or self.retrieved_at.utcoffset() is None:
-                raise ValueError("retrieved_at must include a timezone")
+        for field_name, value in (
+            ("observed_at", self.observed_at),
+            ("retrieved_at", self.retrieved_at),
+        ):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError(f"{field_name} must include a timezone")
         if self.publisher is not None:
             _require_text(self.publisher, "publisher")
         if self.excerpt is not None:
@@ -310,6 +314,12 @@ class CandidateAssessment:
             for document in self.documents
         ):
             raise ValueError("documents published after cutoff_date are not allowed")
+        if any(
+            document.observed_at is not None
+            and document.observed_at.date() > self.cutoff_date
+            for document in self.documents
+        ):
+            raise ValueError("documents observed after cutoff_date are not allowed")
         if (
             self.features.temporal.first_seen_at is not None
             and self.features.temporal.first_seen_at > self.cutoff_date
