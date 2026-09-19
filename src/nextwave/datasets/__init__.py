@@ -5,6 +5,7 @@ from .artifacts import (
     POSITIVE_CANDIDATES_FILENAME,
     OrganizerArtifactError,
     OrganizerJsonlPaths,
+    publish_artifact_bundle,
     render_jsonl,
     write_organizer_jsonl,
 )
@@ -20,6 +21,13 @@ from .contracts import (
     OrganizerDatasetManifest,
     PositiveCandidateRecord,
 )
+from .organizer_dataset import (
+    ADAPTER_VERSION,
+    DATASET_VERSION,
+    MANIFEST_FILENAME,
+    OrganizerDatasetPaths,
+    build_organizer_dataset,
+)
 from .organizer_xlsx import (
     EXPECTED_HEADERS,
     EXPECTED_RECORD_COUNT,
@@ -34,6 +42,7 @@ __all__ = [
     "POSITIVE_CANDIDATES_FILENAME",
     "OrganizerArtifactError",
     "OrganizerJsonlPaths",
+    "publish_artifact_bundle",
     "render_jsonl",
     "write_organizer_jsonl",
     "ANNOTATION_SCHEMA_VERSION",
@@ -46,6 +55,11 @@ __all__ = [
     "OrganizerAnnotationRecord",
     "OrganizerDatasetManifest",
     "PositiveCandidateRecord",
+    "ADAPTER_VERSION",
+    "DATASET_VERSION",
+    "MANIFEST_FILENAME",
+    "OrganizerDatasetPaths",
+    "build_organizer_dataset",
     "EXPECTED_HEADERS",
     "EXPECTED_RECORD_COUNT",
     "ORGANIZER_CUTOFF_DATE",

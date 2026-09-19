@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +11,7 @@ from openpyxl import Workbook, load_workbook
 from nextwave.datasets import (
     EXPECTED_HEADERS,
     OrganizerWorkbookError,
+    build_organizer_dataset,
     read_organizer_workbook,
 )
 
@@ -106,6 +109,35 @@ class OrganizerWorkbookTests(unittest.TestCase):
 
         with self.assertRaisesRegex(OrganizerWorkbookError, "formula.*I3"):
             read_organizer_workbook(self.path)
+
+    def test_complete_build_contains_verified_manifest(self) -> None:
+        paths = build_organizer_dataset(self.path, Path(self.temporary_directory.name) / "output")
+
+        manifest = json.loads(paths.manifest.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["schema_version"], "organizer-manifest-v1")
+        self.assertEqual(manifest["dataset_version"], "organizer-positive-2026-09-15-v1")
+        self.assertEqual(manifest["adapter_version"], "organizer-xlsx-v1")
+        self.assertEqual(manifest["cutoff_date"], "2026-09-15")
+        self.assertEqual(manifest["input_record_count"], 100)
+        self.assertEqual(manifest["accepted_record_count"], 100)
+        self.assertEqual(manifest["rejected_record_count"], 0)
+        self.assertEqual(manifest["validation_errors"], [])
+        self.assertEqual(len(manifest["header_mapping"]), 9)
+
+        source_bytes = self.path.read_bytes()
+        self.assertEqual(manifest["source"]["size_bytes"], len(source_bytes))
+        self.assertEqual(
+            manifest["source"]["sha256"], hashlib.sha256(source_bytes).hexdigest()
+        )
+        expected_outputs = {
+            paths.candidates.name: paths.candidates,
+            paths.annotations.name: paths.annotations,
+        }
+        for output in manifest["outputs"]:
+            artifact = expected_outputs[output["filename"]]
+            content = artifact.read_bytes()
+            self.assertEqual(output["size_bytes"], len(content))
+            self.assertEqual(output["sha256"], hashlib.sha256(content).hexdigest())
 
 
 if __name__ == "__main__":

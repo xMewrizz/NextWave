@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -51,13 +51,18 @@ def render_jsonl(records: Iterable[JsonRecord]) -> bytes:
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def write_organizer_jsonl(
-    dataset: ParsedOrganizerDataset, output_directory: str | Path
-) -> OrganizerJsonlPaths:
-    """Publish both JSONL files together into a new directory."""
+def publish_artifact_bundle(
+    files: Mapping[str, bytes], output_directory: str | Path
+) -> dict[str, Path]:
+    """Publish a complete set of files together into a new directory."""
 
-    candidates_bytes = render_jsonl(dataset.candidates)
-    annotations_bytes = render_jsonl(dataset.annotations)
+    if not files:
+        raise OrganizerArtifactError("artifact bundle must not be empty")
+    for filename, content in files.items():
+        if not filename or "/" in filename or "\\" in filename:
+            raise OrganizerArtifactError(f"invalid artifact filename: {filename!r}")
+        if not isinstance(content, bytes):
+            raise OrganizerArtifactError(f"artifact {filename!r} must contain bytes")
 
     target = Path(output_directory)
     if target.exists():
@@ -67,14 +72,33 @@ def write_organizer_jsonl(
     parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=parent))
     try:
-        (staging / POSITIVE_CANDIDATES_FILENAME).write_bytes(candidates_bytes)
-        (staging / POSITIVE_ANNOTATIONS_FILENAME).write_bytes(annotations_bytes)
+        for filename, content in files.items():
+            (staging / filename).write_bytes(content)
         staging.replace(target)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
+    return {filename: target / filename for filename in files}
+
+
+def write_organizer_jsonl(
+    dataset: ParsedOrganizerDataset, output_directory: str | Path
+) -> OrganizerJsonlPaths:
+    """Publish both JSONL files together into a new directory."""
+
+    candidates_bytes = render_jsonl(dataset.candidates)
+    annotations_bytes = render_jsonl(dataset.annotations)
+
+    paths = publish_artifact_bundle(
+        {
+            POSITIVE_CANDIDATES_FILENAME: candidates_bytes,
+            POSITIVE_ANNOTATIONS_FILENAME: annotations_bytes,
+        },
+        output_directory,
+    )
+
     return OrganizerJsonlPaths(
-        candidates=target / POSITIVE_CANDIDATES_FILENAME,
-        annotations=target / POSITIVE_ANNOTATIONS_FILENAME,
+        candidates=paths[POSITIVE_CANDIDATES_FILENAME],
+        annotations=paths[POSITIVE_ANNOTATIONS_FILENAME],
     )

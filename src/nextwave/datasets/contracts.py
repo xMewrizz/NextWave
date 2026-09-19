@@ -44,18 +44,6 @@ def _record_number(record_id: str) -> int:
     return int(match.group(1))
 
 
-def _json_value(value: Any) -> Any:
-    if isinstance(value, date):
-        return value.isoformat()
-    if isinstance(value, tuple):
-        return [_json_value(item) for item in value]
-    if isinstance(value, list):
-        return [_json_value(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _json_value(item) for key, item in value.items()}
-    return value
-
-
 @dataclass(frozen=True, slots=True)
 class PositiveCandidateRecord:
     """Leakage-safe identity and label for one organizer row."""
@@ -248,4 +236,20 @@ class OrganizerDatasetManifest:
             _require_text(error, "validation_error")
 
     def to_dict(self) -> dict[str, Any]:
-        return _json_value(asdict(self))
+        return {
+            "schema_version": self.schema_version,
+            "dataset_version": self.dataset_version,
+            "adapter_version": self.adapter_version,
+            "cutoff_date": self.cutoff_date.isoformat(),
+            "source": asdict(self.source),
+            "sheet_name": self.sheet_name,
+            "header_row": self.header_row,
+            "data_start_row": self.data_start_row,
+            "data_end_row": self.data_end_row,
+            "input_record_count": self.input_record_count,
+            "accepted_record_count": self.accepted_record_count,
+            "rejected_record_count": self.rejected_record_count,
+            "header_mapping": [asdict(item) for item in self.header_mapping],
+            "outputs": [asdict(item) for item in self.outputs],
+            "validation_errors": list(self.validation_errors),
+        }
