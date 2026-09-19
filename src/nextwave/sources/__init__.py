@@ -17,6 +17,7 @@ from .contracts import (
     SnapshotStatus,
     SourceQuery,
 )
+from .snapshots import SnapshotWriter
 
 __all__ = [
     "CONNECTOR_REQUEST_SCHEMA_VERSION",
@@ -33,5 +34,6 @@ __all__ = [
     "RetrievalChannel",
     "SnapshotManifest",
     "SnapshotStatus",
+    "SnapshotWriter",
     "SourceQuery",
 ]
