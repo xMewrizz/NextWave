@@ -98,6 +98,16 @@ V1-04 должен сформировать:
 - `noise_controls.jsonl` — отдельные примеры для candidate gate;
 - `manifest.json` — версии, количества по классам и областям, checksum и результаты проверки.
 
+## Рабочая книга
+
+Версионированный пустой шаблон находится в `templates/labeling_workbook.xlsx`. Перед началом разметки создаётся локальная рабочая копия:
+
+```powershell
+Copy-Item templates/labeling_workbook.xlsx data/development/labeling_workbook.xlsx
+```
+
+Каталог `data/development` не передаётся в Git. В книге жёлтым отмечены поля ручного ввода, серым — стабильные идентификаторы, дата среза и плановые квоты. Итоговая метка хранится на листе `Решения`; поля `planned_class` и `planned_noise_type` управляют составом выборки и не заменяют решение проверяющего.
+
 ## Готовность V1-04
 
 - проверены 50 `mature` и 50 `marketing_hype`;

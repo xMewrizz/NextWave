@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+import unittest
+from collections import Counter
+from pathlib import Path
+
+from openpyxl import load_workbook
+
+TEMPLATE_PATH = Path(__file__).parents[1] / "templates" / "labeling_workbook.xlsx"
+
+
+class LabelingWorkbookTemplateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.workbook = load_workbook(TEMPLATE_PATH, read_only=False, data_only=False)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.workbook.close()
+
+    def test_required_sheets_exist_in_workflow_order(self) -> None:
+        self.assertEqual(
+            self.workbook.sheetnames,
+            ["План", "Кандидаты", "Доказательства", "Решения", "Шум", "Справочник"],
+        )
+
+    def test_candidate_slots_match_domain_and_class_plan(self) -> None:
+        sheet = self.workbook["Кандидаты"]
+        rows = list(sheet.iter_rows(min_row=5, max_row=104, values_only=True))
+
+        self.assertEqual(len(rows), 100)
+        self.assertEqual(rows[0][0], "team-negative-001")
+        self.assertEqual(rows[-1][0], "team-negative-100")
+        self.assertEqual(Counter(row[1] for row in rows), {"mature": 50, "marketing_hype": 50})
+        self.assertEqual(
+            Counter(row[6] for row in rows),
+            {
+                "Edge": 16,
+                "Защита ИИ": 16,
+                "Индустриальный ИИ": 17,
+                "Инфраструктура ИИ": 17,
+                "Роботы": 17,
+                "Финтех": 17,
+            },
+        )
+
+    def test_noise_slots_have_ten_rows_per_type(self) -> None:
+        sheet = self.workbook["Шум"]
+        rows = list(sheet.iter_rows(min_row=5, max_row=54, values_only=True))
+
+        self.assertEqual(len(rows), 50)
+        self.assertEqual(rows[0][0], "noise-001")
+        self.assertEqual(rows[-1][0], "noise-050")
+        self.assertEqual(
+            Counter(row[1] for row in rows),
+            {
+                "broad_concept": 10,
+                "irrelevant": 10,
+                "not_technology": 10,
+                "extraction_error": 10,
+                "duplicate": 10,
+            },
+        )
+
+    def test_primary_decision_slots_are_prelinked(self) -> None:
+        sheet = self.workbook["Решения"]
+        candidate_rows = list(sheet.iter_rows(min_row=5, max_row=104, values_only=True))
+        noise_rows = list(sheet.iter_rows(min_row=105, max_row=154, values_only=True))
+
+        self.assertTrue(all(row[1] == "model_candidate" for row in candidate_rows))
+        self.assertTrue(all(row[3] == "primary" for row in candidate_rows))
+        self.assertTrue(all(row[1] == "noise_control" for row in noise_rows))
+        self.assertTrue(all(row[3] == "primary" for row in noise_rows))
+
+    def test_workbook_has_validations_tables_and_no_formulas(self) -> None:
+        for sheet_name in ("Кандидаты", "Доказательства", "Решения", "Шум"):
+            sheet = self.workbook[sheet_name]
+            self.assertGreater(len(sheet.data_validations.dataValidation), 0)
+            self.assertGreater(len(sheet.tables), 0)
+            self.assertIsNotNone(sheet.freeze_panes)
+            formulas = [
+                cell.coordinate
+                for row in sheet.iter_rows()
+                for cell in row
+                if cell.data_type == "f"
+            ]
+            self.assertEqual(formulas, [], msg=f"unexpected formulas in {sheet_name}")
+
+
+if __name__ == "__main__":
+    unittest.main()
