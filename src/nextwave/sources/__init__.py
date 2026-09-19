@@ -17,6 +17,14 @@ from .contracts import (
     SnapshotStatus,
     SourceQuery,
 )
+from .http import HttpResponse, HttpTransport, UrllibHttpTransport
+from .openalex import (
+    OPENALEX_SELECT_FIELDS,
+    OPENALEX_WORKS_ENDPOINT,
+    OpenAlexConnector,
+    build_openalex_request,
+    openalex_request_url,
+)
 from .snapshots import SnapshotWriter
 
 __all__ = [
@@ -28,6 +36,11 @@ __all__ = [
     "ConnectorRequest",
     "ConnectorRun",
     "ConnectorStatus",
+    "HttpResponse",
+    "HttpTransport",
+    "OPENALEX_SELECT_FIELDS",
+    "OPENALEX_WORKS_ENDPOINT",
+    "OpenAlexConnector",
     "QueryParameter",
     "QueryPurpose",
     "RawResponseArtifact",
@@ -36,4 +49,7 @@ __all__ = [
     "SnapshotStatus",
     "SnapshotWriter",
     "SourceQuery",
+    "UrllibHttpTransport",
+    "build_openalex_request",
+    "openalex_request_url",
 ]
