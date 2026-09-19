@@ -110,6 +110,32 @@ class OpenAlexRequestTests(unittest.TestCase):
         self.assertEqual(openalex_request_url(request), openalex_request_url(request))
         self.assertIn("search=artificial+intelligence", openalex_request_url(request))
 
+    def test_request_id_covers_page_size_and_retry_attempt(self) -> None:
+        first = build_openalex_request(
+            make_query(),
+            channel=RetrievalChannel.TEXT,
+            search_text="artificial intelligence",
+            per_page=25,
+            attempt=1,
+        )
+        changed_size = build_openalex_request(
+            make_query(),
+            channel=RetrievalChannel.TEXT,
+            search_text="artificial intelligence",
+            per_page=50,
+            attempt=1,
+        )
+        retry = build_openalex_request(
+            make_query(),
+            channel=RetrievalChannel.TEXT,
+            search_text="artificial intelligence",
+            per_page=25,
+            attempt=2,
+        )
+
+        self.assertNotEqual(first.request_id, changed_size.request_id)
+        self.assertNotEqual(first.request_id, retry.request_id)
+
 
 class OpenAlexConnectorTests(unittest.TestCase):
     def test_success_saves_exact_response_and_counts_page_records(self) -> None:

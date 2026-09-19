@@ -8,12 +8,13 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 from nextwave.contracts import SourceDocument, SourceType, TrustTier
 
+from .identifiers import doi_url, normalize_doi
+
 _OPENALEX_WORK_ID = re.compile(r"W[0-9]+\Z", re.IGNORECASE)
-_DOI = re.compile(r"10\.[0-9]{4,9}/\S+\Z", re.IGNORECASE)
 _SCIENTIFIC_WORK_TYPES = {
     "article",
     "book",
@@ -53,29 +54,6 @@ class OpenAlexParseResult:
     @property
     def rejected_records(self) -> int:
         return len(self.issues)
-
-
-def normalize_doi(value: object) -> str | None:
-    """Return a lowercase bare DOI or None when OpenAlex did not provide one."""
-
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError("doi must be a string or null")
-    normalized = value.strip().casefold()
-    for prefix in (
-        "https://doi.org/",
-        "http://doi.org/",
-        "https://dx.doi.org/",
-        "http://dx.doi.org/",
-        "doi:",
-    ):
-        if normalized.startswith(prefix):
-            normalized = normalized.removeprefix(prefix).strip()
-            break
-    if not _DOI.fullmatch(normalized):
-        raise ValueError("doi has an unsupported format")
-    return normalized
 
 
 def reconstruct_openalex_abstract(value: object) -> str | None:
@@ -170,7 +148,7 @@ def parse_openalex_work(
     doi = normalize_doi(record.get("doi"))
     landing_page_url = _landing_page_url(record.get("primary_location"))
     url = landing_page_url or work_url
-    canonical_url = _doi_url(doi) if doi is not None else url
+    canonical_url = doi_url(doi) if doi is not None else url
     origin_id = f"doi:{doi}" if doi is not None else f"url:{canonical_url.casefold()}"
     origin_method = "doi" if doi is not None else "canonical_url"
     source_type, trust_tier = _source_classification(record.get("type"))
@@ -298,10 +276,6 @@ def _source_classification(value: object) -> tuple[SourceType, TrustTier]:
     if isinstance(value, str) and value.casefold() in _SCIENTIFIC_WORK_TYPES:
         return SourceType.SCIENTIFIC_PUBLICATION, TrustTier.A
     return SourceType.OTHER, TrustTier.UNKNOWN
-
-
-def _doi_url(doi: str) -> str:
-    return f"https://doi.org/{quote(doi, safe='/:;()._-')}"
 
 
 def _is_http_url(value: str) -> bool:
