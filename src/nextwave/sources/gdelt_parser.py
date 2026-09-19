@@ -54,6 +54,48 @@ class GdeltParseResult:
         return len(self.issues)
 
 
+@dataclass(frozen=True, slots=True)
+class GdeltTimelinePoint:
+    interval_start: datetime
+    matched_articles: int
+    monitored_articles: int
+
+    def __post_init__(self) -> None:
+        if self.interval_start.tzinfo is None or self.interval_start.utcoffset() is None:
+            raise ValueError("timeline interval_start must include a timezone")
+        if self.matched_articles < 0 or self.monitored_articles < 0:
+            raise ValueError("timeline counts must be non-negative")
+        if self.matched_articles > self.monitored_articles:
+            raise ValueError("matched articles must not exceed monitored articles")
+
+    @property
+    def share(self) -> float | None:
+        if self.monitored_articles == 0:
+            return None
+        return self.matched_articles / self.monitored_articles
+
+
+@dataclass(frozen=True, slots=True)
+class GdeltTimelineResult:
+    series: str
+    points: tuple[GdeltTimelinePoint, ...]
+
+    @property
+    def matched_articles(self) -> int:
+        return sum(point.matched_articles for point in self.points)
+
+    @property
+    def monitored_articles(self) -> int:
+        return sum(point.monitored_articles for point in self.points)
+
+    @property
+    def share(self) -> float | None:
+        monitored = self.monitored_articles
+        if monitored == 0:
+            return None
+        return self.matched_articles / monitored
+
+
 def canonicalize_article_url(value: object) -> str:
     """Normalize an article URL while retaining content-changing parameters."""
 
@@ -132,6 +174,51 @@ def parse_gdelt_response(
     )
 
 
+def parse_gdelt_timeline_response(
+    payload: bytes,
+    *,
+    cutoff_date: date,
+) -> GdeltTimelineResult:
+    """Parse strict raw-volume points used for normalized information dynamics."""
+
+    try:
+        decoded = json.loads(payload.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"GDELT response is not valid UTF-8 JSON: {error}") from error
+    if not isinstance(decoded, dict) or not isinstance(decoded.get("timeline"), list):
+        raise ValueError("GDELT response must contain a timeline list")
+    if not decoded["timeline"]:
+        return GdeltTimelineResult(series="volume", points=())
+
+    first_series = decoded["timeline"][0]
+    if not isinstance(first_series, dict) or not isinstance(first_series.get("data"), list):
+        raise ValueError("GDELT timeline series must contain a data list")
+    series = first_series.get("series")
+    series_name = series.strip() if isinstance(series, str) and series.strip() else "volume"
+
+    points: list[GdeltTimelinePoint] = []
+    seen_intervals: set[datetime] = set()
+    for item in first_series["data"]:
+        if not isinstance(item, dict):
+            raise ValueError("GDELT timeline point must be an object")
+        interval_start = _observed_at(item.get("date"))
+        if interval_start.date() > cutoff_date:
+            raise ValueError("timeline interval is after cutoff_date")
+        if interval_start in seen_intervals:
+            raise ValueError("GDELT timeline contains duplicate intervals")
+        seen_intervals.add(interval_start)
+        points.append(
+            GdeltTimelinePoint(
+                interval_start=interval_start,
+                matched_articles=_count(item.get("value"), "value"),
+                monitored_articles=_count(item.get("norm"), "norm"),
+            )
+        )
+
+    points.sort(key=lambda point: point.interval_start)
+    return GdeltTimelineResult(series=series_name, points=tuple(points))
+
+
 def parse_gdelt_article(
     record: object,
     *,
@@ -189,6 +276,22 @@ def _observed_at(value: object) -> datetime:
         except ValueError:
             continue
     raise ValueError("seendate has an unsupported timestamp format")
+
+
+def _count(value: object, field_name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"timeline {field_name} must be a non-negative integer")
+    if isinstance(value, int):
+        result = value
+    elif isinstance(value, float) and value.is_integer():
+        result = int(value)
+    elif isinstance(value, str) and value.isdigit():
+        result = int(value)
+    else:
+        raise ValueError(f"timeline {field_name} must be a non-negative integer")
+    if result < 0:
+        raise ValueError(f"timeline {field_name} must be a non-negative integer")
+    return result
 
 
 def _publisher(record: dict[str, object]) -> str | None:

@@ -61,16 +61,12 @@ def build_gdelt_request(
 ) -> ConnectorRequest:
     """Build one bounded GDELT article-list request for an observation window."""
 
-    if search_text not in query.search_texts:
-        raise ValueError("search_text must be one of SourceQuery.search_texts")
-    if '"' in search_text or not search_text.strip():
-        raise ValueError("GDELT search_text must be a non-blank phrase without quotes")
     if not 1 <= max_records <= 250:
         raise ValueError("max_records must be between 1 and 250")
     if query.published_until > _add_months(query.published_from, 3):
         raise ValueError("GDELT article-list window must not exceed three calendar months")
 
-    gdelt_query = f'"{search_text.strip()}" {_language_filter(query.languages)}'
+    gdelt_query = _gdelt_query(query, search_text)
     parameters = [
         QueryParameter("enddatetime", f"{query.published_until:%Y%m%d}235959"),
         QueryParameter("format", "json"),
@@ -78,6 +74,36 @@ def build_gdelt_request(
         QueryParameter("mode", "artlist"),
         QueryParameter("query", gdelt_query),
         QueryParameter("sort", "hybridrel"),
+        QueryParameter("startdatetime", f"{query.published_from:%Y%m%d}000000"),
+    ]
+    parameters.sort(key=lambda parameter: parameter.name)
+    digest = _request_digest(query, parameters, attempt)
+    return ConnectorRequest(
+        request_id=f"request-gdelt-{digest}",
+        query_id=query.query_id,
+        connector_id=ConnectorId.GDELT,
+        channel=RetrievalChannel.TEXT,
+        endpoint=GDELT_DOC_ENDPOINT,
+        parameters=tuple(parameters),
+        page_index=1,
+        attempt=attempt,
+    )
+
+
+def build_gdelt_timeline_request(
+    query: SourceQuery,
+    *,
+    search_text: str,
+    attempt: int = 1,
+) -> ConnectorRequest:
+    """Build a normalized-volume request, separate from article retrieval."""
+
+    gdelt_query = _gdelt_query(query, search_text)
+    parameters = [
+        QueryParameter("enddatetime", f"{query.published_until:%Y%m%d}235959"),
+        QueryParameter("format", "json"),
+        QueryParameter("mode", "timelinevolraw"),
+        QueryParameter("query", gdelt_query),
         QueryParameter("startdatetime", f"{query.published_from:%Y%m%d}000000"),
     ]
     parameters.sort(key=lambda parameter: parameter.name)
@@ -109,6 +135,14 @@ def _add_months(value: date, months: int) -> date:
     return date(year, month, day)
 
 
+def _gdelt_query(query: SourceQuery, search_text: str) -> str:
+    if search_text not in query.search_texts:
+        raise ValueError("search_text must be one of SourceQuery.search_texts")
+    if '"' in search_text or not search_text.strip():
+        raise ValueError("GDELT search_text must be a non-blank phrase without quotes")
+    return f'"{search_text.strip()}" {_language_filter(query.languages)}'
+
+
 def _language_filter(languages: tuple[str, ...]) -> str:
     names: list[str] = []
     for language in languages:
@@ -130,11 +164,24 @@ def _media_type(headers: Mapping[str, str]) -> str:
     return "application/octet-stream"
 
 
-def _record_count(response: HttpResponse) -> int:
+def _record_count(response: HttpResponse, request: ConnectorRequest) -> int:
     payload = json.loads(response.body.decode("utf-8-sig"))
-    if not isinstance(payload, dict) or not isinstance(payload.get("articles"), list):
-        raise ValueError("GDELT response must contain an articles list")
-    return len(payload["articles"])
+    if not isinstance(payload, dict):
+        raise ValueError("GDELT response must be an object")
+    parameters = {parameter.name: parameter.value for parameter in request.parameters}
+    if parameters.get("mode") == "artlist":
+        if not isinstance(payload.get("articles"), list):
+            raise ValueError("GDELT response must contain an articles list")
+        return len(payload["articles"])
+    timeline = payload.get("timeline")
+    if not isinstance(timeline, list):
+        raise ValueError("GDELT response must contain a timeline list")
+    if not timeline:
+        return 0
+    first_series = timeline[0]
+    if not isinstance(first_series, dict) or not isinstance(first_series.get("data"), list):
+        raise ValueError("GDELT timeline series must contain a data list")
+    return len(first_series["data"])
 
 
 class GdeltConnector:
@@ -175,6 +222,28 @@ class GdeltConnector:
             max_records=max_records,
             attempt=attempt,
         )
+        return self._run_request(request, writer)
+
+    def run_timeline(
+        self,
+        query: SourceQuery,
+        writer: SnapshotWriter,
+        *,
+        search_text: str,
+        attempt: int = 1,
+    ) -> ConnectorRun:
+        request = build_gdelt_timeline_request(
+            query,
+            search_text=search_text,
+            attempt=attempt,
+        )
+        return self._run_request(request, writer)
+
+    def _run_request(
+        self,
+        request: ConnectorRequest,
+        writer: SnapshotWriter,
+    ) -> ConnectorRun:
         started_at = self._clock()
         headers = {
             "Accept": "application/json",
@@ -216,7 +285,7 @@ class GdeltConnector:
             return self._failed_http_run(request, response, artifact, started_at, finished_at)
 
         try:
-            returned_records = _record_count(response)
+            returned_records = _record_count(response, request)
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
             return ConnectorRun(
                 run_id=f"run-{request.request_id.removeprefix('request-')}",

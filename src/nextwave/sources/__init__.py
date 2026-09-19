@@ -34,14 +34,18 @@ from .gdelt import (
     GDELT_DOC_ENDPOINT,
     GdeltConnector,
     build_gdelt_request,
+    build_gdelt_timeline_request,
     gdelt_request_url,
 )
 from .gdelt_parser import (
     GdeltParseIssue,
     GdeltParseResult,
+    GdeltTimelinePoint,
+    GdeltTimelineResult,
     canonicalize_article_url,
     parse_gdelt_article,
     parse_gdelt_response,
+    parse_gdelt_timeline_response,
 )
 from .http import HttpResponse, HttpTransport, UrllibHttpTransport
 from .identifiers import doi_url, normalize_doi
@@ -79,6 +83,8 @@ __all__ = [
     "GdeltConnector",
     "GdeltParseIssue",
     "GdeltParseResult",
+    "GdeltTimelinePoint",
+    "GdeltTimelineResult",
     "HttpResponse",
     "HttpTransport",
     "OPENALEX_SELECT_FIELDS",
@@ -98,6 +104,7 @@ __all__ = [
     "build_openalex_request",
     "build_crossref_request",
     "build_gdelt_request",
+    "build_gdelt_timeline_request",
     "canonicalize_article_url",
     "crossref_request_url",
     "doi_url",
@@ -110,5 +117,6 @@ __all__ = [
     "parse_crossref_work",
     "parse_gdelt_article",
     "parse_gdelt_response",
+    "parse_gdelt_timeline_response",
     "reconstruct_openalex_abstract",
 ]

@@ -15,6 +15,7 @@ from nextwave.sources import (
     SnapshotWriter,
     SourceQuery,
     build_gdelt_request,
+    build_gdelt_timeline_request,
     gdelt_request_url,
 )
 
@@ -109,6 +110,30 @@ class GdeltRequestTests(unittest.TestCase):
                 search_text="artificial intelligence",
             )
 
+    def test_timeline_request_is_separate_from_article_list(self) -> None:
+        request = build_gdelt_timeline_request(
+            make_query(),
+            search_text="artificial intelligence",
+        )
+        parameters = {item.name: item.value for item in request.parameters}
+
+        self.assertEqual(parameters["mode"], "timelinevolraw")
+        self.assertNotIn("maxrecords", parameters)
+        self.assertNotIn("sort", parameters)
+
+    def test_timeline_request_allows_long_measurement_window(self) -> None:
+        request = build_gdelt_timeline_request(
+            make_query(
+                published_from=date(2025, 9, 16),
+                published_until=date(2026, 9, 15),
+            ),
+            search_text="artificial intelligence",
+        )
+        parameters = {item.name: item.value for item in request.parameters}
+
+        self.assertEqual(parameters["startdatetime"], "20250916000000")
+        self.assertEqual(parameters["enddatetime"], "20260915235959")
+
 
 class GdeltConnectorTests(unittest.TestCase):
     def test_success_saves_exact_response_and_counts_articles(self) -> None:
@@ -184,6 +209,37 @@ class GdeltConnectorTests(unittest.TestCase):
             )
 
         self.assertEqual(waits, [3.0])
+
+    def test_timeline_success_counts_intervals_instead_of_articles(self) -> None:
+        body = json.dumps(
+            {
+                "timeline": [
+                    {
+                        "series": "Volume Intensity",
+                        "data": [
+                            {"date": "20260914T000000Z", "value": 3, "norm": 1000},
+                            {"date": "20260915T000000Z", "value": 5, "norm": 1200},
+                        ],
+                    }
+                ]
+            }
+        ).encode()
+        connector = GdeltConnector(
+            transport=FakeTransport(
+                HttpResponse(200, {"Content-Type": "application/json"}, body)
+            ),
+            clock=fixed_clock(),
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = connector.run_timeline(
+                make_query(),
+                SnapshotWriter(Path(temp_dir), "snapshot-ai-001"),
+                search_text="artificial intelligence",
+            )
+
+        self.assertIs(run.status, ConnectorStatus.SUCCESS)
+        self.assertEqual(run.returned_records, 2)
 
 
 if __name__ == "__main__":

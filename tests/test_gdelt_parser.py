@@ -5,7 +5,11 @@ import unittest
 from datetime import UTC, date, datetime
 
 from nextwave.contracts import SourceType, TrustTier
-from nextwave.sources import canonicalize_article_url, parse_gdelt_response
+from nextwave.sources import (
+    canonicalize_article_url,
+    parse_gdelt_response,
+    parse_gdelt_timeline_response,
+)
 
 RETRIEVED_AT = datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
 CUTOFF_DATE = date(2026, 9, 15)
@@ -79,6 +83,71 @@ class GdeltParserTests(unittest.TestCase):
                 retrieved_at=RETRIEVED_AT,
                 cutoff_date=CUTOFF_DATE,
             )
+
+
+class GdeltTimelineParserTests(unittest.TestCase):
+    def test_calculates_weighted_share_from_raw_volume(self) -> None:
+        payload = json.dumps(
+            {
+                "timeline": [
+                    {
+                        "series": "Volume Intensity",
+                        "data": [
+                            {"date": "20260914T000000Z", "value": 10, "norm": 1000},
+                            {"date": "20260915T000000Z", "value": 30, "norm": 3000},
+                        ],
+                    }
+                ]
+            }
+        ).encode()
+
+        result = parse_gdelt_timeline_response(payload, cutoff_date=CUTOFF_DATE)
+
+        self.assertEqual(result.matched_articles, 40)
+        self.assertEqual(result.monitored_articles, 4000)
+        self.assertEqual(result.share, 0.01)
+        self.assertEqual(result.points[0].share, 0.01)
+
+    def test_empty_timeline_is_a_valid_zero_point_result(self) -> None:
+        result = parse_gdelt_timeline_response(
+            b'{"timeline":[]}',
+            cutoff_date=CUTOFF_DATE,
+        )
+
+        self.assertEqual(result.points, ())
+        self.assertIsNone(result.share)
+
+    def test_rejects_impossible_timeline_count(self) -> None:
+        payload = json.dumps(
+            {
+                "timeline": [
+                    {
+                        "data": [
+                            {"date": "20260914T000000Z", "value": 101, "norm": 100}
+                        ]
+                    }
+                ]
+            }
+        ).encode()
+
+        with self.assertRaisesRegex(ValueError, "must not exceed"):
+            parse_gdelt_timeline_response(payload, cutoff_date=CUTOFF_DATE)
+
+    def test_rejects_timeline_point_after_cutoff(self) -> None:
+        payload = json.dumps(
+            {
+                "timeline": [
+                    {
+                        "data": [
+                            {"date": "20260916T000000Z", "value": 1, "norm": 100}
+                        ]
+                    }
+                ]
+            }
+        ).encode()
+
+        with self.assertRaisesRegex(ValueError, "after cutoff_date"):
+            parse_gdelt_timeline_response(payload, cutoff_date=CUTOFF_DATE)
 
 
 if __name__ == "__main__":
