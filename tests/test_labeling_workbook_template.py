@@ -72,6 +72,20 @@ class LabelingWorkbookTemplateTests(unittest.TestCase):
         self.assertTrue(all(row[1] == "noise_control" for row in noise_rows))
         self.assertTrue(all(row[3] == "primary" for row in noise_rows))
 
+    def test_evidence_rows_are_pipeline_proposals_for_human_verification(self) -> None:
+        sheet = self.workbook["Доказательства"]
+        headers = [cell.value for cell in sheet[4]]
+        rows = list(sheet.iter_rows(min_row=5, max_row=404, values_only=True))
+
+        self.assertEqual(len(rows), 400)
+        self.assertEqual(
+            headers[-3:],
+            ["extraction_confidence", "verification_status", "review_note"],
+        )
+        self.assertTrue(all(row[14] == "pending" for row in rows))
+        self.assertEqual(sheet["B5"].fill.fgColor.rgb, "FFDDEBF7")
+        self.assertEqual(sheet["O5"].fill.fgColor.rgb, "FFFFF2CC")
+
     def test_workbook_has_validations_tables_and_no_formulas(self) -> None:
         for sheet_name in ("Кандидаты", "Доказательства", "Решения", "Шум"):
             sheet = self.workbook[sheet_name]

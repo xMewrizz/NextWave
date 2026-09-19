@@ -19,7 +19,7 @@ CORPUS_VERSION = "synthetic-ui-demo-2026.09.11"
 METHOD_VERSION = "weighted-rules-demo-0.1"
 TOP_N = 15
 
-# Эти веса нужны только для проверки UI-контракта. Обученная модель заменит их в V1-07.
+# Эти веса нужны только для проверки UI-контракта. Обученная модель заменит их в V1-09.
 FACTOR_WEIGHTS = {"growth": 0.35, "novelty": 0.25, "independence": 0.2, "evidence": 0.2}
 
 # Демонстрационные пороги меняются вместе с METHOD_VERSION и не являются измеренными метриками.
