@@ -25,6 +25,14 @@ from .openalex import (
     build_openalex_request,
     openalex_request_url,
 )
+from .openalex_parser import (
+    OpenAlexParseIssue,
+    OpenAlexParseResult,
+    normalize_doi,
+    parse_openalex_response,
+    parse_openalex_work,
+    reconstruct_openalex_abstract,
+)
 from .snapshots import SnapshotWriter
 
 __all__ = [
@@ -41,6 +49,8 @@ __all__ = [
     "OPENALEX_SELECT_FIELDS",
     "OPENALEX_WORKS_ENDPOINT",
     "OpenAlexConnector",
+    "OpenAlexParseIssue",
+    "OpenAlexParseResult",
     "QueryParameter",
     "QueryPurpose",
     "RawResponseArtifact",
@@ -51,5 +61,9 @@ __all__ = [
     "SourceQuery",
     "UrllibHttpTransport",
     "build_openalex_request",
+    "normalize_doi",
     "openalex_request_url",
+    "parse_openalex_response",
+    "parse_openalex_work",
+    "reconstruct_openalex_abstract",
 ]
