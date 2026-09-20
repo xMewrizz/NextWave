@@ -120,6 +120,22 @@ class SourceContractTests(unittest.TestCase):
                 cutoff_date=date(2026, 9, 15),
             )
 
+    def test_query_rejects_topic_and_subfield_filters_together(self) -> None:
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            SourceQuery(
+                query_id="query-ai-001",
+                analysis_scope_id="scope-ai-001",
+                purpose=QueryPurpose.DISCOVERY,
+                raw_query="ИИ",
+                normalized_query="artificial intelligence",
+                search_texts=("artificial intelligence",),
+                published_from=date(2025, 1, 1),
+                published_until=date(2026, 9, 15),
+                cutoff_date=date(2026, 9, 15),
+                topic_ids=("T11636",),
+                subfield_ids=("1702",),
+            )
+
     def test_connector_parameters_must_have_deterministic_order(self) -> None:
         with self.assertRaisesRegex(ValueError, "sorted"):
             ConnectorRequest(

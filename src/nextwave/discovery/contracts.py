@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any
 
 from nextwave.sources import ConnectorId, QueryPurpose, SourceQuery
@@ -13,6 +13,8 @@ from nextwave.sources import ConnectorId, QueryPurpose, SourceQuery
 ANALYSIS_SCOPE_SCHEMA_VERSION = "analysis-scope-v1"
 DISCOVERY_BUDGET_SCHEMA_VERSION = "discovery-budget-v1"
 DISCOVERY_PLAN_SCHEMA_VERSION = "discovery-plan-v1"
+QUERY_INTERPRETATION_SCHEMA_VERSION = "query-interpretation-v1"
+QUERY_RESOLUTION_SCHEMA_VERSION = "query-resolution-v1"
 
 _STABLE_ID = re.compile(r"[a-z0-9][a-z0-9._-]{2,99}\Z")
 _LANGUAGE = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*\Z")
@@ -52,6 +54,89 @@ def _json_value(value: Any) -> Any:
     return value
 
 
+class ScopeGranularity(StrEnum):
+    """Breadth of the user's intent before source-specific retrieval begins."""
+
+    DIRECTION = "direction"
+    TECHNOLOGY = "technology"
+
+
+class TaxonomyLevel(StrEnum):
+    TOPIC = "topic"
+    SUBFIELD = "subfield"
+
+
+class TaxonomyLookupStatus(StrEnum):
+    MATCHED = "matched"
+    NO_MATCH = "no_match"
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True, slots=True)
+class QueryInterpretation:
+    """Validated language-model output before OpenAlex taxonomy resolution."""
+
+    normalized_query: str
+    search_texts: tuple[str, ...]
+    languages: tuple[str, ...]
+    granularity: ScopeGranularity
+    interpreter_version: str
+    schema_version: str = field(default=QUERY_INTERPRETATION_SCHEMA_VERSION, init=False)
+
+    def __post_init__(self) -> None:
+        _require_text(self.normalized_query, "normalized_query")
+        if re.search(r"[А-Яа-яЁё]", self.normalized_query) or re.search(
+            r"[a-z]", self.normalized_query.casefold()
+        ) is None:
+            raise ValueError("normalized_query must be an English retrieval query")
+        _require_unique_text(self.search_texts, "search_texts")
+        if len(self.search_texts) > 8:
+            raise ValueError("search_texts must not contain more than 8 variants")
+        if any(len(value) > 200 for value in self.search_texts):
+            raise ValueError("search_texts values must not exceed 200 characters")
+        _require_unique_text(self.languages, "languages")
+        if any(_LANGUAGE.fullmatch(value) is None for value in self.languages):
+            raise ValueError("languages must contain lowercase language tags")
+        if "en" not in self.languages:
+            raise ValueError("languages must contain en")
+        if not isinstance(self.granularity, ScopeGranularity):
+            raise ValueError("granularity must be a ScopeGranularity")
+        _require_stable_id(self.interpreter_version, "interpreter_version")
+
+    def to_dict(self) -> dict[str, Any]:
+        return _json_value(asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class TaxonomyCandidate:
+    """One OpenAlex topic or subfield considered while resolving the query."""
+
+    entity_id: str
+    level: TaxonomyLevel
+    display_name: str
+    description: str | None
+    works_count: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.level, TaxonomyLevel):
+            raise ValueError("level must be a TaxonomyLevel")
+        if self.level is TaxonomyLevel.TOPIC:
+            if re.fullmatch(r"T[0-9]+", self.entity_id) is None:
+                raise ValueError("topic entity_id must use the OpenAlex T<number> format")
+        elif re.fullmatch(r"[0-9]+", self.entity_id) is None:
+            raise ValueError("subfield entity_id must contain digits")
+        _require_text(self.display_name, "display_name")
+        if self.description is not None:
+            _require_text(self.description, "description", max_length=2000)
+        if isinstance(self.works_count, bool) or not isinstance(self.works_count, int):
+            raise ValueError("works_count must be an integer")
+        if self.works_count < 0:
+            raise ValueError("works_count must be non-negative")
+
+    def to_dict(self) -> dict[str, Any]:
+        return _json_value(asdict(self))
+
+
 @dataclass(frozen=True, slots=True)
 class AnalysisScope:
     """Resolved meaning of a user query, fixed before candidates are extracted."""
@@ -62,7 +147,9 @@ class AnalysisScope:
     search_texts: tuple[str, ...]
     languages: tuple[str, ...]
     resolver_version: str
+    granularity: ScopeGranularity = ScopeGranularity.DIRECTION
     topic_ids: tuple[str, ...] = ()
+    subfield_ids: tuple[str, ...] = ()
     schema_version: str = field(default=ANALYSIS_SCOPE_SCHEMA_VERSION, init=False)
 
     def __post_init__(self) -> None:
@@ -74,6 +161,8 @@ class AnalysisScope:
         if any(_LANGUAGE.fullmatch(value) is None for value in self.languages):
             raise ValueError("languages must contain lowercase language tags")
         _require_stable_id(self.resolver_version, "resolver_version")
+        if not isinstance(self.granularity, ScopeGranularity):
+            raise ValueError("granularity must be a ScopeGranularity")
         if self.normalized_query.casefold() not in {
             value.casefold() for value in self.search_texts
         }:
@@ -83,6 +172,50 @@ class AnalysisScope:
             raise ValueError("topic_ids must not contain blank values")
         if len(set(normalized_topics)) != len(normalized_topics):
             raise ValueError("topic_ids must contain unique values")
+        normalized_subfields = [value.strip().casefold() for value in self.subfield_ids]
+        if any(not value for value in normalized_subfields):
+            raise ValueError("subfield_ids must not contain blank values")
+        if len(set(normalized_subfields)) != len(normalized_subfields):
+            raise ValueError("subfield_ids must contain unique values")
+        if self.topic_ids and self.subfield_ids:
+            raise ValueError("topic_ids and subfield_ids are mutually exclusive")
+        if self.granularity is ScopeGranularity.DIRECTION and self.topic_ids:
+            raise ValueError("direction scope cannot use topic_ids")
+        if self.granularity is ScopeGranularity.TECHNOLOGY and self.subfield_ids:
+            raise ValueError("technology scope cannot use subfield_ids")
+
+    def to_dict(self) -> dict[str, Any]:
+        return _json_value(asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class QueryResolution:
+    """Auditable result of interpretation and OpenAlex taxonomy matching."""
+
+    scope: AnalysisScope
+    interpretation: QueryInterpretation
+    taxonomy_status: TaxonomyLookupStatus
+    taxonomy_candidates: tuple[TaxonomyCandidate, ...]
+    selected_taxonomy: TaxonomyCandidate | None
+    taxonomy_error: str | None = None
+    schema_version: str = field(default=QUERY_RESOLUTION_SCHEMA_VERSION, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.taxonomy_status, TaxonomyLookupStatus):
+            raise ValueError("taxonomy_status must be a TaxonomyLookupStatus")
+        if self.scope.granularity is not self.interpretation.granularity:
+            raise ValueError("scope granularity must match the interpretation")
+        if self.taxonomy_status is TaxonomyLookupStatus.MATCHED:
+            if self.selected_taxonomy is None or self.taxonomy_error is not None:
+                raise ValueError("matched resolution requires a selection and no error")
+            if self.selected_taxonomy not in self.taxonomy_candidates:
+                raise ValueError("selected taxonomy must be one of the candidates")
+        elif self.taxonomy_status is TaxonomyLookupStatus.NO_MATCH:
+            if self.selected_taxonomy is not None or self.taxonomy_error is not None:
+                raise ValueError("no-match resolution cannot contain a selection or error")
+        else:
+            if self.selected_taxonomy is not None or not self.taxonomy_error:
+                raise ValueError("unavailable resolution requires a taxonomy error")
 
     def to_dict(self) -> dict[str, Any]:
         return _json_value(asdict(self))
@@ -150,6 +283,7 @@ class DiscoveryPlan:
             "search_texts",
             "languages",
             "topic_ids",
+            "subfield_ids",
         ):
             if getattr(self.query, field_name) != getattr(self.scope, field_name):
                 raise ValueError(f"query {field_name} must match the plan scope")

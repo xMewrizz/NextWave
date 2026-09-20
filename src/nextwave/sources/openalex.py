@@ -73,11 +73,13 @@ def build_openalex_request(
     if channel in {RetrievalChannel.TEXT, RetrievalChannel.SEMANTIC}:
         if search_text is None or search_text not in query.search_texts:
             raise ValueError("search_text must be one of SourceQuery.search_texts")
-    elif channel is RetrievalChannel.TOPIC:
+    elif channel is RetrievalChannel.TAXONOMY:
         if search_text is not None:
-            raise ValueError("topic retrieval must not contain search_text")
-        if not query.topic_ids:
-            raise ValueError("topic retrieval requires SourceQuery.topic_ids")
+            raise ValueError("taxonomy retrieval must not contain search_text")
+        if not query.topic_ids and not query.subfield_ids:
+            raise ValueError(
+                "taxonomy retrieval requires SourceQuery.topic_ids or subfield_ids"
+            )
     else:
         raise ValueError("identifier retrieval is not supported by the works search endpoint")
 
@@ -87,8 +89,13 @@ def build_openalex_request(
         "has_abstract:true",
         f"language:{'|'.join(query.languages)}",
     ]
-    if channel is RetrievalChannel.TOPIC:
-        filters.append(f"topics.id:{'|'.join(query.topic_ids)}")
+    if channel is RetrievalChannel.TAXONOMY:
+        taxonomy_filter = "topics.id"
+        taxonomy_ids = query.topic_ids
+        if query.subfield_ids:
+            taxonomy_filter = "topics.subfield.id"
+            taxonomy_ids = query.subfield_ids
+        filters.append(f"{taxonomy_filter}:{'|'.join(taxonomy_ids)}")
 
     parameters = [
         QueryParameter("filter", ",".join(filters)),

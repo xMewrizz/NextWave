@@ -9,6 +9,7 @@ from nextwave.discovery import (
     AnalysisScope,
     DiscoveryBudget,
     DiscoveryPlan,
+    ScopeGranularity,
     build_analysis_scope,
     build_discovery_plan,
 )
@@ -21,7 +22,7 @@ def make_scope() -> AnalysisScope:
         normalized_query="Artificial Intelligence Technologies",
         search_texts=("Технологии в ИИ", "AI technologies"),
         languages=("RU", "en"),
-        topic_ids=("T10001",),
+        subfield_ids=("1702",),
     )
 
 
@@ -40,7 +41,7 @@ class AnalysisScopeTests(unittest.TestCase):
             ),
         )
         self.assertEqual(scope.languages, ("ru", "en"))
-        self.assertEqual(scope.topic_ids, ("T10001",))
+        self.assertEqual(scope.subfield_ids, ("1702",))
 
     def test_equivalent_spacing_and_case_produce_same_scope_id(self) -> None:
         first = make_scope()
@@ -49,7 +50,7 @@ class AnalysisScopeTests(unittest.TestCase):
             normalized_query="ARTIFICIAL INTELLIGENCE TECHNOLOGIES",
             search_texts=("технологии в ии", "ai technologies"),
             languages=("ru", "EN"),
-            topic_ids=("t10001",),
+            subfield_ids=("1702",),
         )
 
         self.assertEqual(first.scope_id, second.scope_id)
@@ -61,6 +62,7 @@ class AnalysisScopeTests(unittest.TestCase):
             normalized_query="speculative decoding",
             search_texts=("спекулятивное декодирование",),
             languages=("ru", "en"),
+            granularity=ScopeGranularity.TECHNOLOGY,
         )
 
         self.assertNotEqual(broad.scope_id, narrow.scope_id)

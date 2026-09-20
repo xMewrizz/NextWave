@@ -9,7 +9,7 @@ from datetime import date
 
 from nextwave.sources import ConnectorId, QueryPurpose, SourceQuery
 
-from .contracts import AnalysisScope, DiscoveryBudget, DiscoveryPlan
+from .contracts import AnalysisScope, DiscoveryBudget, DiscoveryPlan, ScopeGranularity
 
 DEFAULT_RESOLVER_VERSION = "query-resolver-v1"
 
@@ -84,7 +84,9 @@ def build_analysis_scope(
     normalized_query: str,
     search_texts: tuple[str, ...],
     languages: tuple[str, ...],
+    granularity: ScopeGranularity = ScopeGranularity.DIRECTION,
     topic_ids: tuple[str, ...] = (),
+    subfield_ids: tuple[str, ...] = (),
     resolver_version: str = DEFAULT_RESOLVER_VERSION,
 ) -> AnalysisScope:
     """Freeze one reviewed multilingual interpretation of the user's query."""
@@ -96,6 +98,11 @@ def build_analysis_scope(
         value.casefold() for value in _normalize_unique(languages, "languages")
     )
     normalized_topics = _normalize_unique(topic_ids, "topic_ids") if topic_ids else ()
+    normalized_subfields = (
+        _normalize_unique(subfield_ids, "subfield_ids") if subfield_ids else ()
+    )
+    if normalized_topics and normalized_subfields:
+        raise ValueError("topic_ids and subfield_ids are mutually exclusive")
     resolver = _normalize_whitespace(resolver_version, "resolver_version").casefold()
     scope_id = _digest(
         "scope",
@@ -103,8 +110,10 @@ def build_analysis_scope(
             "languages": normalized_languages,
             "normalized_query": normalized,
             "resolver_version": resolver,
+            "granularity": granularity.value,
             "search_texts": tuple(value.casefold() for value in texts),
             "topic_ids": tuple(value.casefold() for value in normalized_topics),
+            "subfield_ids": tuple(value.casefold() for value in normalized_subfields),
         },
     )
     return AnalysisScope(
@@ -114,7 +123,9 @@ def build_analysis_scope(
         search_texts=texts,
         languages=normalized_languages,
         resolver_version=resolver,
+        granularity=granularity,
         topic_ids=normalized_topics,
+        subfield_ids=normalized_subfields,
     )
 
 
@@ -148,6 +159,7 @@ def build_discovery_plan(
         cutoff_date=cutoff_date,
         languages=scope.languages,
         topic_ids=scope.topic_ids,
+        subfield_ids=scope.subfield_ids,
     )
     plan_id = _digest(
         "plan",

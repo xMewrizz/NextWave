@@ -36,7 +36,7 @@ class QueryPurpose(StrEnum):
 class RetrievalChannel(StrEnum):
     TEXT = "text"
     SEMANTIC = "semantic"
-    TOPIC = "topic"
+    TAXONOMY = "taxonomy"
     IDENTIFIER = "identifier"
 
 
@@ -115,6 +115,7 @@ class SourceQuery:
     cutoff_date: date
     languages: tuple[str, ...] = ("en",)
     topic_ids: tuple[str, ...] = ()
+    subfield_ids: tuple[str, ...] = ()
     schema_version: str = field(default=SOURCE_QUERY_SCHEMA_VERSION, init=False)
 
     def __post_init__(self) -> None:
@@ -138,6 +139,15 @@ class SourceQuery:
             raise ValueError("topic_ids must not contain blank values")
         if len(set(normalized_topics)) != len(normalized_topics):
             raise ValueError("topic_ids must contain unique values")
+        normalized_subfields = [
+            subfield_id.strip().casefold() for subfield_id in self.subfield_ids
+        ]
+        if any(not subfield_id for subfield_id in normalized_subfields):
+            raise ValueError("subfield_ids must not contain blank values")
+        if len(set(normalized_subfields)) != len(normalized_subfields):
+            raise ValueError("subfield_ids must contain unique values")
+        if self.topic_ids and self.subfield_ids:
+            raise ValueError("topic_ids and subfield_ids are mutually exclusive")
 
     def to_dict(self) -> dict[str, Any]:
         return _json_value(asdict(self))
