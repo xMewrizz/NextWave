@@ -24,6 +24,7 @@ class ConnectorId(StrEnum):
     OPENALEX = "openalex"
     CROSSREF = "crossref"
     GDELT = "gdelt"
+    MEDIACLOUD = "mediacloud"
 
 
 class QueryPurpose(StrEnum):

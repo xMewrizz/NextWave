@@ -49,6 +49,24 @@ from .gdelt_parser import (
 )
 from .http import HttpResponse, HttpTransport, UrllibHttpTransport
 from .identifiers import doi_url, normalize_doi
+from .mediacloud import (
+    MEDIACLOUD_COUNT_OVER_TIME_ENDPOINT,
+    MEDIACLOUD_PLATFORM,
+    MEDIACLOUD_STORY_LIST_ENDPOINT,
+    MediaCloudConnector,
+    build_mediacloud_story_request,
+    build_mediacloud_timeline_request,
+    mediacloud_request_url,
+)
+from .mediacloud_parser import (
+    MediaCloudParseIssue,
+    MediaCloudParseResult,
+    MediaCloudTimelinePoint,
+    MediaCloudTimelineResult,
+    parse_mediacloud_response,
+    parse_mediacloud_story,
+    parse_mediacloud_timeline_response,
+)
 from .openalex import (
     OPENALEX_SELECT_FIELDS,
     OPENALEX_WORKS_ENDPOINT,
@@ -87,6 +105,14 @@ __all__ = [
     "GdeltTimelineResult",
     "HttpResponse",
     "HttpTransport",
+    "MEDIACLOUD_COUNT_OVER_TIME_ENDPOINT",
+    "MEDIACLOUD_PLATFORM",
+    "MEDIACLOUD_STORY_LIST_ENDPOINT",
+    "MediaCloudConnector",
+    "MediaCloudParseIssue",
+    "MediaCloudParseResult",
+    "MediaCloudTimelinePoint",
+    "MediaCloudTimelineResult",
     "OPENALEX_SELECT_FIELDS",
     "OPENALEX_WORKS_ENDPOINT",
     "OpenAlexConnector",
@@ -105,10 +131,13 @@ __all__ = [
     "build_crossref_request",
     "build_gdelt_request",
     "build_gdelt_timeline_request",
+    "build_mediacloud_story_request",
+    "build_mediacloud_timeline_request",
     "canonicalize_article_url",
     "crossref_request_url",
     "doi_url",
     "gdelt_request_url",
+    "mediacloud_request_url",
     "normalize_doi",
     "openalex_request_url",
     "parse_openalex_response",
@@ -118,5 +147,8 @@ __all__ = [
     "parse_gdelt_article",
     "parse_gdelt_response",
     "parse_gdelt_timeline_response",
+    "parse_mediacloud_response",
+    "parse_mediacloud_story",
+    "parse_mediacloud_timeline_response",
     "reconstruct_openalex_abstract",
 ]

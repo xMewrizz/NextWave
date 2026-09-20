@@ -4,6 +4,8 @@ services:
   backend:
     build:
       context: ./backend
+    env_file:
+      - ./config/hackathon.env
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
