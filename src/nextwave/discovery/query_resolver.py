@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import unicodedata
 from collections.abc import Callable, Mapping
@@ -20,7 +21,14 @@ from .contracts import (
     TaxonomyLevel,
     TaxonomyLookupStatus,
 )
-from .llm import LlmSelection
+from .llm import (
+    OPENAI_ADAPTER_VERSION,
+    JsonHttpTransport,
+    LlmProvider,
+    LlmSelection,
+    OpenAIResponsesJsonGenerator,
+    load_llm_runtime_settings,
+)
 from .planner import build_analysis_scope
 
 OPENALEX_API_ROOT = "https://api.openalex.org"
@@ -338,3 +346,32 @@ class QueryResolver:
             subfield_ids=subfield_ids,
             resolver_version=resolver_version,
         )
+
+
+def build_query_resolver_from_environment(
+    environment: Mapping[str, str] | None = None,
+    *,
+    llm_transport: JsonHttpTransport | None = None,
+    taxonomy_transport: HttpTransport | None = None,
+) -> QueryResolver:
+    """Build the configured live resolver without logging or serializing credentials."""
+
+    settings = load_llm_runtime_settings(os.environ if environment is None else environment)
+    if settings.selection.provider is not LlmProvider.OPENAI:
+        raise ValueError(
+            f"LLM adapter is not implemented for provider {settings.selection.provider.value!r}"
+        )
+    generator = OpenAIResponsesJsonGenerator(
+        settings.api_key,
+        selection=settings.selection,
+        transport=llm_transport,
+    )
+    interpreter = StructuredQueryInterpreter(
+        generator,
+        selection=settings.selection,
+        version=OPENAI_ADAPTER_VERSION,
+    )
+    return QueryResolver(
+        interpreter,
+        OpenAlexTaxonomySource(transport=taxonomy_transport),
+    )

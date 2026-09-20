@@ -15,6 +15,7 @@ from nextwave.discovery import (
     TaxonomyCandidate,
     TaxonomyLevel,
     TaxonomyLookupStatus,
+    build_query_resolver_from_environment,
     parse_openalex_taxonomy_response,
     select_taxonomy_candidate,
 )
@@ -288,6 +289,82 @@ class OpenAlexTaxonomySourceTests(unittest.TestCase):
         self.assertIn("search=artificial+intelligence", url)
         self.assertNotIn("secret-key", url)
         self.assertEqual(headers["Authorization"], "Bearer secret-key")
+
+
+class RuntimeQueryResolverTests(unittest.TestCase):
+    def test_builds_full_resolver_from_explicit_environment(self) -> None:
+        llm_transport = FakePostTransport(
+            HttpResponse(
+                200,
+                {},
+                json.dumps(
+                    {
+                        "model": "gpt-4.1-2025-04-14",
+                        "output": [
+                            {
+                                "type": "message",
+                                "content": [
+                                    {
+                                        "type": "output_text",
+                                        "text": json.dumps(
+                                            {
+                                                "normalized_query": "artificial intelligence",
+                                                "search_texts": [
+                                                    "artificial intelligence",
+                                                    "AI",
+                                                ],
+                                                "languages": ["en", "ru"],
+                                                "granularity": "direction",
+                                            }
+                                        ),
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ).encode(),
+            )
+        )
+        taxonomy_transport = FakeTransport(
+            HttpResponse(
+                200,
+                {},
+                json.dumps(
+                    {
+                        "results": [
+                            {
+                                "id": "https://openalex.org/1702",
+                                "display_name": "Artificial Intelligence",
+                                "works_count": 100,
+                            }
+                        ]
+                    }
+                ).encode(),
+            )
+        )
+
+        resolver = build_query_resolver_from_environment(
+            {
+                "NEXTWAVE_LLM_PROVIDER": "openai",
+                "NEXTWAVE_LLM_MODEL": "gpt-4.1",
+                "NEXTWAVE_LLM_API_KEY": "temporary-secret",
+            },
+            llm_transport=llm_transport,
+            taxonomy_transport=taxonomy_transport,
+        )
+        result = resolver.resolve("Технологии в ИИ")
+
+        self.assertEqual(result.scope.subfield_ids, ("1702",))
+        self.assertEqual(result.interpretation.interpreter_provider, "openai")
+        self.assertEqual(result.interpretation.interpreter_model, "gpt-4.1")
+
+
+class FakePostTransport:
+    def __init__(self, response: HttpResponse) -> None:
+        self.response = response
+
+    def post_json(self, url, *, headers, payload, timeout_seconds):
+        return self.response
 
 
 if __name__ == "__main__":

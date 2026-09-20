@@ -10,6 +10,7 @@ from nextwave.discovery import (
     LlmProvider,
     LlmSelection,
     OpenAIResponsesJsonGenerator,
+    load_llm_runtime_settings,
     parse_openai_output_text,
 )
 from nextwave.sources import HttpResponse
@@ -88,6 +89,34 @@ class LlmSelectionTests(unittest.TestCase):
         selection = LlmSelection(LlmProvider.HUGGINGFACE, "Qwen/Qwen3-4B")
 
         self.assertEqual(selection.model, "Qwen/Qwen3-4B")
+
+    def test_runtime_settings_do_not_expose_api_key_in_repr(self) -> None:
+        settings = load_llm_runtime_settings(
+            {
+                "NEXTWAVE_LLM_PROVIDER": "openai",
+                "NEXTWAVE_LLM_MODEL": "gpt-4.1",
+                "NEXTWAVE_LLM_API_KEY": "temporary-secret",
+            }
+        )
+
+        self.assertEqual(settings.selection.model, "gpt-4.1")
+        self.assertNotIn("temporary-secret", repr(settings))
+
+    def test_runtime_settings_require_an_explicit_provider_model_and_key(self) -> None:
+        for missing in (
+            "NEXTWAVE_LLM_PROVIDER",
+            "NEXTWAVE_LLM_MODEL",
+            "NEXTWAVE_LLM_API_KEY",
+        ):
+            environment = {
+                "NEXTWAVE_LLM_PROVIDER": "openai",
+                "NEXTWAVE_LLM_MODEL": "gpt-4.1",
+                "NEXTWAVE_LLM_API_KEY": "temporary-secret",
+            }
+            environment.pop(missing)
+            with self.subTest(missing=missing):
+                with self.assertRaisesRegex(ValueError, missing):
+                    load_llm_runtime_settings(environment)
 
 
 class OpenAIResponsesJsonGeneratorTests(unittest.TestCase):

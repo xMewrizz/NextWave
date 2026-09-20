@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
 from urllib.error import HTTPError
@@ -55,6 +55,38 @@ class LlmSelection:
             raise ValueError(
                 f"model {self.model!r} is not approved for provider {self.provider.value!r}"
             )
+
+
+@dataclass(frozen=True, slots=True)
+class LlmRuntimeSettings:
+    """Validated runtime settings whose secret is excluded from repr and comparison."""
+
+    selection: LlmSelection
+    api_key: str = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not self.api_key.strip():
+            raise ValueError("NEXTWAVE_LLM_API_KEY must not be blank")
+
+
+def load_llm_runtime_settings(environment: Mapping[str, str]) -> LlmRuntimeSettings:
+    """Read one explicit model selection; no provider or model is chosen automatically."""
+
+    provider_value = environment.get("NEXTWAVE_LLM_PROVIDER", "").strip()
+    model = environment.get("NEXTWAVE_LLM_MODEL", "").strip()
+    api_key = environment.get("NEXTWAVE_LLM_API_KEY", "").strip()
+    if not provider_value:
+        raise ValueError("NEXTWAVE_LLM_PROVIDER is required")
+    if not model:
+        raise ValueError("NEXTWAVE_LLM_MODEL is required")
+    try:
+        provider = LlmProvider(provider_value)
+    except ValueError as error:
+        raise ValueError(f"unknown LLM provider: {provider_value}") from error
+    return LlmRuntimeSettings(
+        selection=LlmSelection(provider, model),
+        api_key=api_key,
+    )
 
 
 class JsonHttpTransport(Protocol):
