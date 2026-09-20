@@ -102,6 +102,14 @@ def _require_url(value: str, field_name: str) -> None:
         raise ValueError(f"{field_name} must be an absolute HTTP or HTTPS URL")
 
 
+def _require_unique_texts(values: tuple[str, ...], field_name: str) -> None:
+    normalized = [value.strip().casefold() for value in values]
+    if any(not value for value in normalized):
+        raise ValueError(f"{field_name} must not contain blank values")
+    if len(set(normalized)) != len(normalized):
+        raise ValueError(f"{field_name} must contain unique values")
+
+
 @dataclass(frozen=True, slots=True)
 class SourceDocument:
     document_id: str
@@ -115,7 +123,11 @@ class SourceDocument:
     language: str
     trust_tier: TrustTier
     origin_id: str
+    doi: str | None = None
+    authors: tuple[str, ...] = ()
+    organizations: tuple[str, ...] = ()
     published_at: date | None = None
+    observed_at: datetime | None = None
     retrieved_at: datetime | None = None
     publisher: str | None = None
     excerpt: str | None = None
@@ -137,6 +149,24 @@ class SourceDocument:
             _require_text(value, name)
         _require_url(self.url, "url")
         _require_url(self.canonical_url, "canonical_url")
+        if not isinstance(self.source_type, SourceType):
+            raise ValueError("source_type must be a SourceType")
+        if not isinstance(self.trust_tier, TrustTier):
+            raise ValueError("trust_tier must be a TrustTier")
+        if self.doi is not None:
+            _require_text(self.doi, "doi")
+        _require_unique_texts(self.authors, "authors")
+        _require_unique_texts(self.organizations, "organizations")
+        for field_name, value in (
+            ("observed_at", self.observed_at),
+            ("retrieved_at", self.retrieved_at),
+        ):
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError(f"{field_name} must include a timezone")
+        if self.publisher is not None:
+            _require_text(self.publisher, "publisher")
+        if self.excerpt is not None:
+            _require_text(self.excerpt, "excerpt")
         _require_ratio(self.origin_confidence, "origin_confidence")
         if self.origin_method is not None:
             _require_text(self.origin_method, "origin_method")
@@ -284,6 +314,12 @@ class CandidateAssessment:
             for document in self.documents
         ):
             raise ValueError("documents published after cutoff_date are not allowed")
+        if any(
+            document.observed_at is not None
+            and document.observed_at.date() > self.cutoff_date
+            for document in self.documents
+        ):
+            raise ValueError("documents observed after cutoff_date are not allowed")
         if (
             self.features.temporal.first_seen_at is not None
             and self.features.temporal.first_seen_at > self.cutoff_date

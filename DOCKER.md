@@ -11,6 +11,8 @@ docker compose up --build
 ```
 
 Интерфейс будет доступен на `http://localhost:8080`, API — на `http://localhost:8000`.
+
+Compose автоматически передаёт backend временный Media Cloud token из `config/hackathon.env`; регистрация и ручной ввод ключа для проверки приватного хакатонного репозитория не требуются. Переменная недоступна frontend-контейнеру. После завершения оценки token отзывается.
 В PowerShell порты можно изменить переменными `FRONTEND_PORT` и `BACKEND_PORT`:
 
 ```powershell
