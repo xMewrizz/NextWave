@@ -48,9 +48,9 @@ def _request_digest(
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
 
 
-def _validate_collections(collection_ids: tuple[int, ...]) -> str:
+def _collection_parameter(collection_ids: tuple[int, ...]) -> str | None:
     if not collection_ids:
-        raise ValueError("Media Cloud requires at least one collection_id")
+        return None
     if any(isinstance(item, bool) or item <= 0 for item in collection_ids):
         raise ValueError("Media Cloud collection_ids must be positive integers")
     if len(set(collection_ids)) != len(collection_ids):
@@ -58,17 +58,38 @@ def _validate_collections(collection_ids: tuple[int, ...]) -> str:
     return ",".join(str(item) for item in collection_ids)
 
 
-def _search_expression(query: SourceQuery, search_text: str) -> str:
+def _search_expression(
+    query: SourceQuery,
+    search_text: str,
+    languages: tuple[str, ...] | None = None,
+) -> str:
     if search_text not in query.search_texts:
         raise ValueError("search_text must be one of SourceQuery.search_texts")
     normalized = search_text.strip()
     if not normalized or '"' in normalized or "\\" in normalized:
         raise ValueError("Media Cloud search_text must be a plain non-blank phrase")
     phrase = f'"{normalized}"'
-    languages = [f"language:{language.split('-', 1)[0]}" for language in query.languages]
-    if len(languages) == 1:
-        return f"{phrase} AND {languages[0]}"
-    return f"{phrase} AND ({' OR '.join(languages)})"
+    selected_languages = _selected_languages(query, languages)
+    filters = [
+        f"language:{language.split('-', 1)[0]}" for language in selected_languages
+    ]
+    if len(filters) == 1:
+        return f"{phrase} AND {filters[0]}"
+    return f"{phrase} AND ({' OR '.join(filters)})"
+
+
+def _selected_languages(
+    query: SourceQuery,
+    languages: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    selected = query.languages if languages is None else languages
+    if not selected:
+        raise ValueError("Media Cloud languages must not be empty")
+    if len(set(selected)) != len(selected):
+        raise ValueError("Media Cloud languages must be unique")
+    if any(language not in query.languages for language in selected):
+        raise ValueError("Media Cloud languages must come from SourceQuery.languages")
+    return selected
 
 
 def build_mediacloud_story_request(
@@ -80,6 +101,7 @@ def build_mediacloud_story_request(
     pagination_token: str | None = None,
     page_index: int = 1,
     attempt: int = 1,
+    languages: tuple[str, ...] | None = None,
 ) -> ConnectorRequest:
     """Build one deterministic page request against selected news collections."""
 
@@ -88,14 +110,16 @@ def build_mediacloud_story_request(
     if pagination_token is not None and not pagination_token.strip():
         raise ValueError("pagination_token must not be blank")
     parameters = [
-        QueryParameter("cs", _validate_collections(collection_ids)),
         QueryParameter("end", query.published_until.isoformat()),
         QueryParameter("page_size", str(page_size)),
         QueryParameter("platform", MEDIACLOUD_PLATFORM),
-        QueryParameter("q", _search_expression(query, search_text)),
+        QueryParameter("q", _search_expression(query, search_text, languages)),
         QueryParameter("sort_order", "desc"),
         QueryParameter("start", query.published_from.isoformat()),
     ]
+    collections = _collection_parameter(collection_ids)
+    if collections is not None:
+        parameters.append(QueryParameter("cs", collections))
     if pagination_token is not None:
         parameters.append(QueryParameter("pagination_token", pagination_token.strip()))
     parameters.sort(key=lambda parameter: parameter.name)
@@ -124,16 +148,19 @@ def build_mediacloud_timeline_request(
     search_text: str,
     collection_ids: tuple[int, ...],
     attempt: int = 1,
+    languages: tuple[str, ...] | None = None,
 ) -> ConnectorRequest:
     """Build a normalized attention request independent from story retrieval."""
 
     parameters = [
-        QueryParameter("cs", _validate_collections(collection_ids)),
         QueryParameter("end", query.published_until.isoformat()),
         QueryParameter("platform", MEDIACLOUD_PLATFORM),
-        QueryParameter("q", _search_expression(query, search_text)),
+        QueryParameter("q", _search_expression(query, search_text, languages)),
         QueryParameter("start", query.published_from.isoformat()),
     ]
+    collections = _collection_parameter(collection_ids)
+    if collections is not None:
+        parameters.append(QueryParameter("cs", collections))
     parameters.sort(key=lambda parameter: parameter.name)
     digest = _request_digest(
         query,
@@ -226,6 +253,7 @@ class MediaCloudConnector:
         pagination_token: str | None = None,
         page_index: int = 1,
         attempt: int = 1,
+        languages: tuple[str, ...] | None = None,
     ) -> ConnectorRun:
         request = build_mediacloud_story_request(
             query,
@@ -235,6 +263,7 @@ class MediaCloudConnector:
             pagination_token=pagination_token,
             page_index=page_index,
             attempt=attempt,
+            languages=languages,
         )
         return self._run_request(request, writer)
 
@@ -246,12 +275,14 @@ class MediaCloudConnector:
         search_text: str,
         collection_ids: tuple[int, ...],
         attempt: int = 1,
+        languages: tuple[str, ...] | None = None,
     ) -> ConnectorRun:
         request = build_mediacloud_timeline_request(
             query,
             search_text=search_text,
             collection_ids=collection_ids,
             attempt=attempt,
+            languages=languages,
         )
         return self._run_request(request, writer)
 

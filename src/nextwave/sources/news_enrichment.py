@@ -67,6 +67,10 @@ class NewsDocumentEnrichment:
 
     @property
     def candidate_text_available(self) -> bool:
+        return bool(self.document.title.strip())
+
+    @property
+    def supplemental_text_available(self) -> bool:
         return self.status in {
             NewsContentStatus.EXISTING_EXCERPT,
             NewsContentStatus.ARTICLE_TEXT,

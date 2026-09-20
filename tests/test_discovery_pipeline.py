@@ -1,0 +1,215 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from collections.abc import Mapping
+from dataclasses import replace
+from datetime import UTC, date, datetime
+from pathlib import Path
+
+from nextwave.discovery import (
+    DiscoveryBudget,
+    DiscoveryPipeline,
+    LlmProvider,
+    LlmSelection,
+    MediaDiscoveryExecutor,
+    OpenAlexDiscoveryExecutor,
+    ScopeGranularity,
+    StructuredCandidateMentionExtractor,
+    build_analysis_scope,
+    build_discovery_plan,
+)
+from nextwave.sources import (
+    ConnectorId,
+    HttpResponse,
+    NewsContentStatus,
+    NewsDocumentEnrichment,
+)
+
+NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
+
+
+def plan():
+    scope = build_analysis_scope(
+        raw_query="Технологии в ИИ",
+        normalized_query="artificial intelligence",
+        search_texts=("Технологии в ИИ",),
+        languages=("en", "ru"),
+        granularity=ScopeGranularity.DIRECTION,
+        subfield_ids=("1702",),
+    )
+    return build_discovery_plan(
+        analysis_id="analysis-ai-001",
+        scope=scope,
+        published_from=date(2025, 9, 21),
+        cutoff_date=date(2026, 9, 21),
+        budgets=(
+            DiscoveryBudget(ConnectorId.OPENALEX, True, 1, 1, 10, 10, 20),
+            DiscoveryBudget(ConnectorId.MEDIACLOUD, False, 2, 2, 10, 10, 20),
+            DiscoveryBudget(ConnectorId.GDELT, False, 1, 1, 10, 10, 20),
+        ),
+    )
+
+
+class SequenceTransport:
+    def __init__(self, *responses: HttpResponse) -> None:
+        self._responses = iter(responses)
+        self.calls: list[str] = []
+
+    def get(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str],
+        timeout_seconds: float,
+    ) -> HttpResponse:
+        self.calls.append(url)
+        return next(self._responses)
+
+
+class StubNewsEnricher:
+    def enrich_many(self, documents, *, max_concurrency=6):
+        return tuple(
+            NewsDocumentEnrichment(
+                document=replace(
+                    document,
+                    excerpt="The article reports a prototype tested in a data center.",
+                ),
+                status=NewsContentStatus.ARTICLE_TEXT,
+                issue_code=None,
+                message=None,
+                content_sha256="b" * 64,
+                fetched_bytes=200,
+                excerpt_source="test.article",
+                excerpt_truncated=False,
+            )
+            for document in documents
+        )
+
+
+class GroundedGenerator:
+    def __call__(self, prompt: str) -> str:
+        payload = json.loads(prompt.split("Input data as JSON:\n", 1)[1])
+        results = []
+        for document in payload["documents"]:
+            phrase = "Photonic inference accelerator"
+            mentions = (
+                [{"text": phrase, "field": "title"}]
+                if phrase in document["title"]
+                else []
+            )
+            results.append(
+                {"document_id": document["document_id"], "mentions": mentions}
+            )
+        return json.dumps({"documents": results})
+
+
+def openalex_response() -> HttpResponse:
+    payload = {
+        "meta": {"count": 1},
+        "results": [
+            {
+                "id": "https://openalex.org/W1",
+                "doi": "https://doi.org/10.1234/photonic",
+                "title": "Photonic inference accelerator for artificial intelligence",
+                "publication_date": "2026-08-10",
+                "language": "en",
+                "type": "article",
+                "authorships": [],
+                "abstract_inverted_index": {
+                    "Photonic": [0],
+                    "prototype": [1],
+                },
+                "keywords": [
+                    {
+                        "id": "https://openalex.org/keywords/photonic-inference-accelerator",
+                        "display_name": "Photonic inference accelerator",
+                        "score": 0.92,
+                    }
+                ],
+                "primary_location": {
+                    "landing_page_url": "https://science.example/photonic",
+                    "source": {"display_name": "Example Journal"},
+                },
+            }
+        ],
+    }
+    return HttpResponse(
+        200,
+        {"Content-Type": "application/json"},
+        json.dumps(payload).encode(),
+    )
+
+
+def media_response(number: int, language: str) -> HttpResponse:
+    payload = {
+        "stories": [
+            {
+                "id": f"story-{number}",
+                "url": f"https://news.example/photonic-{number}",
+                "title": f"Photonic inference accelerator reaches pilot {number}",
+                "publish_date": "2026-09-20",
+                "indexed_date": "2026-09-20T10:00:00Z",
+                "language": language,
+                "media_name": "Technology News",
+            }
+        ],
+        "pagination_token": None,
+    }
+    return HttpResponse(
+        200,
+        {"Content-Type": "application/json"},
+        json.dumps(payload).encode(),
+    )
+
+
+class DiscoveryPipelineTests(unittest.TestCase):
+    def test_builds_one_cross_source_candidate_proposal_pool(self) -> None:
+        scientific_transport = SequenceTransport(openalex_response())
+        media_transport = SequenceTransport(
+            media_response(1, "en"),
+            media_response(2, "ru"),
+        )
+        extractor = StructuredCandidateMentionExtractor(
+            GroundedGenerator(),
+            selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = DiscoveryPipeline(
+                OpenAlexDiscoveryExecutor(
+                    root,
+                    transport=scientific_transport,
+                    clock=lambda: NOW,
+                    monotonic=lambda: 0.0,
+                ),
+                MediaDiscoveryExecutor(
+                    root,
+                    mediacloud_api_key="temporary-key",
+                    mediacloud_transport=media_transport,
+                    news_enricher=StubNewsEnricher(),
+                    clock=lambda: NOW,
+                    monotonic=lambda: 0.0,
+                    mediacloud_min_interval_seconds=0,
+                ),
+                extractor,
+            ).execute(plan())
+
+        proposal = next(
+            item
+            for item in result.candidate_proposals.proposals
+            if item.normalized_name == "photonic inference accelerator"
+        )
+        self.assertEqual(len(result.documents), 3)
+        self.assertEqual(proposal.origin_count, 3)
+        self.assertEqual(proposal.connector_ids, ("mediacloud", "openalex"))
+        self.assertEqual(result.text_extraction.batch_count, 1)
+        self.assertEqual(len(scientific_transport.calls), 1)
+        self.assertEqual(len(media_transport.calls), 2)
+        json.dumps(result.to_dict(), ensure_ascii=False)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -110,6 +110,19 @@ class GdeltRequestTests(unittest.TestCase):
                 search_text="artificial intelligence",
             )
 
+    def test_request_can_use_one_language_from_the_source_scope(self) -> None:
+        request = build_gdelt_request(
+            make_query(),
+            search_text="artificial intelligence",
+            languages=("ru",),
+        )
+        parameters = {item.name: item.value for item in request.parameters}
+
+        self.assertEqual(
+            parameters["query"],
+            '"artificial intelligence" sourcelang:russian',
+        )
+
     def test_timeline_request_is_separate_from_article_list(self) -> None:
         request = build_gdelt_timeline_request(
             make_query(),

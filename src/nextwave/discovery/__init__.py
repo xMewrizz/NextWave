@@ -56,6 +56,15 @@ from .llm import (
     load_llm_runtime_settings,
     parse_openai_output_text,
 )
+from .media_executor import (
+    MEDIA_DISCOVERY_VERSION,
+    MediaDiscoveryExecutor,
+    MediaDiscoveryResult,
+    MediaFallbackReason,
+    MediaSearchStep,
+    build_media_search_schedule,
+    parse_mediacloud_collection_ids,
+)
 from .mention_extractor import (
     CANDIDATE_MENTION_JSON_SCHEMA,
     CANDIDATE_TEXT_EXTRACTOR_VERSION,
@@ -73,6 +82,12 @@ from .mention_extractor import (
     build_candidate_extraction_batches,
     build_candidate_mention_prompt,
     build_candidate_text_extractor_from_environment,
+)
+from .pipeline import (
+    DISCOVERY_PIPELINE_VERSION,
+    DiscoveryPipeline,
+    DiscoveryPipelineResult,
+    build_discovery_pipeline_from_environment,
 )
 from .planner import (
     DEFAULT_DISCOVERY_BUDGETS,
@@ -108,6 +123,7 @@ __all__ = [
     "DEFAULT_RESOLVER_VERSION",
     "DISCOVERY_BUDGET_SCHEMA_VERSION",
     "DISCOVERY_PLAN_SCHEMA_VERSION",
+    "DISCOVERY_PIPELINE_VERSION",
     "DiscoveryBudgetUsage",
     "DiscoveryHintIssue",
     "DiscoveryParseIssue",
@@ -117,6 +133,7 @@ __all__ = [
     "MAX_CANDIDATE_BATCH_INPUT_CHARS",
     "MAX_CANDIDATE_FIELD_CHARS",
     "MAX_MENTIONS_PER_DOCUMENT",
+    "MEDIA_DISCOVERY_VERSION",
     "OPENAI_ADAPTER_VERSION",
     "OPENAI_QUERY_MODEL",
     "OPENAI_RESPONSES_ENDPOINT",
@@ -140,10 +157,16 @@ __all__ = [
     "CandidateTextField",
     "DiscoveryBudget",
     "DiscoveryPlan",
+    "DiscoveryPipeline",
+    "DiscoveryPipelineResult",
     "JsonHttpTransport",
     "LlmProvider",
     "LlmRuntimeSettings",
     "LlmSelection",
+    "MediaDiscoveryExecutor",
+    "MediaDiscoveryResult",
+    "MediaFallbackReason",
+    "MediaSearchStep",
     "OpenAlexTaxonomySource",
     "OpenAlexDiscoveryExecutor",
     "OpenAlexDiscoveryResult",
@@ -169,13 +192,16 @@ __all__ = [
     "build_candidate_proposals",
     "build_candidate_text_extractor_from_environment",
     "build_discovery_plan",
+    "build_discovery_pipeline_from_environment",
     "build_interpretation_prompt",
+    "build_media_search_schedule",
     "build_openalex_candidate_mentions",
     "build_openalex_search_schedule",
     "build_query_resolver_from_environment",
     "parse_openalex_taxonomy_response",
     "load_llm_runtime_settings",
     "parse_openai_output_text",
+    "parse_mediacloud_collection_ids",
     "select_taxonomy_candidate",
     "taxonomy_match_score",
 ]

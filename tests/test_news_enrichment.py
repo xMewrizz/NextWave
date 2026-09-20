@@ -136,7 +136,8 @@ class NewsDocumentEnricherTests(unittest.TestCase):
         self.assertIs(result.status, NewsContentStatus.TITLE_ONLY)
         self.assertIs(result.issue_code, NewsEnrichmentIssueCode.HTTP_ERROR)
         self.assertIsNone(result.document.excerpt)
-        self.assertFalse(result.candidate_text_available)
+        self.assertTrue(result.candidate_text_available)
+        self.assertFalse(result.supplemental_text_available)
 
     def test_blocks_non_public_urls_before_request(self) -> None:
         transport = FakeTransport(HttpResponse(200, {}, b"unused"))
