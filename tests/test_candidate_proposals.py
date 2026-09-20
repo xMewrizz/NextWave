@@ -6,11 +6,13 @@ from datetime import date
 
 from nextwave.contracts import SourceDocument, SourceType, TrustTier
 from nextwave.discovery import (
-    CandidateHintKind,
+    CandidateMentionKind,
     ProposalExclusionReason,
     ScopeGranularity,
     build_analysis_scope,
+    build_candidate_mention,
     build_candidate_proposals,
+    build_openalex_candidate_mentions,
 )
 from nextwave.sources import (
     OpenAlexDiscoveryHints,
@@ -33,12 +35,13 @@ def scope():
 def document(
     number: int,
     *,
+    connector_id: str = "openalex",
     origin_id: str | None = None,
     organizations: tuple[str, ...] = (),
 ) -> SourceDocument:
     return SourceDocument(
         document_id=f"document-{number}",
-        connector_id="openalex",
+        connector_id=connector_id,
         external_id=f"W{number}",
         snapshot_id="snapshot-ai-001",
         title=f"Research work {number}",
@@ -102,7 +105,8 @@ class CandidateProposalTests(unittest.TestCase):
             ),
         )
 
-        batch = build_candidate_proposals(scope(), documents, hints)
+        mentions = build_openalex_candidate_mentions(documents, hints)
+        batch = build_candidate_proposals(scope(), documents, mentions)
 
         self.assertEqual(len(batch.proposals), 1)
         proposal = batch.proposals[0]
@@ -110,12 +114,17 @@ class CandidateProposalTests(unittest.TestCase):
         self.assertEqual(proposal.normalized_name, "speculative decoding")
         self.assertEqual(proposal.document_count, 2)
         self.assertEqual(proposal.origin_count, 2)
-        self.assertEqual(proposal.max_score, 0.91)
-        self.assertTrue(proposal.primary_topic)
+        self.assertEqual(proposal.max_provider_score, 0.91)
+        self.assertTrue(proposal.primary_provider_topic)
         self.assertEqual(
             proposal.source_kinds,
-            (CandidateHintKind.KEYWORD, CandidateHintKind.TOPIC),
+            (
+                CandidateMentionKind.PROVIDER_KEYWORD,
+                CandidateMentionKind.PROVIDER_TOPIC,
+            ),
         )
+        self.assertEqual(proposal.connector_ids, ("openalex",))
+        self.assertEqual(len(proposal.mention_ids), 3)
         self.assertEqual(len(proposal.provider_term_ids), 2)
         json.dumps(batch.to_dict(), ensure_ascii=False)
 
@@ -129,7 +138,8 @@ class CandidateProposalTests(unittest.TestCase):
             ),
         )
 
-        batch = build_candidate_proposals(scope(), documents, hints)
+        mentions = build_openalex_candidate_mentions(documents, hints)
+        batch = build_candidate_proposals(scope(), documents, mentions)
 
         self.assertEqual(batch.proposals, ())
         self.assertEqual(
@@ -163,7 +173,8 @@ class CandidateProposalTests(unittest.TestCase):
             ),
         )
 
-        batch = build_candidate_proposals(scope(), documents, hints)
+        mentions = build_openalex_candidate_mentions(documents, hints)
+        batch = build_candidate_proposals(scope(), documents, mentions)
 
         self.assertEqual(batch.proposals[0].canonical_name, "Repeated mechanism")
         self.assertEqual(batch.proposals[0].origin_count, 2)
@@ -182,7 +193,8 @@ class CandidateProposalTests(unittest.TestCase):
             for number in (1, 2)
         )
 
-        proposal = build_candidate_proposals(scope(), documents, hints).proposals[0]
+        mentions = build_openalex_candidate_mentions(documents, hints)
+        proposal = build_candidate_proposals(scope(), documents, mentions).proposals[0]
 
         self.assertEqual(proposal.document_count, 2)
         self.assertEqual(proposal.origin_count, 1)
@@ -197,7 +209,63 @@ class CandidateProposalTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "reference a supplied document"):
-            build_candidate_proposals(scope(), (document(1),), hints)
+            build_openalex_candidate_mentions((document(1),), hints)
+
+    def test_combines_mentions_from_scientific_and_media_connectors(self) -> None:
+        openalex_document = document(1)
+        media_document = document(2, connector_id="mediacloud")
+        openalex_mention = build_candidate_mention(
+            openalex_document,
+            text="Speculative Decoding",
+            kind=CandidateMentionKind.PROVIDER_KEYWORD,
+            locator="keywords",
+            provider_term_id="openalex:keyword:speculative-decoding",
+            provider_score=0.81,
+        )
+        media_mention = build_candidate_mention(
+            media_document,
+            text="speculative decoding",
+            kind=CandidateMentionKind.HEADLINE,
+            locator="title[0:20]",
+        )
+
+        proposal = build_candidate_proposals(
+            scope(),
+            (openalex_document, media_document),
+            (openalex_mention, media_mention),
+        ).proposals[0]
+
+        self.assertEqual(proposal.origin_count, 2)
+        self.assertEqual(proposal.connector_ids, ("mediacloud", "openalex"))
+        self.assertEqual(
+            proposal.source_kinds,
+            (
+                CandidateMentionKind.HEADLINE,
+                CandidateMentionKind.PROVIDER_KEYWORD,
+            ),
+        )
+        self.assertEqual(proposal.max_provider_score, 0.81)
+
+    def test_rejects_a_mention_with_a_connector_mismatch(self) -> None:
+        source_document = document(1)
+        mention = build_candidate_mention(
+            source_document,
+            text="Speculative Decoding",
+            kind=CandidateMentionKind.TITLE,
+            locator="title[0:20]",
+        )
+        mismatched = type(mention)(
+            mention_id=mention.mention_id,
+            document_id=mention.document_id,
+            connector_id="gdelt",
+            text=mention.text,
+            normalized_text=mention.normalized_text,
+            kind=mention.kind,
+            locator=mention.locator,
+        )
+
+        with self.assertRaisesRegex(ValueError, "connector must match"):
+            build_candidate_proposals(scope(), (source_document,), (mismatched,))
 
 
 if __name__ == "__main__":

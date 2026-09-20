@@ -1,13 +1,17 @@
 """Query scope resolution and bounded discovery planning."""
 
 from .candidates import (
+    CANDIDATE_MENTION_VERSION,
     CANDIDATE_PROPOSAL_VERSION,
-    CandidateHintKind,
+    CandidateMention,
+    CandidateMentionKind,
     CandidateProposal,
     CandidateProposalBatch,
     CandidateProposalExclusion,
     ProposalExclusionReason,
+    build_candidate_mention,
     build_candidate_proposals,
+    build_openalex_candidate_mentions,
 )
 from .contracts import (
     ANALYSIS_SCOPE_SCHEMA_VERSION,
@@ -76,6 +80,7 @@ from .query_resolver import (
 __all__ = [
     "ANALYSIS_SCOPE_SCHEMA_VERSION",
     "ALLOWED_CLOUD_MODELS",
+    "CANDIDATE_MENTION_VERSION",
     "CANDIDATE_PROPOSAL_VERSION",
     "DEFAULT_DISCOVERY_BUDGETS",
     "DEFAULT_RESOLVER_VERSION",
@@ -96,7 +101,8 @@ __all__ = [
     "QUERY_RESOLVER_VERSION",
     "QUERY_INTERPRETATION_JSON_SCHEMA",
     "AnalysisScope",
-    "CandidateHintKind",
+    "CandidateMention",
+    "CandidateMentionKind",
     "CandidateProposal",
     "CandidateProposalBatch",
     "CandidateProposalExclusion",
@@ -124,9 +130,11 @@ __all__ = [
     "TaxonomySource",
     "UrllibJsonHttpTransport",
     "build_analysis_scope",
+    "build_candidate_mention",
     "build_candidate_proposals",
     "build_discovery_plan",
     "build_interpretation_prompt",
+    "build_openalex_candidate_mentions",
     "build_openalex_search_schedule",
     "build_query_resolver_from_environment",
     "parse_openalex_taxonomy_response",
