@@ -144,7 +144,7 @@ def parse_mediacloud_story(
         raise ValueError("indexed_date is after cutoff_date")
 
     document_digest = hashlib.sha256(
-        f"{snapshot_id}|mediacloud|{external_id}".encode("utf-8")
+        f"{snapshot_id}|mediacloud|{external_id}".encode()
     ).hexdigest()[:16]
     return SourceDocument(
         document_id=f"document-mediacloud-{document_digest}",

@@ -131,7 +131,7 @@ def parse_crossref_work(
     url = url_value if isinstance(url_value, str) and _is_http_url(url_value) else canonical_url
     source_type, trust_tier = _source_classification(record.get("type"))
     document_digest = hashlib.sha256(
-        f"{snapshot_id}|crossref|{doi}".encode("utf-8")
+        f"{snapshot_id}|crossref|{doi}".encode()
     ).hexdigest()[:16]
     return SourceDocument(
         document_id=f"document-crossref-{document_digest}",

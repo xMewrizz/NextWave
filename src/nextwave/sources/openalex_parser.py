@@ -154,7 +154,7 @@ def parse_openalex_work(
     source_type, trust_tier = _source_classification(record.get("type"))
 
     document_digest = hashlib.sha256(
-        f"{snapshot_id}|openalex|{external_id.casefold()}".encode("utf-8")
+        f"{snapshot_id}|openalex|{external_id.casefold()}".encode()
     ).hexdigest()[:16]
     return SourceDocument(
         document_id=f"document-openalex-{document_digest}",

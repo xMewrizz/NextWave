@@ -238,7 +238,7 @@ def parse_gdelt_article(
 
     external_id = hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()[:24]
     document_digest = hashlib.sha256(
-        f"{snapshot_id}|gdelt|{external_id}".encode("utf-8")
+        f"{snapshot_id}|gdelt|{external_id}".encode()
     ).hexdigest()[:16]
     return SourceDocument(
         document_id=f"document-gdelt-{document_digest}",
