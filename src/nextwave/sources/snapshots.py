@@ -107,6 +107,20 @@ class SnapshotWriter:
         self._finalized = True
         return self.final_path
 
+    def read_response(self, artifact: RawResponseArtifact) -> bytes:
+        """Read and verify one response while the snapshot is still being assembled."""
+
+        self._require_open()
+        path = self._staging_path.joinpath(*PurePosixPath(artifact.uri).parts)
+        if not path.is_file():
+            raise FileNotFoundError(f"snapshot artifact is missing: {artifact.uri}")
+        payload = path.read_bytes()
+        if len(payload) != artifact.size_bytes:
+            raise ValueError(f"artifact size mismatch: {artifact.uri}")
+        if hashlib.sha256(payload).hexdigest() != artifact.sha256:
+            raise ValueError(f"artifact checksum mismatch: {artifact.uri}")
+        return payload
+
     def _require_open(self) -> None:
         if self._finalized:
             raise RuntimeError("snapshot writer is already finalized")
