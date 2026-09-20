@@ -6,6 +6,7 @@ import json
 import os
 import re
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from enum import Enum, StrEnum
 from typing import Any
@@ -25,6 +26,8 @@ from .llm import (
 CANDIDATE_TEXT_EXTRACTOR_VERSION = "candidate-text-extractor-v1"
 MAX_CANDIDATE_BATCH_DOCUMENTS = 8
 MAX_CANDIDATE_FIELD_CHARS = 4000
+MAX_CANDIDATE_BATCH_INPUT_CHARS = 24_000
+DEFAULT_CANDIDATE_EXTRACTION_CONCURRENCY = 3
 MAX_MENTIONS_PER_DOCUMENT = 12
 
 CANDIDATE_MENTION_JSON_SCHEMA: Mapping[str, Any] = {
@@ -111,6 +114,7 @@ class CandidateMentionExtractionResult:
     mentions: tuple[CandidateMention, ...]
     issues: tuple[CandidateExtractionIssue, ...]
     coverage: tuple[CandidateTextCoverage, ...]
+    batch_count: int = 1
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -120,6 +124,7 @@ class CandidateMentionExtractionResult:
             "mentions": [mention.to_dict() for mention in self.mentions],
             "issues": [issue.to_dict() for issue in self.issues],
             "coverage": [item.to_dict() for item in self.coverage],
+            "batch_count": self.batch_count,
         }
 
 
@@ -241,6 +246,55 @@ class StructuredCandidateMentionExtractor:
             coverage=coverage,
         )
 
+    def extract_many(
+        self,
+        scope: AnalysisScope,
+        documents: tuple[SourceDocument, ...],
+        *,
+        max_concurrency: int = DEFAULT_CANDIDATE_EXTRACTION_CONCURRENCY,
+        max_input_chars: int = MAX_CANDIDATE_BATCH_INPUT_CHARS,
+    ) -> CandidateMentionExtractionResult:
+        """Extract every document in bounded, concurrently processed batches."""
+
+        if max_concurrency < 1:
+            raise ValueError("max_concurrency must be positive")
+        batches = build_candidate_extraction_batches(
+            documents,
+            max_input_chars=max_input_chars,
+        )
+        if len(batches) == 1:
+            return self.extract(scope, batches[0])
+
+        with ThreadPoolExecutor(max_workers=min(max_concurrency, len(batches))) as pool:
+            futures = [pool.submit(self.extract, scope, batch) for batch in batches]
+            results = [future.result() for future in futures]
+
+        mentions = {
+            mention.mention_id: mention
+            for result in results
+            for mention in result.mentions
+        }
+        issues = tuple(
+            sorted(
+                (issue for result in results for issue in result.issues),
+                key=lambda value: (
+                    value.document_id,
+                    value.code.value,
+                    value.field or "",
+                    value.text or "",
+                ),
+            )
+        )
+        return CandidateMentionExtractionResult(
+            analysis_scope_id=scope.scope_id,
+            extractor_id=self._extractor_id,
+            input_document_ids=tuple(document.document_id for document in documents),
+            mentions=tuple(sorted(mentions.values(), key=lambda value: value.mention_id)),
+            issues=issues,
+            coverage=tuple(item for result in results for item in result.coverage),
+            batch_count=len(batches),
+        )
+
     def _validated_mention(
         self,
         document: SourceDocument,
@@ -339,6 +393,44 @@ Input data as JSON:
 {json.dumps(input_payload, ensure_ascii=False, separators=(",", ":"))}"""
 
 
+def build_candidate_extraction_batches(
+    documents: tuple[SourceDocument, ...],
+    *,
+    max_documents: int = MAX_CANDIDATE_BATCH_DOCUMENTS,
+    max_input_chars: int = MAX_CANDIDATE_BATCH_INPUT_CHARS,
+) -> tuple[tuple[SourceDocument, ...], ...]:
+    """Pack documents by both count and bounded prompt text size."""
+
+    if not documents:
+        raise ValueError("documents must not be empty")
+    if max_documents < 1 or max_documents > MAX_CANDIDATE_BATCH_DOCUMENTS:
+        raise ValueError(
+            f"max_documents must be between 1 and {MAX_CANDIDATE_BATCH_DOCUMENTS}"
+        )
+    if max_input_chars < 1:
+        raise ValueError("max_input_chars must be positive")
+    document_ids = [document.document_id for document in documents]
+    if len(set(document_ids)) != len(document_ids):
+        raise ValueError("documents must contain unique document_id values")
+
+    batches: list[tuple[SourceDocument, ...]] = []
+    current: list[SourceDocument] = []
+    current_chars = 0
+    for document in documents:
+        document_chars = _candidate_prompt_chars(document)
+        exceeds_count = len(current) >= max_documents
+        exceeds_text = bool(current) and current_chars + document_chars > max_input_chars
+        if exceeds_count or exceeds_text:
+            batches.append(tuple(current))
+            current = []
+            current_chars = 0
+        current.append(document)
+        current_chars += document_chars
+    if current:
+        batches.append(tuple(current))
+    return tuple(batches)
+
+
 def build_candidate_text_extractor_from_environment(
     environment: Mapping[str, str] | None = None,
     *,
@@ -395,6 +487,16 @@ def _prompt_documents(
             )
         )
     return result, tuple(coverage)
+
+
+def _candidate_prompt_chars(document: SourceDocument) -> int:
+    title_chars = min(len(document.title), MAX_CANDIDATE_FIELD_CHARS)
+    excerpt_chars = (
+        min(len(document.excerpt), MAX_CANDIDATE_FIELD_CHARS)
+        if document.excerpt is not None
+        else 0
+    )
+    return title_chars + excerpt_chars + len(document.document_id) + 128
 
 
 def _parse_response_envelope(raw_response: str) -> list[object]:

@@ -15,6 +15,7 @@ from nextwave.discovery import (
     ScopeGranularity,
     StructuredCandidateMentionExtractor,
     build_analysis_scope,
+    build_candidate_extraction_batches,
 )
 
 
@@ -61,6 +62,24 @@ class FakeGenerator:
     def __call__(self, prompt: str) -> str:
         self.prompts.append(prompt)
         return json.dumps(self.payload, ensure_ascii=False)
+
+
+class EmptyBatchGenerator:
+    def __init__(self) -> None:
+        self.batch_sizes: list[int] = []
+
+    def __call__(self, prompt: str) -> str:
+        payload = json.loads(prompt.split("Input data as JSON:\n", 1)[1])
+        documents = payload["documents"]
+        self.batch_sizes.append(len(documents))
+        return json.dumps(
+            {
+                "documents": [
+                    {"document_id": item["document_id"], "mentions": []}
+                    for item in documents
+                ]
+            }
+        )
 
 
 def extractor(generator: FakeGenerator) -> StructuredCandidateMentionExtractor:
@@ -216,6 +235,34 @@ class CandidateMentionExtractorTests(unittest.TestCase):
             extractor(FakeGenerator({"documents": []})).extract(scope(), documents)
 
         self.assertEqual(MAX_CANDIDATE_BATCH_DOCUMENTS, 8)
+
+    def test_extract_many_processes_all_bounded_batches(self) -> None:
+        documents = tuple(document(number + 1) for number in range(18))
+        generator = EmptyBatchGenerator()
+
+        result = StructuredCandidateMentionExtractor(
+            generator,
+            selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+        ).extract_many(scope(), documents)
+
+        self.assertEqual(result.batch_count, 3)
+        self.assertEqual(sorted(generator.batch_sizes), [2, 8, 8])
+        self.assertEqual(result.input_document_ids, tuple(item.document_id for item in documents))
+        self.assertEqual(len(result.coverage), 18)
+        self.assertEqual(result.issues, ())
+
+    def test_batch_builder_respects_text_budget_before_document_limit(self) -> None:
+        documents = tuple(
+            document(number + 1, excerpt="E" * MAX_CANDIDATE_FIELD_CHARS)
+            for number in range(5)
+        )
+
+        batches = build_candidate_extraction_batches(
+            documents,
+            max_input_chars=8_500,
+        )
+
+        self.assertEqual([len(batch) for batch in batches], [2, 2, 1])
 
     def test_rejects_response_level_contract_violation(self) -> None:
         generator = FakeGenerator({"documents": [], "explanation": "extra"})
