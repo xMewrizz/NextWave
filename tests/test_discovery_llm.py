@@ -140,6 +140,29 @@ class OpenAIResponsesJsonGeneratorTests(unittest.TestCase):
         self.assertNotIn("temporary-secret", json.dumps(payload))
         self.assertEqual(timeout, 12)
 
+    def test_accepts_a_task_specific_strict_schema_and_output_budget(self) -> None:
+        transport = FakeJsonTransport(HttpResponse(200, {}, response_body()))
+        schema = {
+            "type": "object",
+            "properties": {"documents": {"type": "array"}},
+            "required": ["documents"],
+            "additionalProperties": False,
+        }
+        generator = OpenAIResponsesJsonGenerator(
+            "temporary-secret",
+            transport=transport,
+            json_schema=schema,
+            schema_name="candidate_mentions",
+            max_output_tokens=2000,
+        )
+
+        generator("Extract grounded mentions")
+
+        payload = transport.calls[0][2]
+        self.assertEqual(payload["max_output_tokens"], 2000)
+        self.assertEqual(payload["text"]["format"]["name"], "candidate_mentions")
+        self.assertEqual(payload["text"]["format"]["schema"], schema)
+
     def test_refuses_other_approved_models_until_their_adapter_is_implemented(self) -> None:
         with self.assertRaisesRegex(ValueError, "supports only"):
             OpenAIResponsesJsonGenerator(

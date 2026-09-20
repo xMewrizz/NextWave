@@ -219,6 +219,7 @@ class CandidateProposalTests(unittest.TestCase):
             text="Speculative Decoding",
             kind=CandidateMentionKind.PROVIDER_KEYWORD,
             locator="keywords",
+            extractor_id="openalex-hints-v1",
             provider_term_id="openalex:keyword:speculative-decoding",
             provider_score=0.81,
         )
@@ -227,6 +228,7 @@ class CandidateProposalTests(unittest.TestCase):
             text="speculative decoding",
             kind=CandidateMentionKind.HEADLINE,
             locator="title[0:20]",
+            extractor_id="openai-gpt-4.1-candidate-text-v1",
         )
 
         proposal = build_candidate_proposals(
@@ -253,6 +255,7 @@ class CandidateProposalTests(unittest.TestCase):
             text="Speculative Decoding",
             kind=CandidateMentionKind.TITLE,
             locator="title[0:20]",
+            extractor_id="openai-gpt-4.1-candidate-text-v1",
         )
         mismatched = type(mention)(
             mention_id=mention.mention_id,
@@ -262,6 +265,7 @@ class CandidateProposalTests(unittest.TestCase):
             normalized_text=mention.normalized_text,
             kind=mention.kind,
             locator=mention.locator,
+            extractor_id=mention.extractor_id,
         )
 
         with self.assertRaisesRegex(ValueError, "connector must match"):

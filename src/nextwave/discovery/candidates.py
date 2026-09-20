@@ -15,6 +15,7 @@ from .contracts import AnalysisScope
 
 CANDIDATE_MENTION_VERSION = "candidate-mention-v1"
 CANDIDATE_PROPOSAL_VERSION = "candidate-proposal-v2"
+OPENALEX_HINT_EXTRACTOR_ID = "openalex-hints-v1"
 
 
 class CandidateMentionKind(StrEnum):
@@ -24,7 +25,7 @@ class CandidateMentionKind(StrEnum):
     PROVIDER_TOPIC = "provider_topic"
     PROVIDER_SUBJECT = "provider_subject"
     TITLE = "title"
-    ABSTRACT = "abstract"
+    EXCERPT = "excerpt"
     HEADLINE = "headline"
 
 
@@ -45,6 +46,7 @@ class CandidateMention:
     normalized_text: str
     kind: CandidateMentionKind
     locator: str
+    extractor_id: str
     provider_term_id: str | None = None
     provider_score: float | None = None
     primary_provider_topic: bool = False
@@ -58,6 +60,7 @@ class CandidateMention:
             (self.text, "text"),
             (self.normalized_text, "normalized_text"),
             (self.locator, "locator"),
+            (self.extractor_id, "extractor_id"),
             (self.mention_version, "mention_version"),
         ):
             _require_text(value, field_name)
@@ -171,6 +174,7 @@ def build_candidate_mention(
     text: str,
     kind: CandidateMentionKind,
     locator: str,
+    extractor_id: str,
     provider_term_id: str | None = None,
     provider_score: float | None = None,
     primary_provider_topic: bool = False,
@@ -183,6 +187,7 @@ def build_candidate_mention(
             document.document_id,
             kind.value,
             locator,
+            extractor_id,
             provider_term_id or "",
             normalized_text,
         )
@@ -196,6 +201,7 @@ def build_candidate_mention(
         normalized_text=normalized_text,
         kind=kind,
         locator=locator,
+        extractor_id=extractor_id,
         provider_term_id=provider_term_id,
         provider_score=provider_score,
         primary_provider_topic=primary_provider_topic,
@@ -225,6 +231,7 @@ def build_openalex_candidate_mentions(
                     text=keyword.display_name,
                     kind=CandidateMentionKind.PROVIDER_KEYWORD,
                     locator="keywords",
+                    extractor_id=OPENALEX_HINT_EXTRACTOR_ID,
                     provider_term_id=f"openalex:keyword:{keyword.keyword_id}",
                     provider_score=keyword.score,
                 )
@@ -236,6 +243,7 @@ def build_openalex_candidate_mentions(
                     text=topic.display_name,
                     kind=CandidateMentionKind.PROVIDER_TOPIC,
                     locator="topics",
+                    extractor_id=OPENALEX_HINT_EXTRACTOR_ID,
                     provider_term_id=f"openalex:topic:{topic.topic_id}",
                     provider_score=topic.score,
                     primary_provider_topic=topic.primary,

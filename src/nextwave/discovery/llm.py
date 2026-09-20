@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -15,6 +16,7 @@ from nextwave.sources import HttpResponse
 OPENAI_RESPONSES_ENDPOINT = "https://api.openai.com/v1/responses"
 OPENAI_QUERY_MODEL = "gpt-4.1"
 OPENAI_ADAPTER_VERSION = "openai-responses-v1"
+_SCHEMA_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 
 
 class LlmProvider(StrEnum):
@@ -164,17 +166,33 @@ class OpenAIResponsesJsonGenerator:
         selection: LlmSelection | None = None,
         transport: JsonHttpTransport | None = None,
         timeout_seconds: float = 30.0,
+        json_schema: Mapping[str, Any] = QUERY_INTERPRETATION_JSON_SCHEMA,
+        schema_name: str = "query_interpretation",
+        max_output_tokens: int = 500,
     ) -> None:
         if not api_key.strip():
             raise ValueError("OpenAI API key must not be blank")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
+        if _SCHEMA_NAME.fullmatch(schema_name) is None:
+            raise ValueError("schema_name must be a lowercase JSON schema identifier")
+        if (
+            isinstance(max_output_tokens, bool)
+            or not isinstance(max_output_tokens, int)
+            or not 1 <= max_output_tokens <= 10000
+        ):
+            raise ValueError("max_output_tokens must be between 1 and 10000")
+        if not isinstance(json_schema, Mapping):
+            raise ValueError("json_schema must be an object")
         self.selection = selection or LlmSelection(LlmProvider.OPENAI, OPENAI_QUERY_MODEL)
         if self.selection != LlmSelection(LlmProvider.OPENAI, OPENAI_QUERY_MODEL):
             raise ValueError("OpenAI query adapter supports only the approved gpt-4.1 model")
         self._api_key = api_key
         self._transport = transport or UrllibJsonHttpTransport()
         self._timeout_seconds = timeout_seconds
+        self._json_schema = dict(json_schema)
+        self._schema_name = schema_name
+        self._max_output_tokens = max_output_tokens
 
     def __call__(self, prompt: str) -> str:
         if not prompt.strip():
@@ -190,14 +208,14 @@ class OpenAIResponsesJsonGenerator:
             payload={
                 "model": self.selection.model,
                 "input": prompt,
-                "max_output_tokens": 500,
+                "max_output_tokens": self._max_output_tokens,
                 "store": False,
                 "text": {
                     "format": {
                         "type": "json_schema",
-                        "name": "query_interpretation",
+                        "name": self._schema_name,
                         "strict": True,
-                        "schema": QUERY_INTERPRETATION_JSON_SCHEMA,
+                        "schema": self._json_schema,
                     }
                 },
             },
