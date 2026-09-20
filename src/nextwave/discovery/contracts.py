@@ -13,7 +13,7 @@ from nextwave.sources import ConnectorId, QueryPurpose, SourceQuery
 ANALYSIS_SCOPE_SCHEMA_VERSION = "analysis-scope-v1"
 DISCOVERY_BUDGET_SCHEMA_VERSION = "discovery-budget-v1"
 DISCOVERY_PLAN_SCHEMA_VERSION = "discovery-plan-v1"
-QUERY_INTERPRETATION_SCHEMA_VERSION = "query-interpretation-v1"
+QUERY_INTERPRETATION_SCHEMA_VERSION = "query-interpretation-v2"
 QUERY_RESOLUTION_SCHEMA_VERSION = "query-resolution-v1"
 
 _STABLE_ID = re.compile(r"[a-z0-9][a-z0-9._-]{2,99}\Z")
@@ -80,6 +80,8 @@ class QueryInterpretation:
     search_texts: tuple[str, ...]
     languages: tuple[str, ...]
     granularity: ScopeGranularity
+    interpreter_provider: str
+    interpreter_model: str
     interpreter_version: str
     schema_version: str = field(default=QUERY_INTERPRETATION_SCHEMA_VERSION, init=False)
 
@@ -101,6 +103,8 @@ class QueryInterpretation:
             raise ValueError("languages must contain en")
         if not isinstance(self.granularity, ScopeGranularity):
             raise ValueError("granularity must be a ScopeGranularity")
+        _require_stable_id(self.interpreter_provider, "interpreter_provider")
+        _require_text(self.interpreter_model, "interpreter_model")
         _require_stable_id(self.interpreter_version, "interpreter_version")
 
     def to_dict(self) -> dict[str, Any]:

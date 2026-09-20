@@ -20,6 +20,7 @@ from .contracts import (
     TaxonomyLevel,
     TaxonomyLookupStatus,
 )
+from .llm import LlmSelection
 from .planner import build_analysis_scope
 
 OPENALEX_API_ROOT = "https://api.openalex.org"
@@ -63,9 +64,11 @@ class StructuredQueryInterpreter:
         self,
         generate: Callable[[str], str],
         *,
+        selection: LlmSelection,
         version: str,
     ) -> None:
         self._generate = generate
+        self._selection = selection
         self._version = version
 
     def interpret(self, raw_query: str) -> QueryInterpretation:
@@ -105,6 +108,8 @@ class StructuredQueryInterpreter:
             search_texts=tuple(value.strip() for value in search_texts),
             languages=tuple(value.strip().casefold() for value in languages),
             granularity=granularity,
+            interpreter_provider=self._selection.provider.value,
+            interpreter_model=self._selection.model,
             interpreter_version=self._version,
         )
 
