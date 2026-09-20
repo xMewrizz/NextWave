@@ -6,7 +6,7 @@ import hashlib
 import re
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, date, datetime
 from enum import Enum, StrEnum
 from pathlib import Path
@@ -19,6 +19,7 @@ from nextwave.sources import (
     ConnectorStatus,
     HttpTransport,
     OpenAlexConnector,
+    OpenAlexDiscoveryHints,
     RetrievalChannel,
     SnapshotManifest,
     SnapshotStatus,
@@ -74,6 +75,19 @@ class DiscoveryParseIssue:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscoveryHintIssue:
+    connector_id: ConnectorId
+    request_id: str
+    record_index: int
+    external_id: str | None
+    document_id: str
+    message: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return _json_value(asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
 class DiscoveryBudgetUsage:
     connector_id: ConnectorId
     requests_used: int
@@ -115,7 +129,9 @@ class OpenAlexDiscoveryResult:
     plan_id: str
     manifest: SnapshotManifest
     documents: tuple[SourceDocument, ...]
+    hints: tuple[OpenAlexDiscoveryHints, ...]
     issues: tuple[DiscoveryParseIssue, ...]
+    hint_issues: tuple[DiscoveryHintIssue, ...]
     usage: DiscoveryBudgetUsage
     snapshot_path: Path
 
@@ -129,7 +145,9 @@ class OpenAlexDiscoveryResult:
             "status": self.status.value,
             "manifest": self.manifest.to_dict(),
             "documents": [_json_value(asdict(document)) for document in self.documents],
+            "hints": [_json_value(asdict(hint)) for hint in self.hints],
             "issues": [issue.to_dict() for issue in self.issues],
+            "hint_issues": [issue.to_dict() for issue in self.hint_issues],
             "usage": self.usage.to_dict(),
             "snapshot_path": self.snapshot_path.as_posix(),
         }
@@ -188,7 +206,9 @@ class OpenAlexDiscoveryExecutor:
         started = self._monotonic()
         runs: list[ConnectorRun] = []
         documents_by_origin: dict[str, SourceDocument] = {}
+        hints_by_document: dict[str, OpenAlexDiscoveryHints] = {}
         issues: list[DiscoveryParseIssue] = []
+        hint_issues: list[DiscoveryHintIssue] = []
         returned_records = 0
         accepted_records = 0
         duplicate_documents = 0
@@ -234,6 +254,17 @@ class OpenAlexDiscoveryExecutor:
             )
             returned_records += parsed.total_records
             accepted_records += parsed.accepted_records
+            hint_issues.extend(
+                DiscoveryHintIssue(
+                    connector_id=ConnectorId.OPENALEX,
+                    request_id=run.request.request_id,
+                    record_index=issue.record_index,
+                    external_id=issue.external_id,
+                    document_id=issue.document_id,
+                    message=issue.message,
+                )
+                for issue in parsed.hint_issues
+            )
             for issue in parsed.issues:
                 issues.append(
                     DiscoveryParseIssue(
@@ -245,11 +276,20 @@ class OpenAlexDiscoveryExecutor:
                         message=issue.message,
                     )
                 )
+            parsed_hints = {hint.document_id: hint for hint in parsed.hints}
             for document in parsed.documents:
-                if document.origin_id in documents_by_origin:
+                hints = parsed_hints[document.document_id]
+                retained_document = documents_by_origin.get(document.origin_id)
+                if retained_document is not None:
                     duplicate_documents += 1
+                    hints_by_document[retained_document.document_id] = _merge_hints(
+                        hints_by_document[retained_document.document_id],
+                        hints,
+                        retained_document.document_id,
+                    )
                     continue
                 documents_by_origin[document.origin_id] = document
+                hints_by_document[document.document_id] = hints
             if self._monotonic() - started >= budget.max_elapsed_seconds:
                 stop_reason = DiscoveryStopReason.ELAPSED_BUDGET
                 break
@@ -284,7 +324,9 @@ class OpenAlexDiscoveryExecutor:
             plan_id=plan.plan_id,
             manifest=manifest,
             documents=tuple(documents_by_origin.values()),
+            hints=tuple(hints_by_document.values()),
             issues=tuple(issues),
+            hint_issues=tuple(hint_issues),
             usage=usage,
             snapshot_path=snapshot_path,
         )
@@ -300,6 +342,33 @@ def _openalex_budget(plan: DiscoveryPlan) -> DiscoveryBudget:
 def _snapshot_id(plan_id: str, created_at: datetime) -> str:
     identity = f"{plan_id}|{created_at.isoformat()}"
     return f"snapshot-{hashlib.sha256(identity.encode()).hexdigest()[:16]}"
+
+
+def _merge_hints(
+    current: OpenAlexDiscoveryHints,
+    incoming: OpenAlexDiscoveryHints,
+    document_id: str,
+) -> OpenAlexDiscoveryHints:
+    topics = {topic.topic_id: topic for topic in current.topics}
+    for topic in incoming.topics:
+        existing = topics.get(topic.topic_id)
+        if existing is None or topic.score > existing.score:
+            topics[topic.topic_id] = replace(
+                topic,
+                primary=topic.primary or (existing.primary if existing else False),
+            )
+        elif topic.primary and not existing.primary:
+            topics[topic.topic_id] = replace(existing, primary=True)
+    keywords = {keyword.keyword_id: keyword for keyword in current.keywords}
+    for keyword in incoming.keywords:
+        existing = keywords.get(keyword.keyword_id)
+        if existing is None or keyword.score > existing.score:
+            keywords[keyword.keyword_id] = keyword
+    return OpenAlexDiscoveryHints(
+        document_id=document_id,
+        topics=tuple(topics.values()),
+        keywords=tuple(keywords.values()),
+    )
 
 
 def _json_value(value: Any) -> Any:

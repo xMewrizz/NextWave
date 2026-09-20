@@ -1,5 +1,14 @@
 """Query scope resolution and bounded discovery planning."""
 
+from .candidates import (
+    CANDIDATE_PROPOSAL_VERSION,
+    CandidateHintKind,
+    CandidateProposal,
+    CandidateProposalBatch,
+    CandidateProposalExclusion,
+    ProposalExclusionReason,
+    build_candidate_proposals,
+)
 from .contracts import (
     ANALYSIS_SCOPE_SCHEMA_VERSION,
     DISCOVERY_BUDGET_SCHEMA_VERSION,
@@ -19,6 +28,7 @@ from .contracts import (
 from .executor import (
     OPENALEX_DISCOVERY_VERSION,
     DiscoveryBudgetUsage,
+    DiscoveryHintIssue,
     DiscoveryParseIssue,
     DiscoveryStopReason,
     OpenAlexDiscoveryExecutor,
@@ -66,11 +76,13 @@ from .query_resolver import (
 __all__ = [
     "ANALYSIS_SCOPE_SCHEMA_VERSION",
     "ALLOWED_CLOUD_MODELS",
+    "CANDIDATE_PROPOSAL_VERSION",
     "DEFAULT_DISCOVERY_BUDGETS",
     "DEFAULT_RESOLVER_VERSION",
     "DISCOVERY_BUDGET_SCHEMA_VERSION",
     "DISCOVERY_PLAN_SCHEMA_VERSION",
     "DiscoveryBudgetUsage",
+    "DiscoveryHintIssue",
     "DiscoveryParseIssue",
     "DiscoveryStopReason",
     "MAX_TAXONOMY_CANDIDATES",
@@ -84,6 +96,10 @@ __all__ = [
     "QUERY_RESOLVER_VERSION",
     "QUERY_INTERPRETATION_JSON_SCHEMA",
     "AnalysisScope",
+    "CandidateHintKind",
+    "CandidateProposal",
+    "CandidateProposalBatch",
+    "CandidateProposalExclusion",
     "DiscoveryBudget",
     "DiscoveryPlan",
     "JsonHttpTransport",
@@ -95,6 +111,7 @@ __all__ = [
     "OpenAlexDiscoveryResult",
     "OpenAlexSearchStep",
     "OpenAIResponsesJsonGenerator",
+    "ProposalExclusionReason",
     "QueryInterpretation",
     "QueryInterpreter",
     "QueryResolution",
@@ -107,6 +124,7 @@ __all__ = [
     "TaxonomySource",
     "UrllibJsonHttpTransport",
     "build_analysis_scope",
+    "build_candidate_proposals",
     "build_discovery_plan",
     "build_interpretation_prompt",
     "build_openalex_search_schedule",

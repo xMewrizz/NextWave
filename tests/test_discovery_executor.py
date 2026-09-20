@@ -27,6 +27,7 @@ def work(
     *,
     doi: str | None,
     publication_date: str = "2026-08-10",
+    keywords: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     return {
         "id": f"https://openalex.org/{external_id}",
@@ -37,6 +38,7 @@ def work(
         "type": "article",
         "authorships": [],
         "abstract_inverted_index": {"Weak": [0], "signal": [1]},
+        "keywords": keywords or [],
         "primary_location": {
             "landing_page_url": f"https://example.org/{external_id}",
             "source": {"display_name": "Example Journal"},
@@ -113,6 +115,59 @@ class OpenAlexSearchScheduleTests(unittest.TestCase):
 
 
 class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
+    def test_merges_discovery_hints_when_channels_return_the_same_origin(self) -> None:
+        transport = SequenceTransport(
+            [
+                response(
+                    work(
+                        "W1",
+                        doi="10.1234/shared",
+                        keywords=[
+                            {
+                                "id": "https://openalex.org/keywords/speculative-decoding",
+                                "display_name": "Speculative Decoding",
+                                "score": 0.7,
+                            }
+                        ],
+                    )
+                ),
+                response(
+                    work(
+                        "W9",
+                        doi="10.1234/shared",
+                        keywords=[
+                            {
+                                "id": "https://openalex.org/keywords/speculative-decoding",
+                                "display_name": "Speculative Decoding",
+                                "score": 0.9,
+                            },
+                            {
+                                "id": "https://openalex.org/keywords/draft-model",
+                                "display_name": "Draft Model",
+                                "score": 0.8,
+                            },
+                        ],
+                    )
+                ),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(plan(max_pages=2))
+
+        self.assertEqual(len(result.documents), 1)
+        self.assertEqual(len(result.hints), 1)
+        self.assertEqual(result.hints[0].document_id, result.documents[0].document_id)
+        self.assertEqual(
+            [(item.keyword_id, item.score) for item in result.hints[0].keywords],
+            [("speculative-decoding", 0.9), ("draft-model", 0.8)],
+        )
+
     def test_executes_bounded_channels_deduplicates_and_publishes_snapshot(self) -> None:
         transport = SequenceTransport(
             [
@@ -178,6 +233,27 @@ class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
         self.assertIs(result.usage.stop_reason, DiscoveryStopReason.DOCUMENT_BUDGET)
         parameters = parse_qs(urlparse(transport.calls[0][0]).query)
         self.assertEqual(parameters["per_page"], ["1"])
+
+    def test_hint_issue_keeps_the_request_that_produced_it(self) -> None:
+        broken = work("W1", doi="10.1234/one")
+        broken["topics"] = "not-a-list"
+        transport = SequenceTransport([response(broken)])
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(plan(max_pages=1))
+
+        self.assertEqual(len(result.documents), 1)
+        self.assertEqual(len(result.hint_issues), 1)
+        self.assertEqual(
+            result.hint_issues[0].request_id,
+            result.manifest.runs[0].request.request_id,
+        )
+        self.assertEqual(result.hints[0].topics, ())
 
     def test_failed_channel_makes_snapshot_partial_but_other_channels_continue(self) -> None:
         transport = SequenceTransport(
