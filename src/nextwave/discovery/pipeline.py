@@ -23,6 +23,11 @@ from .candidates import (
     build_openalex_candidate_mentions,
 )
 from .contracts import DiscoveryPlan
+from .evidence_extractor import (
+    EvidenceExtractionResult,
+    StructuredEvidenceExtractor,
+    build_evidence_extractor_from_environment,
+)
 from .executor import OpenAlexDiscoveryExecutor, OpenAlexDiscoveryResult
 from .media_executor import MediaDiscoveryExecutor, MediaDiscoveryResult
 from .mention_extractor import (
@@ -36,7 +41,7 @@ from .verification import (
     CandidateVerificationResult,
 )
 
-DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v5"
+DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v6"
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +57,7 @@ class DiscoveryPipelineResult:
     alias_resolution: AliasResolutionResult
     verification: CandidateVerificationResult
     origin_resolution: OriginResolutionResult
+    evidence_extraction: EvidenceExtractionResult
     pipeline_version: str = DISCOVERY_PIPELINE_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -62,14 +68,13 @@ class DiscoveryPipelineResult:
             "media": self.media.to_dict(),
             "documents": [document.document_id for document in self.documents],
             "mentions": [mention.to_dict() for mention in self.mentions],
-            "text_extraction": (
-                self.text_extraction.to_dict() if self.text_extraction else None
-            ),
+            "text_extraction": (self.text_extraction.to_dict() if self.text_extraction else None),
             "candidate_proposals": self.candidate_proposals.to_dict(),
             "candidate_gate": self.candidate_gate.to_dict(),
             "alias_resolution": self.alias_resolution.to_dict(),
             "verification": self.verification.to_dict(),
             "origin_resolution": self.origin_resolution.to_dict(),
+            "evidence_extraction": self.evidence_extraction.to_dict(),
         }
 
 
@@ -83,12 +88,14 @@ class DiscoveryPipeline:
         text_extractor: StructuredCandidateMentionExtractor,
         candidate_gate: StructuredCandidateGate,
         verification_executor: CandidateVerificationExecutor,
+        evidence_extractor: StructuredEvidenceExtractor,
     ) -> None:
         self._scientific_executor = scientific_executor
         self._media_executor = media_executor
         self._text_extractor = text_extractor
         self._candidate_gate = candidate_gate
         self._verification_executor = verification_executor
+        self._evidence_extractor = evidence_extractor
 
     def execute(self, plan: DiscoveryPlan) -> DiscoveryPipelineResult:
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -99,9 +106,7 @@ class DiscoveryPipeline:
 
         documents = _merge_documents(scientific.documents, media.documents)
         text_extraction = (
-            self._text_extractor.extract_many(plan.scope, documents)
-            if documents
-            else None
+            self._text_extractor.extract_many(plan.scope, documents) if documents else None
         )
         mentions_by_id = {
             mention.mention_id: mention
@@ -114,9 +119,7 @@ class DiscoveryPipeline:
             mentions_by_id.update(
                 (mention.mention_id, mention) for mention in text_extraction.mentions
             )
-        mentions = tuple(
-            sorted(mentions_by_id.values(), key=lambda mention: mention.mention_id)
-        )
+        mentions = tuple(sorted(mentions_by_id.values(), key=lambda mention: mention.mention_id))
         candidate_proposals = build_candidate_proposals(
             plan.scope,
             documents,
@@ -132,6 +135,9 @@ class DiscoveryPipeline:
         origin_resolution = resolve_candidate_origins(
             plan, alias_resolution, verification, documents
         )
+        evidence_extraction = self._evidence_extractor.extract(
+            alias_resolution, origin_resolution, media.enrichment
+        )
         return DiscoveryPipelineResult(
             plan_id=plan.plan_id,
             scientific=scientific,
@@ -144,6 +150,7 @@ class DiscoveryPipeline:
             alias_resolution=alias_resolution,
             verification=verification,
             origin_resolution=origin_resolution,
+            evidence_extraction=evidence_extraction,
         )
 
 
@@ -172,6 +179,7 @@ def build_discovery_pipeline_from_environment(
             snapshot_root,
             api_key=environment.get("NEXTWAVE_OPENALEX_API_KEY") or None,
         ),
+        build_evidence_extractor_from_environment(environment),
     )
 
 

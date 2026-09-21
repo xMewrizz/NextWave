@@ -19,6 +19,7 @@ from nextwave.discovery import (
     ScopeGranularity,
     StructuredCandidateGate,
     StructuredCandidateMentionExtractor,
+    StructuredEvidenceExtractor,
     build_analysis_scope,
     build_discovery_plan,
 )
@@ -96,32 +97,54 @@ class GroundedGenerator:
         results = []
         for document in payload["documents"]:
             phrase = "Photonic inference accelerator"
-            mentions = (
-                [{"text": phrase, "field": "title"}]
-                if phrase in document["title"]
-                else []
-            )
-            results.append(
-                {"document_id": document["document_id"], "mentions": mentions}
-            )
+            mentions = [{"text": phrase, "field": "title"}] if phrase in document["title"] else []
+            results.append({"document_id": document["document_id"], "mentions": mentions})
         return json.dumps({"documents": results})
 
 
 class GateGenerator:
     def __call__(self, prompt: str) -> str:
         payload = json.loads(prompt.split("Input data as JSON:\n", 1)[1])
-        return json.dumps({
-            "decisions": [
-                {
-                    "proposal_id": proposal["proposal_id"],
-                    "decision": "accept",
-                    "reason": "concrete_technology",
-                    "basis_document_ids": [proposal["documents"][0]["document_id"]],
-                    "explanation": "A specific inference accelerator is described.",
-                }
-                for proposal in payload["proposals"]
-            ]
-        })
+        return json.dumps(
+            {
+                "decisions": [
+                    {
+                        "proposal_id": proposal["proposal_id"],
+                        "decision": "accept",
+                        "reason": "concrete_technology",
+                        "basis_document_ids": [proposal["documents"][0]["document_id"]],
+                        "explanation": "A specific inference accelerator is described.",
+                    }
+                    for proposal in payload["proposals"]
+                ]
+            }
+        )
+
+
+class EvidenceGenerator:
+    def __call__(self, prompt: str) -> str:
+        payload = json.loads(prompt.split("Input data as JSON:\n", 1)[1])
+        return json.dumps(
+            {
+                "documents": [
+                    {
+                        "alias_group_id": item["alias_group_id"],
+                        "document_id": item["document_id"],
+                        "claims": [
+                            {
+                                "quote": "The article reports a prototype tested in a data center.",
+                                "kind": "prototype",
+                                "direction": "support",
+                            }
+                        ]
+                        if "The article reports a prototype tested in a data center."
+                        in item["excerpt"]
+                        else [],
+                    }
+                    for item in payload["documents"]
+                ]
+            }
+        )
 
 
 def openalex_response() -> HttpResponse:
@@ -225,6 +248,10 @@ class DiscoveryPipelineTests(unittest.TestCase):
                     clock=lambda: NOW,
                     monotonic=lambda: 0.0,
                 ),
+                StructuredEvidenceExtractor(
+                    EvidenceGenerator(),
+                    selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+                ),
             ).execute(plan())
 
         proposal = next(
@@ -247,6 +274,10 @@ class DiscoveryPipelineTests(unittest.TestCase):
         self.assertEqual(result.verification.results[0].matching_origin_count, 1)
         self.assertEqual(result.origin_resolution.candidates[0].document_count, 4)
         self.assertEqual(result.origin_resolution.candidates[0].exact_origin_count, 3)
+        self.assertEqual(len(result.evidence_extraction.proposals), 2)
+        self.assertTrue(
+            all(item.review_status == "pending" for item in result.evidence_extraction.proposals)
+        )
         self.assertEqual(len(verification_transport.calls), 1)
         json.dumps(result.to_dict(), ensure_ascii=False)
 
