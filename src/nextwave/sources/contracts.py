@@ -29,6 +29,7 @@ class ConnectorId(StrEnum):
 
 class QueryPurpose(StrEnum):
     DISCOVERY = "discovery"
+    VERIFICATION = "verification"
     HISTORICAL_ENRICHMENT = "historical_enrichment"
     METADATA_RESOLUTION = "metadata_resolution"
 

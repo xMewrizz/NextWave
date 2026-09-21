@@ -10,6 +10,7 @@ from typing import Any
 
 from nextwave.contracts import SourceDocument
 
+from .alias_resolution import AliasResolutionResult, resolve_candidate_aliases
 from .candidate_gate import (
     CandidateGateResult,
     StructuredCandidateGate,
@@ -29,8 +30,12 @@ from .mention_extractor import (
     StructuredCandidateMentionExtractor,
     build_candidate_text_extractor_from_environment,
 )
+from .verification import (
+    CandidateVerificationExecutor,
+    CandidateVerificationResult,
+)
 
-DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v2"
+DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v4"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +48,8 @@ class DiscoveryPipelineResult:
     text_extraction: CandidateMentionExtractionResult | None
     candidate_proposals: CandidateProposalBatch
     candidate_gate: CandidateGateResult
+    alias_resolution: AliasResolutionResult
+    verification: CandidateVerificationResult
     pipeline_version: str = DISCOVERY_PIPELINE_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -58,6 +65,8 @@ class DiscoveryPipelineResult:
             ),
             "candidate_proposals": self.candidate_proposals.to_dict(),
             "candidate_gate": self.candidate_gate.to_dict(),
+            "alias_resolution": self.alias_resolution.to_dict(),
+            "verification": self.verification.to_dict(),
         }
 
 
@@ -70,11 +79,13 @@ class DiscoveryPipeline:
         media_executor: MediaDiscoveryExecutor,
         text_extractor: StructuredCandidateMentionExtractor,
         candidate_gate: StructuredCandidateGate,
+        verification_executor: CandidateVerificationExecutor,
     ) -> None:
         self._scientific_executor = scientific_executor
         self._media_executor = media_executor
         self._text_extractor = text_extractor
         self._candidate_gate = candidate_gate
+        self._verification_executor = verification_executor
 
     def execute(self, plan: DiscoveryPlan) -> DiscoveryPipelineResult:
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -113,6 +124,8 @@ class DiscoveryPipeline:
             candidate_proposals,
             documents,
         )
+        alias_resolution = resolve_candidate_aliases(candidate_proposals, candidate_gate)
+        verification = self._verification_executor.execute(plan, alias_resolution)
         return DiscoveryPipelineResult(
             plan_id=plan.plan_id,
             scientific=scientific,
@@ -122,6 +135,8 @@ class DiscoveryPipeline:
             text_extraction=text_extraction,
             candidate_proposals=candidate_proposals,
             candidate_gate=candidate_gate,
+            alias_resolution=alias_resolution,
+            verification=verification,
         )
 
 
@@ -146,6 +161,10 @@ def build_discovery_pipeline_from_environment(
         ),
         build_candidate_text_extractor_from_environment(environment),
         build_candidate_gate_from_environment(environment),
+        CandidateVerificationExecutor(
+            snapshot_root,
+            api_key=environment.get("NEXTWAVE_OPENALEX_API_KEY") or None,
+        ),
     )
 
 

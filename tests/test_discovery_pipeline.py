@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from nextwave.discovery import (
+    CandidateVerificationExecutor,
     DiscoveryBudget,
     DiscoveryPipeline,
     LlmProvider,
@@ -189,6 +190,7 @@ class DiscoveryPipelineTests(unittest.TestCase):
             media_response(1, "en"),
             media_response(2, "ru"),
         )
+        verification_transport = SequenceTransport(openalex_response())
         extractor = StructuredCandidateMentionExtractor(
             GroundedGenerator(),
             selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
@@ -217,6 +219,12 @@ class DiscoveryPipelineTests(unittest.TestCase):
                     GateGenerator(),
                     selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
                 ),
+                CandidateVerificationExecutor(
+                    root,
+                    transport=verification_transport,
+                    clock=lambda: NOW,
+                    monotonic=lambda: 0.0,
+                ),
             ).execute(plan())
 
         proposal = next(
@@ -231,6 +239,13 @@ class DiscoveryPipelineTests(unittest.TestCase):
         self.assertEqual(len(scientific_transport.calls), 1)
         self.assertEqual(len(media_transport.calls), 2)
         self.assertIn(proposal.proposal_id, result.candidate_gate.accepted_proposal_ids)
+        self.assertIn(
+            proposal.proposal_id,
+            result.alias_resolution.groups[0].proposal_ids,
+        )
+        self.assertEqual(result.verification.requests_used, 1)
+        self.assertEqual(result.verification.results[0].matching_origin_count, 1)
+        self.assertEqual(len(verification_transport.calls), 1)
         json.dumps(result.to_dict(), ensure_ascii=False)
 
 

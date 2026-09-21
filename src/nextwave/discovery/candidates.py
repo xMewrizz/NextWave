@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import unicodedata
 from dataclasses import asdict, dataclass
 from enum import Enum, StrEnum
@@ -14,8 +15,9 @@ from nextwave.sources import OpenAlexDiscoveryHints
 from .contracts import AnalysisScope
 
 CANDIDATE_MENTION_VERSION = "candidate-mention-v1"
-CANDIDATE_PROPOSAL_VERSION = "candidate-proposal-v2"
+CANDIDATE_PROPOSAL_VERSION = "candidate-proposal-v3"
 OPENALEX_HINT_EXTRACTOR_ID = "openalex-hints-v1"
+_ORTHOGRAPHIC_SEPARATORS = re.compile(r"[-‐‑‒–—−_]+")
 
 
 class CandidateMentionKind(StrEnum):
@@ -269,10 +271,10 @@ def build_candidate_proposals(
         if mention.connector_id != document.connector_id:
             raise ValueError("candidate mention connector must match its document")
 
-    scope_terms = {_normalize_name(scope.normalized_query)}
-    scope_terms.update(_normalize_name(value) for value in scope.search_texts)
+    scope_terms = {orthographic_candidate_key(scope.normalized_query)}
+    scope_terms.update(orthographic_candidate_key(value) for value in scope.search_texts)
     organizations = {
-        _normalize_name(name)
+        orthographic_candidate_key(name)
         for document in documents
         for name in document.organizations
     }
@@ -316,7 +318,7 @@ def _add_mention(
     mention: CandidateMention,
     document: SourceDocument,
 ) -> None:
-    normalized = mention.normalized_text
+    normalized = orthographic_candidate_key(mention.text)
     reason: ProposalExclusionReason | None = None
     if len(normalized) < 2 or not any(character.isalnum() for character in normalized):
         reason = ProposalExclusionReason.INVALID_NAME
@@ -424,6 +426,11 @@ def _normalize_name(value: str) -> str:
     if not isinstance(value, str):
         raise ValueError("candidate mention text must be a string")
     return " ".join(unicodedata.normalize("NFKC", value).split()).casefold()
+
+
+def orthographic_candidate_key(value: str) -> str:
+    """Group spelling variants once, before the candidate gate evaluates them."""
+    return " ".join(_ORTHOGRAPHIC_SEPARATORS.sub(" ", _normalize_name(value)).split())
 
 
 def _sortable_score(value: float | None) -> float:

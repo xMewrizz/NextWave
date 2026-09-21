@@ -128,6 +128,34 @@ class CandidateProposalTests(unittest.TestCase):
         self.assertEqual(len(proposal.provider_term_ids), 2)
         json.dumps(batch.to_dict(), ensure_ascii=False)
 
+    def test_groups_hyphen_and_space_spellings_before_gate(self) -> None:
+        documents = (document(1), document(2))
+        mentions = (
+            build_candidate_mention(
+                documents[0],
+                text="Speculative-decoding",
+                kind=CandidateMentionKind.TITLE,
+                locator="title[0:20]",
+                extractor_id="text-v1",
+            ),
+            build_candidate_mention(
+                documents[1],
+                text="speculative decoding",
+                kind=CandidateMentionKind.TITLE,
+                locator="title[0:20]",
+                extractor_id="text-v1",
+            ),
+        )
+        batch = build_candidate_proposals(scope(), documents, mentions)
+
+        self.assertEqual(len(batch.proposals), 1)
+        self.assertEqual(batch.proposals[0].normalized_name, "speculative decoding")
+        self.assertEqual(batch.proposals[0].origin_count, 2)
+        self.assertEqual(
+            {batch.proposals[0].canonical_name, *batch.proposals[0].aliases},
+            {"Speculative-decoding", "speculative decoding"},
+        )
+
     def test_excludes_scope_terms_and_organization_names_with_reasons(self) -> None:
         documents = (document(1, organizations=("Example University",)),)
         hints = (

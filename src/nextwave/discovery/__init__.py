@@ -1,5 +1,13 @@
 """Query scope resolution and bounded discovery planning."""
 
+from .alias_resolution import (
+    ALIAS_RESOLUTION_VERSION,
+    AliasResolutionResult,
+    AliasSuggestion,
+    AliasSuggestionReason,
+    ResolvedAliasGroup,
+    resolve_candidate_aliases,
+)
 from .candidate_gate import (
     CANDIDATE_GATE_JSON_SCHEMA,
     CANDIDATE_GATE_VERSION,
@@ -125,8 +133,18 @@ from .query_resolver import (
     select_taxonomy_candidate,
     taxonomy_match_score,
 )
+from .verification import (
+    DEFAULT_VERIFICATION_MAX_GROUPS,
+    DEFAULT_VERIFICATION_MAX_RECORDS,
+    VERIFICATION_VERSION,
+    CandidateVerificationExecutor,
+    CandidateVerificationResult,
+    GroupVerification,
+    VerificationStatus,
+)
 
 __all__ = [
+    "ALIAS_RESOLUTION_VERSION",
     "CANDIDATE_GATE_JSON_SCHEMA",
     "CANDIDATE_GATE_VERSION",
     "ANALYSIS_SCOPE_SCHEMA_VERSION",
@@ -139,6 +157,8 @@ __all__ = [
     "DEFAULT_GATE_CONCURRENCY",
     "DEFAULT_DISCOVERY_BUDGETS",
     "DEFAULT_RESOLVER_VERSION",
+    "DEFAULT_VERIFICATION_MAX_GROUPS",
+    "DEFAULT_VERIFICATION_MAX_RECORDS",
     "DISCOVERY_BUDGET_SCHEMA_VERSION",
     "DISCOVERY_PLAN_SCHEMA_VERSION",
     "DISCOVERY_PIPELINE_VERSION",
@@ -153,6 +173,7 @@ __all__ = [
     "MAX_GATE_BATCH_PROPOSALS",
     "MAX_MENTIONS_PER_DOCUMENT",
     "MEDIA_DISCOVERY_VERSION",
+    "VERIFICATION_VERSION",
     "OPENAI_ADAPTER_VERSION",
     "OPENAI_QUERY_MODEL",
     "OPENAI_RESPONSES_ENDPOINT",
@@ -164,6 +185,9 @@ __all__ = [
     "QUERY_RESOLVER_VERSION",
     "QUERY_INTERPRETATION_JSON_SCHEMA",
     "AnalysisScope",
+    "AliasResolutionResult",
+    "AliasSuggestion",
+    "AliasSuggestionReason",
     "CandidateMention",
     "CandidateGateDecision",
     "CandidateGateIssue",
@@ -177,6 +201,8 @@ __all__ = [
     "CandidateProposalExclusion",
     "CandidateTextCoverage",
     "CandidateTextField",
+    "CandidateVerificationExecutor",
+    "CandidateVerificationResult",
     "DiscoveryBudget",
     "DiscoveryPlan",
     "DiscoveryPipeline",
@@ -184,6 +210,7 @@ __all__ = [
     "GateDecision",
     "GateIssueCode",
     "GateReason",
+    "GroupVerification",
     "JsonHttpTransport",
     "LlmProvider",
     "LlmRuntimeSettings",
@@ -202,6 +229,7 @@ __all__ = [
     "QueryInterpreter",
     "QueryResolution",
     "QueryResolver",
+    "ResolvedAliasGroup",
     "ScopeGranularity",
     "StructuredQueryInterpreter",
     "StructuredCandidateMentionExtractor",
@@ -211,6 +239,7 @@ __all__ = [
     "TaxonomyLookupStatus",
     "TaxonomySource",
     "UrllibJsonHttpTransport",
+    "VerificationStatus",
     "build_analysis_scope",
     "build_candidate_mention",
     "build_candidate_gate_from_environment",
@@ -230,6 +259,7 @@ __all__ = [
     "load_llm_runtime_settings",
     "parse_openai_output_text",
     "parse_mediacloud_collection_ids",
+    "resolve_candidate_aliases",
     "select_taxonomy_candidate",
     "taxonomy_match_score",
 ]
