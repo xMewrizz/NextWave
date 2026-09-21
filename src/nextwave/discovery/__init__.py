@@ -1,5 +1,20 @@
 """Query scope resolution and bounded discovery planning."""
 
+from .candidate_gate import (
+    CANDIDATE_GATE_JSON_SCHEMA,
+    CANDIDATE_GATE_VERSION,
+    DEFAULT_GATE_CONCURRENCY,
+    MAX_GATE_BATCH_PROPOSALS,
+    CandidateGateDecision,
+    CandidateGateIssue,
+    CandidateGateResult,
+    GateDecision,
+    GateIssueCode,
+    GateReason,
+    StructuredCandidateGate,
+    build_candidate_gate_from_environment,
+    build_candidate_gate_prompt,
+)
 from .candidates import (
     CANDIDATE_MENTION_VERSION,
     CANDIDATE_PROPOSAL_VERSION,
@@ -112,6 +127,8 @@ from .query_resolver import (
 )
 
 __all__ = [
+    "CANDIDATE_GATE_JSON_SCHEMA",
+    "CANDIDATE_GATE_VERSION",
     "ANALYSIS_SCOPE_SCHEMA_VERSION",
     "ALLOWED_CLOUD_MODELS",
     "CANDIDATE_MENTION_VERSION",
@@ -119,6 +136,7 @@ __all__ = [
     "CANDIDATE_PROPOSAL_VERSION",
     "CANDIDATE_TEXT_EXTRACTOR_VERSION",
     "DEFAULT_CANDIDATE_EXTRACTION_CONCURRENCY",
+    "DEFAULT_GATE_CONCURRENCY",
     "DEFAULT_DISCOVERY_BUDGETS",
     "DEFAULT_RESOLVER_VERSION",
     "DISCOVERY_BUDGET_SCHEMA_VERSION",
@@ -132,6 +150,7 @@ __all__ = [
     "MAX_CANDIDATE_BATCH_DOCUMENTS",
     "MAX_CANDIDATE_BATCH_INPUT_CHARS",
     "MAX_CANDIDATE_FIELD_CHARS",
+    "MAX_GATE_BATCH_PROPOSALS",
     "MAX_MENTIONS_PER_DOCUMENT",
     "MEDIA_DISCOVERY_VERSION",
     "OPENAI_ADAPTER_VERSION",
@@ -146,6 +165,9 @@ __all__ = [
     "QUERY_INTERPRETATION_JSON_SCHEMA",
     "AnalysisScope",
     "CandidateMention",
+    "CandidateGateDecision",
+    "CandidateGateIssue",
+    "CandidateGateResult",
     "CandidateMentionExtractionResult",
     "CandidateMentionKind",
     "CandidateExtractionIssue",
@@ -159,6 +181,9 @@ __all__ = [
     "DiscoveryPlan",
     "DiscoveryPipeline",
     "DiscoveryPipelineResult",
+    "GateDecision",
+    "GateIssueCode",
+    "GateReason",
     "JsonHttpTransport",
     "LlmProvider",
     "LlmRuntimeSettings",
@@ -180,6 +205,7 @@ __all__ = [
     "ScopeGranularity",
     "StructuredQueryInterpreter",
     "StructuredCandidateMentionExtractor",
+    "StructuredCandidateGate",
     "TaxonomyCandidate",
     "TaxonomyLevel",
     "TaxonomyLookupStatus",
@@ -187,6 +213,8 @@ __all__ = [
     "UrllibJsonHttpTransport",
     "build_analysis_scope",
     "build_candidate_mention",
+    "build_candidate_gate_from_environment",
+    "build_candidate_gate_prompt",
     "build_candidate_extraction_batches",
     "build_candidate_mention_prompt",
     "build_candidate_proposals",

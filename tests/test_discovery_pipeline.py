@@ -16,6 +16,7 @@ from nextwave.discovery import (
     MediaDiscoveryExecutor,
     OpenAlexDiscoveryExecutor,
     ScopeGranularity,
+    StructuredCandidateGate,
     StructuredCandidateMentionExtractor,
     build_analysis_scope,
     build_discovery_plan,
@@ -103,6 +104,23 @@ class GroundedGenerator:
                 {"document_id": document["document_id"], "mentions": mentions}
             )
         return json.dumps({"documents": results})
+
+
+class GateGenerator:
+    def __call__(self, prompt: str) -> str:
+        payload = json.loads(prompt.split("Input data as JSON:\n", 1)[1])
+        return json.dumps({
+            "decisions": [
+                {
+                    "proposal_id": proposal["proposal_id"],
+                    "decision": "accept",
+                    "reason": "concrete_technology",
+                    "basis_document_ids": [proposal["documents"][0]["document_id"]],
+                    "explanation": "A specific inference accelerator is described.",
+                }
+                for proposal in payload["proposals"]
+            ]
+        })
 
 
 def openalex_response() -> HttpResponse:
@@ -195,6 +213,10 @@ class DiscoveryPipelineTests(unittest.TestCase):
                     mediacloud_min_interval_seconds=0,
                 ),
                 extractor,
+                StructuredCandidateGate(
+                    GateGenerator(),
+                    selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+                ),
             ).execute(plan())
 
         proposal = next(
@@ -208,6 +230,7 @@ class DiscoveryPipelineTests(unittest.TestCase):
         self.assertEqual(result.text_extraction.batch_count, 1)
         self.assertEqual(len(scientific_transport.calls), 1)
         self.assertEqual(len(media_transport.calls), 2)
+        self.assertIn(proposal.proposal_id, result.candidate_gate.accepted_proposal_ids)
         json.dumps(result.to_dict(), ensure_ascii=False)
 
 

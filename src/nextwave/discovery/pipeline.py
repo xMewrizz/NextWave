@@ -1,4 +1,4 @@
-"""Cross-source discovery pipeline up to auditable candidate proposals."""
+"""Cross-source discovery pipeline through the auditable candidate gate."""
 
 from __future__ import annotations
 
@@ -10,6 +10,11 @@ from typing import Any
 
 from nextwave.contracts import SourceDocument
 
+from .candidate_gate import (
+    CandidateGateResult,
+    StructuredCandidateGate,
+    build_candidate_gate_from_environment,
+)
 from .candidates import (
     CandidateMention,
     CandidateProposalBatch,
@@ -25,7 +30,7 @@ from .mention_extractor import (
     build_candidate_text_extractor_from_environment,
 )
 
-DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v1"
+DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +42,7 @@ class DiscoveryPipelineResult:
     mentions: tuple[CandidateMention, ...]
     text_extraction: CandidateMentionExtractionResult | None
     candidate_proposals: CandidateProposalBatch
+    candidate_gate: CandidateGateResult
     pipeline_version: str = DISCOVERY_PIPELINE_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -51,6 +57,7 @@ class DiscoveryPipelineResult:
                 self.text_extraction.to_dict() if self.text_extraction else None
             ),
             "candidate_proposals": self.candidate_proposals.to_dict(),
+            "candidate_gate": self.candidate_gate.to_dict(),
         }
 
 
@@ -62,10 +69,12 @@ class DiscoveryPipeline:
         scientific_executor: OpenAlexDiscoveryExecutor,
         media_executor: MediaDiscoveryExecutor,
         text_extractor: StructuredCandidateMentionExtractor,
+        candidate_gate: StructuredCandidateGate,
     ) -> None:
         self._scientific_executor = scientific_executor
         self._media_executor = media_executor
         self._text_extractor = text_extractor
+        self._candidate_gate = candidate_gate
 
     def execute(self, plan: DiscoveryPlan) -> DiscoveryPipelineResult:
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -99,6 +108,11 @@ class DiscoveryPipeline:
             documents,
             mentions,
         )
+        candidate_gate = self._candidate_gate.evaluate(
+            plan.scope,
+            candidate_proposals,
+            documents,
+        )
         return DiscoveryPipelineResult(
             plan_id=plan.plan_id,
             scientific=scientific,
@@ -107,6 +121,7 @@ class DiscoveryPipeline:
             mentions=mentions,
             text_extraction=text_extraction,
             candidate_proposals=candidate_proposals,
+            candidate_gate=candidate_gate,
         )
 
 
@@ -130,6 +145,7 @@ def build_discovery_pipeline_from_environment(
             mediacloud_collection_ids=parse_mediacloud_collection_ids(environment),
         ),
         build_candidate_text_extractor_from_environment(environment),
+        build_candidate_gate_from_environment(environment),
     )
 
 
