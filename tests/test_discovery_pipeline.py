@@ -245,6 +245,8 @@ class DiscoveryPipelineTests(unittest.TestCase):
         )
         self.assertEqual(result.verification.requests_used, 1)
         self.assertEqual(result.verification.results[0].matching_origin_count, 1)
+        self.assertEqual(result.origin_resolution.candidates[0].document_count, 4)
+        self.assertEqual(result.origin_resolution.candidates[0].exact_origin_count, 3)
         self.assertEqual(len(verification_transport.calls), 1)
         json.dumps(result.to_dict(), ensure_ascii=False)
 

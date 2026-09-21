@@ -30,12 +30,13 @@ from .mention_extractor import (
     StructuredCandidateMentionExtractor,
     build_candidate_text_extractor_from_environment,
 )
+from .origins import OriginResolutionResult, resolve_candidate_origins
 from .verification import (
     CandidateVerificationExecutor,
     CandidateVerificationResult,
 )
 
-DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v4"
+DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v5"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,7 @@ class DiscoveryPipelineResult:
     candidate_gate: CandidateGateResult
     alias_resolution: AliasResolutionResult
     verification: CandidateVerificationResult
+    origin_resolution: OriginResolutionResult
     pipeline_version: str = DISCOVERY_PIPELINE_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,6 +69,7 @@ class DiscoveryPipelineResult:
             "candidate_gate": self.candidate_gate.to_dict(),
             "alias_resolution": self.alias_resolution.to_dict(),
             "verification": self.verification.to_dict(),
+            "origin_resolution": self.origin_resolution.to_dict(),
         }
 
 
@@ -126,6 +129,9 @@ class DiscoveryPipeline:
         )
         alias_resolution = resolve_candidate_aliases(candidate_proposals, candidate_gate)
         verification = self._verification_executor.execute(plan, alias_resolution)
+        origin_resolution = resolve_candidate_origins(
+            plan, alias_resolution, verification, documents
+        )
         return DiscoveryPipelineResult(
             plan_id=plan.plan_id,
             scientific=scientific,
@@ -137,6 +143,7 @@ class DiscoveryPipeline:
             candidate_gate=candidate_gate,
             alias_resolution=alias_resolution,
             verification=verification,
+            origin_resolution=origin_resolution,
         )
 
 

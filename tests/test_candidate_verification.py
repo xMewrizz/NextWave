@@ -148,6 +148,30 @@ class CandidateVerificationTests(unittest.TestCase):
         self.assertEqual(result.results[0].returned_records, 0)
         self.assertEqual(result.results[0].matching_documents, ())
 
+    def test_keeps_multiple_documents_with_the_same_doi_for_origin_review(self):
+        discovery_plan = plan()
+        payload = json.loads(response(
+            "Speculative decoding in one study",
+            "Speculative decoding in a second record",
+        ).body)
+        payload["results"][1]["doi"] = payload["results"][0]["doi"]
+        transport = SequenceTransport(HttpResponse(
+            200, {"Content-Type": "application/json"}, json.dumps(payload).encode()
+        ))
+        with tempfile.TemporaryDirectory() as directory:
+            result = CandidateVerificationExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(
+                discovery_plan,
+                aliases(discovery_plan.scope.scope_id, "Speculative decoding"),
+            )
+        item = result.results[0]
+        self.assertEqual(len(item.matching_documents), 2)
+        self.assertEqual(item.matching_origin_count, 1)
+
     def test_failure_is_not_recorded_as_zero(self):
         discovery_plan = plan()
         transport = SequenceTransport(HttpResponse(429, {}, b"rate limited"))

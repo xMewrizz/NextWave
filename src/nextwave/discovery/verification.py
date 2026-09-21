@@ -218,17 +218,17 @@ class CandidateVerificationExecutor:
                 "parse_error",
             )
         hints_by_id = {hint.document_id: hint for hint in parsed.hints}
-        matched_by_origin: dict[str, SourceDocument] = {}
+        matched_by_document: dict[str, SourceDocument] = {}
         names = (group.canonical_name, *group.aliases)
         for document in parsed.documents:
             if _matches_name(document, hints_by_id.get(document.document_id), names):
-                matched_by_origin.setdefault(document.origin_id, document)
+                matched_by_document.setdefault(document.document_id, document)
         return GroupVerification(
             group.group_id,
             VerificationStatus.SEARCHED,
             group.canonical_name,
             parsed.total_records,
-            tuple(matched_by_origin.values()),
+            tuple(matched_by_document.values()),
             snapshot_path,
             rejected_record_codes=tuple(issue.code for issue in parsed.issues),
         )
