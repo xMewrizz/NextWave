@@ -1,18 +1,40 @@
 name: nextwave
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: nextwave
+      POSTGRES_USER: nextwave
+      POSTGRES_PASSWORD: ${NEXTWAVE_POSTGRES_PASSWORD:-nextwave-local}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U nextwave -d nextwave"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     env_file:
       - ./config/hackathon.env
+    environment:
+      NEXTWAVE_DATABASE_URL: postgresql+psycopg://nextwave:${NEXTWAVE_POSTGRES_PASSWORD:-nextwave-local}@postgres:5432/nextwave
+      NEXTWAVE_ANALYZER_FACTORY: ${NEXTWAVE_ANALYZER_FACTORY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
     healthcheck:
       test:
         - CMD
-        - /app/.venv/bin/python
+        - /app/backend/.venv/bin/python
         - -c
         - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/coverage', timeout=2)
       interval: 10s
@@ -31,3 +53,6 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  postgres_data:

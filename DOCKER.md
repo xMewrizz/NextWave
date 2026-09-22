@@ -1,8 +1,13 @@
 # Docker-запуск NextWave
 
-## Демонстрационный каркас
+## API, интерфейс и PostgreSQL
 
-Текущая конфигурация запускает синтетический UI-каркас и API. Она проверяет сборку и пользовательский сценарий, но не содержит реальных коннекторов, модели и PostgreSQL.
+Compose запускает API, web-интерфейс и PostgreSQL 16 с постоянным volume `postgres_data`.
+Таблица `analyses` создаётся или совместимо обновляется при старте backend.
+Без ML-фабрики API доступен, но запуск анализа возвращает `error/model_unavailable`.
+Подключение реального вычислительного кода описано в [ML_INTEGRATION.md](docs/ML_INTEGRATION.md).
+Для локального стенда задан пароль `nextwave-local`; его можно переопределить через
+`NEXTWAVE_POSTGRES_PASSWORD` (URL-safe значение). PostgreSQL не публикует порт наружу.
 
 Из корня репозитория:
 
@@ -27,13 +32,16 @@ docker compose up --build
 docker compose down
 ```
 
+Обычный `docker compose down` сохраняет volume базы; `down -v` удаляет данные и не нужен для обновления.
+
 ## Раздельная сборка
 
 Backend:
 
 ```bash
-docker build -t nextwave-backend ./backend
-docker run --rm -p 8000:8000 nextwave-backend
+docker build -f backend/Dockerfile -t nextwave-backend .
+docker run --rm -p 8000:8000 \
+  -e NEXTWAVE_DATABASE_URL -e NEXTWAVE_ANALYZER_FACTORY nextwave-backend
 ```
 
 Frontend при отдельном развёртывании должен знать адрес backend. В PowerShell:

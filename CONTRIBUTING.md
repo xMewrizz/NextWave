@@ -46,7 +46,9 @@ python -m nextwave --version
 Backend:
 
 ```powershell
+python -m pip install -e . ./backend httpx pytest pytest-asyncio
 python -m pytest backend/test_api.py
+python backend/generate_frontend_contracts.py --check
 ```
 
 Frontend:
