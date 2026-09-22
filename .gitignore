@@ -45,6 +45,7 @@ data/raw/*
 data/development/labels.csv
 data/development/*.local.csv
 data/development/*.xlsx
+data/development/discovery/
 data/interim/
 data/processed/
 artifacts/

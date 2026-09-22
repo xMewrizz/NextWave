@@ -59,7 +59,7 @@ def fixture(*names: str):
 def gate(generate):
     return StructuredCandidateGate(
         generate,
-        selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+        selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
     )
 
 

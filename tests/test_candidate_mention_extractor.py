@@ -85,7 +85,7 @@ class EmptyBatchGenerator:
 def extractor(generator: FakeGenerator) -> StructuredCandidateMentionExtractor:
     return StructuredCandidateMentionExtractor(
         generator,
-        selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+        selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
     )
 
 
@@ -136,7 +136,7 @@ class CandidateMentionExtractorTests(unittest.TestCase):
             CandidateMentionKind.HEADLINE,
         )
         self.assertEqual(result.issues, ())
-        self.assertIn("openai-gpt-4-1", result.extractor_id)
+        self.assertIn("yandex-yandexgpt-lite-5", result.extractor_id)
         json.dumps(result.to_dict(), ensure_ascii=False)
 
     def test_invalid_mentions_become_auditable_issues_without_losing_valid_ones(self) -> None:
@@ -242,7 +242,7 @@ class CandidateMentionExtractorTests(unittest.TestCase):
 
         result = StructuredCandidateMentionExtractor(
             generator,
-            selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+            selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
         ).extract_many(scope(), documents)
 
         self.assertEqual(result.batch_count, 3)

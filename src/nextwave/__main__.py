@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from collections.abc import Mapping, Sequence
+from datetime import date, timedelta
 from pathlib import Path
 
 from . import __version__
@@ -14,7 +15,12 @@ from .datasets import (
     OrganizerWorkbookError,
     build_organizer_dataset,
 )
-from .discovery import build_query_resolver_from_environment
+from .discovery import (
+    build_discovery_pipeline_from_environment,
+    build_discovery_plan,
+    build_query_resolver_from_environment,
+    save_discovery_run,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -59,6 +65,52 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("config") / "hackathon.env",
         help="файл runtime-настроек; переменные процесса имеют приоритет",
+    )
+    discovery_run = commands.add_parser(
+        "discovery-run",
+        help="выполнить ограниченный live-поиск и сохранить запуск для разметки",
+    )
+    discovery_run.add_argument(
+        "--query",
+        required=True,
+        help="технологическое направление или конкретная технология",
+    )
+    discovery_run.add_argument(
+        "--analysis-id",
+        required=True,
+        help="устойчивый идентификатор анализа, например analysis-ai-001",
+    )
+    discovery_run.add_argument(
+        "--analysis-scope-key",
+        required=True,
+        help="ключ широкой области; для labeling — один из 6 ключей организаторов",
+    )
+    discovery_run.add_argument(
+        "--domain",
+        required=True,
+        help="человекочитаемая область, например Инфраструктура ИИ",
+    )
+    discovery_run.add_argument(
+        "--cutoff-date",
+        default="2026-09-15",
+        help="дата среза в формате YYYY-MM-DD; для labeling только 2026-09-15",
+    )
+    discovery_run.add_argument(
+        "--published-from",
+        default=None,
+        help="начало окна поиска YYYY-MM-DD; по умолчанию срез минус 365 дней",
+    )
+    discovery_run.add_argument(
+        "--env-file",
+        type=Path,
+        default=Path("config") / "hackathon.env",
+        help="файл runtime-настроек; переменные процесса имеют приоритет",
+    )
+    discovery_run.add_argument(
+        "--output-root",
+        type=Path,
+        default=Path("data") / "development" / "discovery",
+        help="корень для каталогов запусков",
     )
     return parser
 
@@ -118,6 +170,58 @@ def _run_query_resolve(query: str, env_file: Path) -> int:
     return 0
 
 
+def _parse_iso_date(value: str, flag: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise ValueError(f"{flag} must use YYYY-MM-DD, got {value!r}") from None
+
+
+def _run_discovery_run(
+    query: str,
+    analysis_id: str,
+    analysis_scope_key: str,
+    domain: str,
+    cutoff_text: str,
+    published_from_text: str | None,
+    env_file: Path,
+    output_root: Path,
+) -> int:
+    try:
+        cutoff_date = _parse_iso_date(cutoff_text, "--cutoff-date")
+        if published_from_text:
+            published_from = _parse_iso_date(published_from_text, "--published-from")
+        else:
+            published_from = cutoff_date - timedelta(days=365)
+        if published_from > cutoff_date:
+            raise ValueError("--published-from must not be later than --cutoff-date")
+        environment = _runtime_environment(env_file)
+        resolution = build_query_resolver_from_environment(environment).resolve(query)
+        plan = build_discovery_plan(
+            analysis_id=analysis_id,
+            scope=resolution.scope,
+            published_from=published_from,
+            cutoff_date=cutoff_date,
+        )
+        result = build_discovery_pipeline_from_environment(environment).execute(
+            plan, progress=print
+        )
+        run_dir = save_discovery_run(
+            plan,
+            result,
+            analysis_scope_key=analysis_scope_key,
+            domain=domain,
+            output_root=output_root,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось выполнить поиск: {error}", file=sys.stderr)
+        return 1
+
+    print("Поиск завершён, запуск сохранён.")
+    print(f"Каталог запуска: {run_dir}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     arguments = parser.parse_args(argv)
@@ -125,6 +229,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_dataset_build(arguments.input, arguments.output)
     if arguments.command == "query-resolve":
         return _run_query_resolve(arguments.query, arguments.env_file)
+    if arguments.command == "discovery-run":
+        return _run_discovery_run(
+            arguments.query,
+            arguments.analysis_id,
+            arguments.analysis_scope_key,
+            arguments.domain,
+            arguments.cutoff_date,
+            arguments.published_from,
+            arguments.env_file,
+            arguments.output_root,
+        )
     parser.print_help()
     return 0
 

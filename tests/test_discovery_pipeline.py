@@ -216,7 +216,7 @@ class DiscoveryPipelineTests(unittest.TestCase):
         verification_transport = SequenceTransport(openalex_response())
         extractor = StructuredCandidateMentionExtractor(
             GroundedGenerator(),
-            selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+            selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
         )
 
         with tempfile.TemporaryDirectory() as directory:
@@ -240,7 +240,7 @@ class DiscoveryPipelineTests(unittest.TestCase):
                 extractor,
                 StructuredCandidateGate(
                     GateGenerator(),
-                    selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+                    selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
                 ),
                 CandidateVerificationExecutor(
                     root,
@@ -250,7 +250,7 @@ class DiscoveryPipelineTests(unittest.TestCase):
                 ),
                 StructuredEvidenceExtractor(
                     EvidenceGenerator(),
-                    selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+                    selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
                 ),
             ).execute(plan())
 
@@ -280,6 +280,72 @@ class DiscoveryPipelineTests(unittest.TestCase):
         )
         self.assertEqual(len(verification_transport.calls), 1)
         json.dumps(result.to_dict(), ensure_ascii=False)
+
+
+class DiscoveryProgressTests(unittest.TestCase):
+    def test_progress_reports_timed_stages_in_order(self) -> None:
+        scientific_transport = SequenceTransport(openalex_response())
+        media_transport = SequenceTransport(
+            media_response(1, "en"),
+            media_response(2, "ru"),
+        )
+        verification_transport = SequenceTransport(openalex_response())
+        extractor = StructuredCandidateMentionExtractor(
+            GroundedGenerator(),
+            selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            events: list[str] = []
+            DiscoveryPipeline(
+                OpenAlexDiscoveryExecutor(
+                    root,
+                    transport=scientific_transport,
+                    clock=lambda: NOW,
+                    monotonic=lambda: 0.0,
+                ),
+                MediaDiscoveryExecutor(
+                    root,
+                    mediacloud_api_key="temporary-key",
+                    mediacloud_transport=media_transport,
+                    news_enricher=StubNewsEnricher(),
+                    clock=lambda: NOW,
+                    monotonic=lambda: 0.0,
+                    mediacloud_min_interval_seconds=0,
+                ),
+                extractor,
+                StructuredCandidateGate(
+                    GateGenerator(),
+                    selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
+                ),
+                CandidateVerificationExecutor(
+                    root,
+                    transport=verification_transport,
+                    clock=lambda: NOW,
+                    monotonic=lambda: 0.0,
+                ),
+                StructuredEvidenceExtractor(
+                    EvidenceGenerator(),
+                    selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
+                ),
+            ).execute(plan(), progress=events.append)
+
+        stages = [event.split(":")[0] for event in events]
+        self.assertEqual(
+            stages,
+            [
+                "[discovery] sources",
+                "[discovery] extraction",
+                "[discovery] proposals",
+                "[discovery] gate",
+                "[discovery] aliases",
+                "[discovery] verification",
+                "[discovery] origins",
+                "[discovery] evidence",
+            ],
+        )
+        self.assertIn("3 documents", events[0])
 
 
 if __name__ == "__main__":
