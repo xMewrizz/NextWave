@@ -17,9 +17,8 @@ from .candidates import CandidateMention, CandidateMentionKind, build_candidate_
 from .contracts import AnalysisScope
 from .llm import (
     JsonHttpTransport,
-    LlmProvider,
     LlmSelection,
-    OpenAIResponsesJsonGenerator,
+    build_json_generator,
     load_llm_runtime_settings,
 )
 
@@ -439,13 +438,8 @@ def build_candidate_text_extractor_from_environment(
     """Build the approved live text extractor without exposing its credential."""
 
     settings = load_llm_runtime_settings(os.environ if environment is None else environment)
-    if settings.selection.provider is not LlmProvider.OPENAI:
-        raise ValueError(
-            f"LLM adapter is not implemented for provider {settings.selection.provider.value!r}"
-        )
-    generator = OpenAIResponsesJsonGenerator(
-        settings.api_key,
-        selection=settings.selection,
+    generator = build_json_generator(
+        settings,
         transport=llm_transport,
         json_schema=CANDIDATE_MENTION_JSON_SCHEMA,
         schema_name="candidate_mentions",

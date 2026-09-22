@@ -13,15 +13,15 @@ from nextwave.discovery import (
     load_llm_runtime_settings,
     parse_openai_output_text,
 )
+from nextwave.discovery.llm import LocalLlamaJsonGenerator, build_json_generator
+from nextwave.discovery.local_llm import LOCAL_MODEL_ID
 from nextwave.sources import HttpResponse
 
 
 class FakeJsonTransport:
     def __init__(self, response: HttpResponse) -> None:
         self.response = response
-        self.calls: list[
-            tuple[str, Mapping[str, str], Mapping[str, Any], float]
-        ] = []
+        self.calls: list[tuple[str, Mapping[str, str], Mapping[str, Any], float]] = []
 
     def post_json(
         self,
@@ -118,6 +118,60 @@ class LlmSelectionTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, missing):
                     load_llm_runtime_settings(environment)
 
+    def test_local_model_requires_no_cloud_key(self) -> None:
+        settings = load_llm_runtime_settings(
+            {
+                "NEXTWAVE_LLM_PROVIDER": "huggingface",
+                "NEXTWAVE_LLM_MODEL": LOCAL_MODEL_ID,
+            }
+        )
+
+        self.assertEqual(settings.api_key, "")
+        self.assertIsInstance(build_json_generator(settings), LocalLlamaJsonGenerator)
+
+
+class LocalLlamaJsonGeneratorTests(unittest.TestCase):
+    def test_uses_loopback_json_schema_without_an_api_key(self) -> None:
+        body = json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {"content": '{"normalized_query":"artificial intelligence"}'},
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+        ).encode()
+        transport = FakeJsonTransport(HttpResponse(200, {}, body))
+        generator = LocalLlamaJsonGenerator(
+            selection=LlmSelection(LlmProvider.HUGGINGFACE, LOCAL_MODEL_ID),
+            transport=transport,
+            server_start=lambda: "http://127.0.0.1:18080",
+        )
+
+        result = generator("Interpret AI")
+
+        url, headers, payload, timeout = transport.calls[0]
+        self.assertEqual(result, '{"normalized_query":"artificial intelligence"}')
+        self.assertEqual(url, "http://127.0.0.1:18080/v1/chat/completions")
+        self.assertNotIn("Authorization", headers)
+        self.assertEqual(payload["model"], LOCAL_MODEL_ID)
+        self.assertTrue(payload["response_format"]["json_schema"]["strict"])
+        self.assertEqual(timeout, 300)
+
+    def test_rejects_truncated_json(self) -> None:
+        body = json.dumps(
+            {"choices": [{"message": {"content": "{}"}, "finish_reason": "length"}]}
+        ).encode()
+        generator = LocalLlamaJsonGenerator(
+            selection=LlmSelection(LlmProvider.HUGGINGFACE, LOCAL_MODEL_ID),
+            transport=FakeJsonTransport(HttpResponse(200, {}, body)),
+            server_start=lambda: "http://127.0.0.1:18080",
+        )
+
+        with self.assertRaisesRegex(ValueError, "truncated"):
+            generator("Interpret AI")
+
 
 class OpenAIResponsesJsonGeneratorTests(unittest.TestCase):
     def test_sends_strict_schema_without_putting_key_in_payload(self) -> None:
@@ -178,6 +232,21 @@ class OpenAIResponsesJsonGeneratorTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "HTTP 401") as caught:
             generator("Normalize this query")
+
+        self.assertNotIn("temporary-secret", str(caught.exception))
+
+    def test_reports_billing_error_code_without_exposing_error_text(self) -> None:
+        transport = FakeJsonTransport(
+            HttpResponse(
+                429,
+                {},
+                b'{"error":{"code":"credit_balance_exhausted","message":"temporary-secret"}}',
+            )
+        )
+        generator = OpenAIResponsesJsonGenerator("temporary-secret", transport=transport)
+
+        with self.assertRaisesRegex(RuntimeError, "credit_balance_exhausted") as caught:
+            generator("Return a short answer")
 
         self.assertNotIn("temporary-secret", str(caught.exception))
 

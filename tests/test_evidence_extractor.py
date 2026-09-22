@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import unittest
 from dataclasses import replace
+from typing import Any
 
 from nextwave.contracts import SourceDocument, SourceType, TrustTier
 from nextwave.discovery import (
+    EVIDENCE_JSON_SCHEMA,
+    OPENAI_RESPONSES_ENDPOINT,
     AliasResolutionResult,
     CandidateOrigins,
     EvidenceCoverageStatus,
@@ -16,8 +19,9 @@ from nextwave.discovery import (
     OriginResolutionResult,
     ResolvedAliasGroup,
     StructuredEvidenceExtractor,
+    build_evidence_extractor_from_environment,
 )
-from nextwave.sources import NewsContentStatus, NewsDocumentEnrichment
+from nextwave.sources import HttpResponse, NewsContentStatus, NewsDocumentEnrichment
 
 
 def document(
@@ -104,6 +108,35 @@ class QuoteGenerator:
         )
 
 
+class OpenAITransport:
+    def __init__(self) -> None:
+        self.url: str | None = None
+        self.payload: dict[str, Any] | None = None
+
+    def post_json(
+        self,
+        url: str,
+        *,
+        headers,
+        payload,
+        timeout_seconds: float,
+    ) -> HttpResponse:
+        self.url = url
+        self.payload = dict(payload)
+        prompt = json.loads(payload["input"].split("Input data as JSON:\n", 1)[1])
+        output = QuoteGenerator()(payload["input"])
+        body = {
+            "model": "gpt-4.1-2025-04-14",
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": output}]}],
+        }
+        self.assertions = (
+            headers["Authorization"] == "Bearer temporary-test-key",
+            len(prompt["documents"]) == 1,
+            timeout_seconds > 0,
+        )
+        return HttpResponse(200, {}, json.dumps(body).encode())
+
+
 class EvidenceExtractorTests(unittest.TestCase):
     def extractor(self, generator=None) -> StructuredEvidenceExtractor:
         return StructuredEvidenceExtractor(
@@ -183,6 +216,18 @@ class EvidenceExtractorTests(unittest.TestCase):
         self.assertEqual(result.issues[0].code, EvidenceIssueCode.MODEL_ERROR)
         self.assertEqual(result.coverage[0].status, EvidenceCoverageStatus.MODEL_FAILED)
 
+    def test_billing_failure_is_visible_without_raw_response(self) -> None:
+        def fail(_prompt: str) -> str:
+            raise RuntimeError("OpenAI Responses API returned HTTP 429 (credit_balance_exhausted)")
+
+        result = self.extractor(fail).extract(*inputs(document("science-1")), ())
+        self.assertEqual(result.proposals, ())
+        self.assertEqual(result.issues[0].code, EvidenceIssueCode.MODEL_ERROR)
+        self.assertEqual(
+            result.issues[0].message,
+            "OpenAI Responses API returned HTTP 429 (credit_balance_exhausted)",
+        )
+
     def test_shared_document_can_serve_two_candidates(self) -> None:
         item = document("science-1")
         aliases, origins = inputs(item)
@@ -203,6 +248,25 @@ class EvidenceExtractorTests(unittest.TestCase):
             {proposal.alias_group_id for proposal in result.proposals},
             {"group-1", "group-2"},
         )
+
+    def test_environment_builder_sends_and_parses_openai_response(self) -> None:
+        transport = OpenAITransport()
+        extractor = build_evidence_extractor_from_environment(
+            {
+                "NEXTWAVE_LLM_PROVIDER": "openai",
+                "NEXTWAVE_LLM_MODEL": "gpt-4.1",
+                "NEXTWAVE_LLM_API_KEY": "temporary-test-key",
+            },
+            llm_transport=transport,
+        )
+        result = extractor.extract(*inputs(document("science-1")), ())
+        self.assertEqual(len(result.proposals), 1)
+        self.assertEqual(transport.url, OPENAI_RESPONSES_ENDPOINT)
+        self.assertEqual(transport.assertions, (True, True, True))
+        self.assertEqual(transport.payload["text"]["format"]["schema"], EVIDENCE_JSON_SCHEMA)
+        self.assertTrue(transport.payload["text"]["format"]["strict"])
+        self.assertFalse(transport.payload["store"])
+        self.assertNotIn("temporary-test-key", json.dumps(transport.payload))
 
 
 if __name__ == "__main__":

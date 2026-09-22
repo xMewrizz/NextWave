@@ -94,6 +94,22 @@ class FakeTransport:
 
 
 class StructuredQueryInterpreterTests(unittest.TestCase):
+    def test_preserves_russian_source_search_for_cyrillic_query(self) -> None:
+        response = json.dumps({
+            "normalized_query": "artificial intelligence",
+            "search_texts": ["artificial intelligence", "AI"],
+            "languages": ["en"],
+            "granularity": "direction",
+        })
+
+        result = StructuredQueryInterpreter(
+            lambda _prompt: response,
+            selection=LlmSelection(LlmProvider.HUGGINGFACE, "Qwen/Qwen3-4B-Instruct-2507"),
+            version="local-v1",
+        ).interpret("Технологии в ИИ")
+
+        self.assertEqual(result.languages, ("en", "ru"))
+
     def test_parses_strict_json_and_keeps_query_out_of_instructions(self) -> None:
         generated_prompts: list[str] = []
 

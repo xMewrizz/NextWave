@@ -82,6 +82,10 @@ class CandidateGateTests(unittest.TestCase):
         def generate(prompt):
             payload = json.loads(prompt.split("Input data as JSON:\n", 1)[1])
             self.assertEqual(len(payload["proposals"]), 2)
+            self.assertEqual(
+                {proposal["proposal_id"] for proposal in payload["proposals"]},
+                {"p1", "p2"},
+            )
             self.assertEqual(payload["scope"]["query"], "Технологии в ИИ")
             return json.dumps({
                 "decisions": [
@@ -99,6 +103,14 @@ class CandidateGateTests(unittest.TestCase):
         result = gate(generate).evaluate(scope, batch, documents)
         self.assertEqual(len(result.decisions), 2)
         self.assertEqual(len(result.accepted_proposal_ids), 1)
+        self.assertEqual(
+            result.accepted_proposal_ids,
+            (next(
+                item.proposal_id
+                for item in batch.proposals
+                if item.canonical_name == "Speculative decoding"
+            ),),
+        )
         self.assertEqual(result.issues, ())
         self.assertEqual(
             {item.decision for item in result.decisions},

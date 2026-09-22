@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
@@ -17,9 +18,8 @@ from nextwave.sources import NewsContentStatus, NewsDocumentEnrichment
 from .alias_resolution import AliasResolutionResult
 from .llm import (
     JsonHttpTransport,
-    LlmProvider,
     LlmSelection,
-    OpenAIResponsesJsonGenerator,
+    build_json_generator,
     load_llm_runtime_settings,
 )
 from .origins import OriginResolutionResult
@@ -302,12 +302,18 @@ class StructuredEvidenceExtractor:
                     if generation_error is not None
                     else EvidenceIssueCode.INVALID_RESPONSE
                 )
+                message = str(error)
+                if not isinstance(error, RuntimeError) or not re.fullmatch(
+                    r"OpenAI Responses API returned HTTP \d{3}(?: \([a-z][a-z0-9_]{0,63}\))?",
+                    message,
+                ):
+                    message = type(error).__name__
                 issues.extend(
                     EvidenceIssue(
                         code,
                         item.alias_group_id,
                         item.document.document_id,
-                        type(error).__name__,
+                        message,
                     )
                     for item in batch
                 )
@@ -545,13 +551,8 @@ def build_evidence_extractor_from_environment(
     llm_transport: JsonHttpTransport | None = None,
 ) -> StructuredEvidenceExtractor:
     settings = load_llm_runtime_settings(os.environ if environment is None else environment)
-    if settings.selection.provider is not LlmProvider.OPENAI:
-        raise ValueError(
-            f"LLM adapter is not implemented for provider {settings.selection.provider.value!r}"
-        )
-    generator = OpenAIResponsesJsonGenerator(
-        settings.api_key,
-        selection=settings.selection,
+    generator = build_json_generator(
+        settings,
         transport=llm_transport,
         json_schema=EVIDENCE_JSON_SCHEMA,
         schema_name="evidence_proposals",
