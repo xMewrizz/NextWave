@@ -32,17 +32,17 @@ export function TrendCard({ trend, to }: { trend: Trend; to: string }) {
             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <Badge variant="secondary">
                 <Sparkles />
-                рейтинг {percent(trendScore(trend))}
+                оценка модели {percent(trendScore(trend))}
               </Badge>
-              <Badge variant="outline">
+              {trend.document_count !== null && <Badge variant="outline">
                 <FileText />
                 {trend.document_count} документов
-              </Badge>
+              </Badge>}
               <Badge variant="outline">
                 <Network />
                 {trend.features.independent_source_count} независимых
               </Badge>
-              <span className="ml-1">первое упоминание {formatPeriod(trend.first_seen)}</span>
+              {trend.first_seen && <span className="ml-1">первое упоминание {formatPeriod(trend.first_seen)}</span>}
             </div>
 
             <p className={cn('mt-3 border-l-2 pl-3 text-xs text-pretty text-muted-foreground', border)}>
@@ -50,9 +50,9 @@ export function TrendCard({ trend, to }: { trend: Trend; to: string }) {
             </p>
           </div>
 
-          <div className="hidden shrink-0 self-center sm:block">
+          {trend.timeline.length > 0 && <div className="hidden shrink-0 self-center sm:block">
             <TrendSparkline timeline={trend.timeline} />
-          </div>
+          </div>}
         </CardContent>
       </Card>
     </Link>

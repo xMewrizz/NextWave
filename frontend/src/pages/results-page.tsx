@@ -17,7 +17,6 @@ import { cn } from '@/lib/utils'
 
 const sorts = {
   score: { label: 'по рейтингу', compare: (a: Trend, b: Trend) => trendScore(b) - trendScore(a) },
-  documents: { label: 'по числу документов', compare: (a: Trend, b: Trend) => b.document_count - a.document_count },
   independence: {
     label: 'по независимым источникам',
     compare: (a: Trend, b: Trend) =>
@@ -32,7 +31,9 @@ export function ResultsPage() {
   const [bucket, setBucket] = useState<Bucket>('main')
 
   const trendsIn = (key: Bucket) =>
-    (analysis?.trends ?? []).filter((trend) => trend.status === key).sort(sorts[sort].compare)
+    (analysis?.trends ?? [])
+      .filter((trend) => trend.status === key && (key !== 'main' || trend.rank <= 15))
+      .sort(sorts[sort].compare)
 
   if (error) {
     return (
@@ -83,9 +84,10 @@ export function ResultsPage() {
               «{analysis.query}»
             </h1>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              Запуск {formatDate(analysis.created_at)} · корпус {analysis.corpus_version} · метод{' '}
-              {analysis.method_version}
-              {analysis.finished_at && ' · сохранённая выдача'}
+              Запуск {formatDate(analysis.created_at)}
+              {analysis.model_version && ` · модель ${analysis.model_version}`}
+              {analysis.method_version !== 'unavailable' && ` · метод ${analysis.method_version}`}
+              {analysis.finished_at && ' · результат сохранён'}
             </p>
           </div>
           <Badge variant={analysis.status === 'done' ? 'default' : 'secondary'}>
@@ -93,7 +95,7 @@ export function ResultsPage() {
           </Badge>
         </div>
 
-        {analysis.corpus_version.startsWith('synthetic-') && (
+        {['synthetic-', 'demo-'].some((prefix) => analysis.corpus_version.startsWith(prefix)) && (
           <Alert className="mb-5">
             <Info />
             <AlertTitle>Демонстрационный режим</AlertTitle>
@@ -141,7 +143,7 @@ export function ResultsPage() {
                   <span className={cn('size-1.5 rounded-full', item.dot)} />
                   <span className="truncate">{item.short}</span>
                   <span className="tabular-nums text-muted-foreground">
-                    {analysis.trends.filter((trend) => trend.status === item.key).length}
+                    {trendsIn(item.key).length}
                   </span>
                 </TabsTrigger>
               ))}
@@ -187,7 +189,7 @@ export function ResultsPage() {
                     <TrendCard
                       key={trend.candidate_id}
                       trend={trend}
-                      to={`/analyses/${analysis.id}/trends/${trend.candidate_id}`}
+                      to={`/analyses/${analysis.id}/trends/${encodeURIComponent(trend.candidate_id)}`}
                     />
                   ))}
                 </div>

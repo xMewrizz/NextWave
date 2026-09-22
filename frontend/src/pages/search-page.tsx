@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { useResource } from '@/lib/hooks'
-import { formatDate } from '@/lib/format'
 
 export function SearchPage() {
   const [query, setQuery] = useState('')
@@ -47,6 +46,7 @@ export function SearchPage() {
             <textarea
               value={query}
               rows={2}
+              maxLength={200}
               autoFocus
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -97,9 +97,7 @@ export function SearchPage() {
         {coverage.error && <span>Сведения о корпусе временно недоступны</span>}
         {coverage.data && (
           <span>
-            {coverage.data.corpus_version.startsWith('synthetic-')
-              ? 'Синтетический UI-корпус: результаты не являются выводами модели'
-              : `${coverage.data.document_count.toLocaleString('ru-RU')} документов · корпус ${coverage.data.corpus_version} · обновлён ${formatDate(coverage.data.updated_at)}`}
+            {coverage.data.notice ?? 'Версии и источники доступны в результатах анализа.'}
           </span>
         )}
       </div>

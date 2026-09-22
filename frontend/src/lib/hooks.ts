@@ -40,8 +40,8 @@ export function useAnalysis(id: string | undefined): Resource<Analysis> {
         const data = await api.analysis(id)
         if (!alive) return
         setState({ data, error: null, loading: false })
-        // Короткий опрос нужен только демонстрационному контуру; production job использует SSE.
-        if (!TERMINAL.includes(data.status)) timer = setTimeout(poll, 400)
+        // Опрос заканчивается после сохранения терминального состояния.
+        if (!TERMINAL.includes(data.status)) timer = setTimeout(poll, 1000)
       } catch (e) {
         if (alive) setState({ data: null, error: (e as Error).message, loading: false })
       }

@@ -60,9 +60,7 @@ export const api = {
 
 /** Canonical ranking score normalized to the 0..1 scale used by the UI. */
 export function trendScore(trend: Trend): number {
-  return trend.priority_score === null
-    ? trend.prediction.weak_signal_score
-    : trend.priority_score / 100
+  return trend.prediction.weak_signal_score
 }
 
 export const FACTOR_LABELS: Record<FactorKey, string> = {
@@ -83,9 +81,9 @@ export const BUCKETS: {
   {
     key: 'main',
     label: 'Зарождающиеся тренды',
-    short: 'Основной список',
+    short: 'ТОП-15',
     description:
-      'Темы с признаками нового развития, прошедшие пороги по новизне, росту и доказательной базе. Не более 15 кандидатов, отсортированы по рейтингу.',
+      'Первые 15 кандидатов со статусом main по оценке модели. Если кандидатов меньше, показано фактическое число.',
     accent: 'text-foreground',
     dot: 'bg-foreground',
   },
@@ -94,7 +92,7 @@ export const BUCKETS: {
     label: 'Наблюдение',
     short: 'Наблюдение',
     description:
-      'Признаки зарождения есть, но подтверждений пока мало: единичные публикации, зависимые источники или выводы на уровне предположений. Стоит проверить при следующем обновлении корпуса.',
+      'Кандидаты, которым анализатор присвоил статус watchlist. Причины наблюдения указаны в карточках.',
     accent: 'text-muted-foreground',
     dot: 'bg-muted-foreground',
   },
@@ -103,7 +101,7 @@ export const BUCKETS: {
     label: 'Отсеяны',
     short: 'Отсеяны',
     description:
-      'Темы, не прошедшие проверку на новизну или зарождаемость: устоявшиеся направления и темы, доля которых в корпусе перестала расти. Показаны, чтобы отбор можно было проверить.',
+      'Кандидаты со статусом excluded. Для каждого сохранены объяснение и причина исключения.',
     accent: 'text-muted-foreground',
     dot: 'border border-foreground bg-transparent',
   },
@@ -116,6 +114,8 @@ export const SOURCE_LABELS: Record<SourceType, string> = {
   regulator: 'регулятор',
   university: 'университет',
   company: 'компания',
+  company_technical: 'технический материал компании',
+  press_release: 'пресс-релиз',
   industry_media: 'отраслевое медиа',
   analytical_report: 'аналитический отчёт',
   conference: 'конференция',
