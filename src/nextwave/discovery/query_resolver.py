@@ -23,7 +23,7 @@ from .contracts import (
 )
 from .llm import (
     LOCAL_ADAPTER_VERSION,
-    OPENAI_ADAPTER_VERSION,
+    YANDEX_ADAPTER_VERSION,
     JsonHttpTransport,
     LlmProvider,
     LlmSelection,
@@ -376,7 +376,7 @@ def build_query_resolver_from_environment(
         version=(
             LOCAL_ADAPTER_VERSION
             if settings.selection.provider is LlmProvider.HUGGINGFACE
-            else OPENAI_ADAPTER_VERSION
+            else YANDEX_ADAPTER_VERSION
         ),
     )
     return QueryResolver(

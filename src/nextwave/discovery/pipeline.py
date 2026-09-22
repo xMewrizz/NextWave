@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,7 +98,25 @@ class DiscoveryPipeline:
         self._verification_executor = verification_executor
         self._evidence_extractor = evidence_extractor
 
-    def execute(self, plan: DiscoveryPlan) -> DiscoveryPipelineResult:
+    def execute(
+        self,
+        plan: DiscoveryPlan,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> DiscoveryPipelineResult:
+        """Execute the pipeline, optionally reporting timed stage lines.
+
+        The callback receives one ``[discovery] <stage>: <detail> (<s>s)`` line
+        per stage, so a live run shows where minutes go instead of silence.
+        Timing never affects results and defaults to off (tests stay silent).
+        """
+
+        def report(stage: str, detail: str, started_at: float) -> None:
+            if progress is not None:
+                elapsed = time.monotonic() - started_at
+                progress(f"[discovery] {stage}: {detail} ({elapsed:.1f}s)")
+
+        started = time.monotonic()
         with ThreadPoolExecutor(max_workers=2) as pool:
             scientific_future = pool.submit(self._scientific_executor.execute, plan)
             media_future = pool.submit(self._media_executor.execute, plan)
@@ -105,6 +124,13 @@ class DiscoveryPipeline:
             media = media_future.result()
 
         documents = _merge_documents(scientific.documents, media.documents)
+        report(
+            "sources",
+            f"{len(documents)} documents "
+            f"({len(scientific.documents)} scientific, {len(media.documents)} media)",
+            started,
+        )
+        started = time.monotonic()
         text_extraction = (
             self._text_extractor.extract_many(plan.scope, documents) if documents else None
         )
@@ -120,24 +146,46 @@ class DiscoveryPipeline:
                 (mention.mention_id, mention) for mention in text_extraction.mentions
             )
         mentions = tuple(sorted(mentions_by_id.values(), key=lambda mention: mention.mention_id))
+        report("extraction", f"{len(mentions)} mentions", started)
+        started = time.monotonic()
         candidate_proposals = build_candidate_proposals(
             plan.scope,
             documents,
             mentions,
         )
+        report(
+            "proposals",
+            f"{len(candidate_proposals.proposals)} proposals, "
+            f"{len(candidate_proposals.exclusions)} excluded",
+            started,
+        )
+        started = time.monotonic()
         candidate_gate = self._candidate_gate.evaluate(
             plan.scope,
             candidate_proposals,
             documents,
         )
+        report(
+            "gate",
+            f"{len(candidate_gate.accepted_proposal_ids)} accepted",
+            started,
+        )
+        started = time.monotonic()
         alias_resolution = resolve_candidate_aliases(candidate_proposals, candidate_gate)
+        report("aliases", f"{len(alias_resolution.groups)} groups", started)
+        started = time.monotonic()
         verification = self._verification_executor.execute(plan, alias_resolution)
+        report("verification", f"{verification.requests_used} requests", started)
+        started = time.monotonic()
         origin_resolution = resolve_candidate_origins(
             plan, alias_resolution, verification, documents
         )
+        report("origins", f"{len(origin_resolution.candidates)} candidates", started)
+        started = time.monotonic()
         evidence_extraction = self._evidence_extractor.extract(
             alias_resolution, origin_resolution, media.enrichment
         )
+        report("evidence", f"{len(evidence_extraction.proposals)} proposals", started)
         return DiscoveryPipelineResult(
             plan_id=plan.plan_id,
             scientific=scientific,

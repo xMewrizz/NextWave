@@ -248,8 +248,13 @@ class MediaDiscoveryExecutorTests(unittest.TestCase):
             MediaFallbackReason.PRIMARY_UNCONFIGURED,
         )
 
-    def test_collection_ids_are_optional_but_strict_when_configured(self) -> None:
-        self.assertEqual(parse_mediacloud_collection_ids({}), ())
+    def test_collection_ids_default_to_documented_pair_when_unconfigured(self) -> None:
+        # Живой прогон 22.09.2026: story-list без ss/cs всегда отвечает 422,
+        # поэтому пустая конфигурация даёт дефолтный охват, а не пустой кортеж.
+        self.assertEqual(
+            parse_mediacloud_collection_ids({}),
+            (34412234, 34412118),
+        )
         self.assertEqual(
             parse_mediacloud_collection_ids(
                 {"NEXTWAVE_MEDIACLOUD_COLLECTION_IDS": "34412234, 34412118"}

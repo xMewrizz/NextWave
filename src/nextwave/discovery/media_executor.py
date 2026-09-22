@@ -424,10 +424,25 @@ class _ProviderExecution:
     successful_requests: int
 
 
+# Дефолтный охват Media Cloud из README. API требует ss или cs:
+# без коллекций story-list всегда отвечает 422 (живой прогон 22.09.2026).
+DEFAULT_MEDIACLOUD_COLLECTION_IDS = (34412234, 34412118)
+
+
 def parse_mediacloud_collection_ids(environment: Mapping[str, str]) -> tuple[int, ...]:
-    value = environment.get("NEXTWAVE_MEDIACLOUD_COLLECTION_IDS", "").strip()
+    """Resolve the Media Cloud collection scope with a documented default.
+
+    Живой прогон 22.09.2026 доказал: story-list без ss/cs всегда отвечает 422,
+    поэтому пустая конфигурация означает этот дефолтный охват из README,
+    а не несуществующий "глобальный индекс".
+    """
+
+    default = (
+        f"{DEFAULT_MEDIACLOUD_COLLECTION_IDS[0]},{DEFAULT_MEDIACLOUD_COLLECTION_IDS[1]}"
+    )
+    value = environment.get("NEXTWAVE_MEDIACLOUD_COLLECTION_IDS", default).strip()
     if not value:
-        return ()
+        return DEFAULT_MEDIACLOUD_COLLECTION_IDS
     try:
         parsed = tuple(int(item.strip()) for item in value.split(","))
     except ValueError as error:

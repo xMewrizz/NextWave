@@ -7,8 +7,7 @@ from typing import Any
 
 from nextwave.contracts import SourceDocument, SourceType, TrustTier
 from nextwave.discovery import (
-    EVIDENCE_JSON_SCHEMA,
-    OPENAI_RESPONSES_ENDPOINT,
+    YANDEX_COMPLETION_ENDPOINT,
     AliasResolutionResult,
     CandidateOrigins,
     EvidenceCoverageStatus,
@@ -108,7 +107,7 @@ class QuoteGenerator:
         )
 
 
-class OpenAITransport:
+class YandexTransport:
     def __init__(self) -> None:
         self.url: str | None = None
         self.payload: dict[str, Any] | None = None
@@ -123,15 +122,18 @@ class OpenAITransport:
     ) -> HttpResponse:
         self.url = url
         self.payload = dict(payload)
-        prompt = json.loads(payload["input"].split("Input data as JSON:\n", 1)[1])
-        output = QuoteGenerator()(payload["input"])
+        prompt = payload["messages"][0]["text"]
+        output = QuoteGenerator()(prompt)
         body = {
-            "model": "gpt-4.1-2025-04-14",
-            "output": [{"type": "message", "content": [{"type": "output_text", "text": output}]}],
+            "result": {
+                "alternatives": [{"message": {"role": "assistant", "text": output}}]
+            }
         }
         self.assertions = (
-            headers["Authorization"] == "Bearer temporary-test-key",
-            len(prompt["documents"]) == 1,
+            headers["Authorization"] == "Api-Key temporary-test-key",
+            payload["modelUri"] == "gpt://folder-1/yandexgpt-lite/latest",
+            payload["jsonObject"] is True,
+            len(payload["messages"]) == 1,
             timeout_seconds > 0,
         )
         return HttpResponse(200, {}, json.dumps(body).encode())
@@ -141,7 +143,7 @@ class EvidenceExtractorTests(unittest.TestCase):
     def extractor(self, generator=None) -> StructuredEvidenceExtractor:
         return StructuredEvidenceExtractor(
             generator or QuoteGenerator(),
-            selection=LlmSelection(LlmProvider.OPENAI, "gpt-4.1"),
+            selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
         )
 
     def test_verbatim_quote_is_a_pending_proposal_with_locator(self) -> None:
@@ -218,14 +220,14 @@ class EvidenceExtractorTests(unittest.TestCase):
 
     def test_billing_failure_is_visible_without_raw_response(self) -> None:
         def fail(_prompt: str) -> str:
-            raise RuntimeError("OpenAI Responses API returned HTTP 429 (credit_balance_exhausted)")
+            raise RuntimeError("Yandex completion API returned HTTP 429")
 
         result = self.extractor(fail).extract(*inputs(document("science-1")), ())
         self.assertEqual(result.proposals, ())
         self.assertEqual(result.issues[0].code, EvidenceIssueCode.MODEL_ERROR)
         self.assertEqual(
             result.issues[0].message,
-            "OpenAI Responses API returned HTTP 429 (credit_balance_exhausted)",
+            "Yandex completion API returned HTTP 429",
         )
 
     def test_shared_document_can_serve_two_candidates(self) -> None:
@@ -249,23 +251,22 @@ class EvidenceExtractorTests(unittest.TestCase):
             {"group-1", "group-2"},
         )
 
-    def test_environment_builder_sends_and_parses_openai_response(self) -> None:
-        transport = OpenAITransport()
+    def test_environment_builder_sends_and_parses_yandex_response(self) -> None:
+        transport = YandexTransport()
         extractor = build_evidence_extractor_from_environment(
             {
-                "NEXTWAVE_LLM_PROVIDER": "openai",
-                "NEXTWAVE_LLM_MODEL": "gpt-4.1",
+                "NEXTWAVE_LLM_PROVIDER": "yandex",
+                "NEXTWAVE_LLM_MODEL": "YandexGPT Lite 5",
                 "NEXTWAVE_LLM_API_KEY": "temporary-test-key",
+                "NEXTWAVE_YANDEX_FOLDER_ID": "folder-1",
             },
             llm_transport=transport,
         )
         result = extractor.extract(*inputs(document("science-1")), ())
         self.assertEqual(len(result.proposals), 1)
-        self.assertEqual(transport.url, OPENAI_RESPONSES_ENDPOINT)
-        self.assertEqual(transport.assertions, (True, True, True))
-        self.assertEqual(transport.payload["text"]["format"]["schema"], EVIDENCE_JSON_SCHEMA)
-        self.assertTrue(transport.payload["text"]["format"]["strict"])
-        self.assertFalse(transport.payload["store"])
+        self.assertEqual(transport.url, YANDEX_COMPLETION_ENDPOINT)
+        self.assertEqual(transport.assertions, (True, True, True, True, True))
+        self.assertTrue(transport.payload["jsonObject"])
         self.assertNotIn("temporary-test-key", json.dumps(transport.payload))
 
 

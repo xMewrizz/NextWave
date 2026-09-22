@@ -304,7 +304,7 @@ class StructuredEvidenceExtractor:
                 )
                 message = str(error)
                 if not isinstance(error, RuntimeError) or not re.fullmatch(
-                    r"OpenAI Responses API returned HTTP \d{3}(?: \([a-z][a-z0-9_]{0,63}\))?",
+                    r"Yandex completion API returned HTTP \d{3}",
                     message,
                 ):
                     message = type(error).__name__
