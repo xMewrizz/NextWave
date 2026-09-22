@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from nextwave.sources import publish_staging
 
 from .contracts import DiscoveryPlan
 from .pipeline import DISCOVERY_PIPELINE_VERSION, DiscoveryPipelineResult
@@ -228,7 +229,7 @@ def save_discovery_run(
         (staging / PLAN_FILENAME).write_bytes(plan_bytes)
         (staging / RESULT_FILENAME).write_bytes(result_bytes)
         (staging / MANIFEST_FILENAME).write_bytes(manifest_bytes)
-        os.replace(staging, target)
+        publish_staging(staging, target)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise

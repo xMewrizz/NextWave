@@ -183,6 +183,8 @@ class YandexCompletionJsonGenerator:
         transport: JsonHttpTransport | None = None,
         timeout_seconds: float = 60.0,
         max_output_tokens: int = 500,
+        json_schema: Mapping[str, Any] | None = None,
+        schema_name: str = "response",
     ) -> None:
         if not api_key.strip():
             raise ValueError("Yandex API key must not be blank")
@@ -196,6 +198,10 @@ class YandexCompletionJsonGenerator:
             or not 1 <= max_output_tokens <= 10000
         ):
             raise ValueError("max_output_tokens must be between 1 and 10000")
+        if _SCHEMA_NAME.fullmatch(schema_name) is None:
+            raise ValueError("schema_name must be a lowercase JSON schema identifier")
+        if json_schema is not None and not isinstance(json_schema, Mapping):
+            raise ValueError("json_schema must be an object")
         self.selection = selection or LlmSelection(
             LlmProvider.YANDEX, "YandexGPT Lite 5"
         )
@@ -212,10 +218,21 @@ class YandexCompletionJsonGenerator:
         self._transport = transport or UrllibJsonHttpTransport()
         self._timeout_seconds = timeout_seconds
         self._max_output_tokens = max_output_tokens
+        self._json_schema = dict(json_schema) if json_schema is not None else None
+        self._schema_name = schema_name
 
     def __call__(self, prompt: str) -> str:
         if not prompt.strip():
             raise ValueError("prompt must not be blank")
+        # Yandex has no server-side schema enforcement: the builders reference
+        # "the response schema" in their prompts, so the schema travels in text.
+        request_text = prompt
+        if self._json_schema is not None:
+            schema_text = json.dumps(self._json_schema, ensure_ascii=False)
+            request_text = (
+                f"Return only a JSON object matching this JSON Schema "
+                f"({self._schema_name}):\n{schema_text}\n\n{prompt}"
+            )
         response = self._transport.post_json(
             YANDEX_COMPLETION_ENDPOINT,
             headers={
@@ -231,7 +248,7 @@ class YandexCompletionJsonGenerator:
                     "temperature": 0,
                     "maxTokens": str(self._max_output_tokens),
                 },
-                "messages": [{"role": "user", "text": prompt}],
+                "messages": [{"role": "user", "text": request_text}],
                 "jsonObject": True,
             },
             timeout_seconds=self._timeout_seconds,
@@ -335,8 +352,24 @@ def build_json_generator(
             selection=settings.selection,
             transport=transport,
             max_output_tokens=max_output_tokens,
+            json_schema=json_schema,
+            schema_name=schema_name,
         )
     raise ValueError(f"LLM adapter is not implemented for {settings.selection.provider.value!r}")
+
+
+def _strip_json_fences(text: str) -> str:
+    """Remove one Markdown code fence around a JSON payload, if present."""
+
+    stripped = text.strip()
+    match = re.fullmatch(r"```[a-zA-Z]*\n(.*)\n```", stripped, flags=re.DOTALL)
+    if match is not None:
+        return match.group(1).strip()
+    return stripped
+
+
+class YandexTruncationError(ValueError):
+    """The model stopped mid-response: callers may retry with a smaller batch."""
 
 
 def parse_yandex_completion_text(body: bytes, requested_model: str) -> str:
@@ -356,10 +389,20 @@ def parse_yandex_completion_text(body: bytes, requested_model: str) -> str:
     text = message.get("text") if isinstance(message, dict) else None
     if not isinstance(text, str) or not text.strip():
         raise ValueError("Yandex response must contain non-empty message text")
+    status = alternatives[0].get("status") if isinstance(alternatives[0], dict) else None
+    if isinstance(status, str) and status != "ALTERNATIVE_STATUS_FINAL":
+        raise YandexTruncationError(f"Yandex response was not final (status: {status})")
+    cleaned = _strip_json_fences(text)
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(cleaned)
     except json.JSONDecodeError as error:
-        raise ValueError("Yandex response text must be a JSON object") from error
+        raise ValueError(
+            "Yandex response text must be a JSON object "
+            f"(preview: {cleaned[:200]!r})"
+        ) from error
     if not isinstance(parsed, dict):
-        raise ValueError("Yandex response text must be a JSON object")
-    return text
+        raise ValueError(
+            "Yandex response text must be a JSON object "
+            f"(preview: {cleaned[:200]!r})"
+        )
+    return cleaned

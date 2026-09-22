@@ -123,6 +123,35 @@ class YandexRequestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "prompt"):
             adapter("   ")
 
+    def test_embeds_json_schema_in_prompt_text(self) -> None:
+        transport = FakeJsonTransport(
+            HttpResponse(200, {"Content-Type": "application/json"}, yandex_body())
+        )
+        schema = {"type": "object", "properties": {"a": {"type": "string"}}}
+        adapter = YandexCompletionJsonGenerator(
+            "temporary-secret",
+            folder_id="folder-1",
+            selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
+            transport=transport,
+            json_schema=schema,
+            schema_name="candidate_mentions",
+        )
+        adapter("Технологии в ИИ")
+
+        text = transport.calls[0][2]["messages"][0]["text"]
+        self.assertIn('"type": "object"', text)
+        self.assertIn("candidate_mentions", text)
+        self.assertTrue(text.endswith("Технологии в ИИ"))
+
+    def test_rejects_non_object_schema(self) -> None:
+        with self.assertRaisesRegex(ValueError, "json_schema"):
+            YandexCompletionJsonGenerator(
+                "temporary-secret",
+                folder_id="folder-1",
+                selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
+                json_schema=["not", "an", "object"],
+            )
+
     def test_raises_on_http_error_without_body_leak(self) -> None:
         adapter, _ = generator(
             HttpResponse(401, {"Content-Type": "application/json"}, b'{"error":"x"}')
@@ -164,6 +193,48 @@ class YandexResponseTests(unittest.TestCase):
     def test_rejects_invalid_json_body(self) -> None:
         with self.assertRaisesRegex(ValueError, "valid JSON"):
             parse_yandex_completion_text(b"not json", "model")
+
+    def test_rejects_non_dict_alternative_with_value_error(self) -> None:
+        body = json.dumps(
+            {"result": {"alternatives": ["not-a-dict"]}}
+        ).encode()
+        with self.assertRaisesRegex(ValueError, "non-empty message text"):
+            parse_yandex_completion_text(body, "model")
+
+    def test_rejects_non_final_alternative_status(self) -> None:
+        body = json.dumps(
+            {
+                "result": {
+                    "alternatives": [
+                        {
+                            "message": {"role": "assistant", "text": "{}"},
+                            "status": "ALTERNATIVE_STATUS_TRUNCATED_FINAL",
+                        }
+                    ]
+                }
+            }
+        ).encode()
+        with self.assertRaisesRegex(ValueError, "not final.*TRUNCATED_FINAL"):
+            parse_yandex_completion_text(body, "model")
+
+    def test_strips_markdown_fences_around_json(self) -> None:
+        fenced = '```json\n{"normalized_query":"artificial intelligence"}\n```'
+        adapter, _ = generator(
+            HttpResponse(200, {"Content-Type": "application/json"}, yandex_body(fenced))
+        )
+        self.assertEqual(
+            adapter("Технологии в ИИ"),
+            '{"normalized_query":"artificial intelligence"}',
+        )
+
+    def test_error_shows_response_preview_for_live_diagnosis(self) -> None:
+        adapter, _ = generator(
+            HttpResponse(
+                200, {"Content-Type": "application/json"}, yandex_body("soon ...")
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "preview"):
+            adapter("Технологии в ИИ")
 
 
 class YandexSettingsTests(unittest.TestCase):

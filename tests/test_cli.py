@@ -115,6 +115,7 @@ class CommandLineTests(unittest.TestCase):
             result = _runtime_environment(
                 path,
                 {"NEXTWAVE_LLM_API_KEY": "process-secret"},
+                dotenv_path=Path(directory) / "no-such-env",
             )
 
         self.assertEqual(result["NEXTWAVE_LLM_PROVIDER"], "yandex")
@@ -129,7 +130,29 @@ class CommandLineTests(unittest.TestCase):
             path.write_text("KEY=first\nKEY=second\n", encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "duplicate variable KEY"):
-                _runtime_environment(path, {})
+                _runtime_environment(path, {}, dotenv_path=Path(directory) / "no-such-env")
+
+    def test_dotenv_overrides_file_and_process_wins(self) -> None:
+        from nextwave.__main__ import _runtime_environment
+
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / "base.env"
+            env_file.write_text(
+                "NEXTWAVE_LLM_PROVIDER=huggingface\nSHARED=from-file\n",
+                encoding="utf-8",
+            )
+            dotenv_path = Path(directory) / ".env"
+            dotenv_path.write_text(
+                "NEXTWAVE_LLM_PROVIDER=yandex\nSHARED=from-dotenv\n",
+                encoding="utf-8",
+            )
+
+            result = _runtime_environment(
+                env_file, {"SHARED": "from-process"}, dotenv_path=dotenv_path
+            )
+
+            self.assertEqual(result["NEXTWAVE_LLM_PROVIDER"], "yandex")
+            self.assertEqual(result["SHARED"], "from-process")
 
     @patch("nextwave.__main__.build_discovery_pipeline_from_environment")
     @patch("nextwave.__main__.build_query_resolver_from_environment")
@@ -271,6 +294,48 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("--cutoff-date", stderr.getvalue())
         self.assertNotIn("Traceback", stderr.getvalue())
+
+    @patch("nextwave.__main__.save_discovery_run")
+    @patch("nextwave.__main__.build_discovery_pipeline_from_environment")
+    @patch("nextwave.__main__.build_query_resolver_from_environment")
+    def test_discovery_run_derives_scope_key_and_domain_from_resolution(
+        self, build_resolver, build_pipeline, save_run
+    ) -> None:
+        from types import SimpleNamespace
+
+        from nextwave.discovery import build_analysis_scope
+
+        scope = build_analysis_scope(
+            raw_query="Технологии в ИИ",
+            normalized_query="artificial intelligence",
+            search_texts=("Технологии в ИИ",),
+            languages=("en", "ru"),
+            subfield_ids=("1702",),
+        )
+        build_resolver.return_value.resolve.return_value = SimpleNamespace(scope=scope)
+        save_run.return_value = Path("runs") / "analysis-ai-009-abc123"
+
+        with tempfile.TemporaryDirectory() as directory:
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                exit_code = main(
+                    [
+                        "discovery-run",
+                        "--query",
+                        "Технологии в ИИ",
+                        "--analysis-id",
+                        "analysis-ai-009",
+                        "--env-file",
+                        str(Path(directory) / "runtime.env"),
+                        "--output-root",
+                        str(Path(directory) / "runs"),
+                    ]
+                )
+
+            self.assertEqual(exit_code, 0)
+            _, kwargs = save_run.call_args
+            self.assertEqual(kwargs["analysis_scope_key"], scope.scope_id)
+            self.assertEqual(kwargs["domain"], "Технологии в ИИ")
 
 
 if __name__ == "__main__":

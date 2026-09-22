@@ -14,6 +14,7 @@ from nextwave.discovery import (
     LlmSelection,
     ScopeGranularity,
     StructuredCandidateMentionExtractor,
+    YandexTruncationError,
     build_analysis_scope,
     build_candidate_extraction_batches,
 )
@@ -138,6 +139,109 @@ class CandidateMentionExtractorTests(unittest.TestCase):
         self.assertEqual(result.issues, ())
         self.assertIn("yandex-yandexgpt-lite-5", result.extractor_id)
         json.dumps(result.to_dict(), ensure_ascii=False)
+
+    def test_malformed_envelope_reports_preview_for_live_diagnosis(self) -> None:
+        generator = FakeGenerator({"documents": [{"unexpected": "shape"}]})
+
+        with self.assertRaisesRegex(ValueError, "preview"):
+            extractor(generator).extract(scope(), (document(1),))
+
+    def test_extra_top_level_keys_are_ignored_while_items_stay_strict(self) -> None:
+        generator = FakeGenerator(
+            {
+                "documents": [
+                    {
+                        "document_id": "document-1",
+                        "mentions": [{"text": "Speculative Decoding", "field": "title"}],
+                    },
+                    {
+                        "document_id": "document-1",
+                        "mentions": [{"text": "Speculative Decoding", "field": "title"}],
+                    },
+                ],
+                "note": "model commentary outside the schema",
+            }
+        )
+
+        result = extractor(generator).extract(scope(), (document(1),))
+
+        self.assertEqual(len(result.mentions), 1)
+        self.assertTrue(
+            any(
+                issue.code == CandidateExtractionIssueCode.DUPLICATE_DOCUMENT
+                for issue in result.issues
+            )
+        )
+
+    def test_oversized_item_becomes_issue_instead_of_killing_batch(self) -> None:
+        generator = FakeGenerator(
+            {
+                "documents": [
+                    {
+                        "document_id": "document-1",
+                        "mentions": [
+                            {"text": f"Extra phrase {index}", "field": "title"}
+                            for index in range(13)
+                        ],
+                    },
+                    {
+                        "document_id": "document-2",
+                        "mentions": [{"text": "speculative decoding", "field": "title"}],
+                    },
+                ]
+            }
+        )
+        media = document(
+            2,
+            connector_id="mediacloud",
+            title="Startup launches speculative decoding platform",
+            excerpt=None,
+        )
+
+        result = extractor(generator).extract(scope(), (document(1), media))
+
+        item_issues = [
+            issue
+            for issue in result.issues
+            if issue.code == CandidateExtractionIssueCode.INVALID_ITEM
+        ]
+        self.assertEqual([issue.document_id for issue in item_issues], ["document-1"])
+        self.assertFalse(
+            any(
+                issue.code == CandidateExtractionIssueCode.MISSING_DOCUMENT
+                and issue.document_id == "document-1"
+                for issue in result.issues
+            )
+        )
+        self.assertTrue(
+            any(
+                mention.text == "speculative decoding" for mention in result.mentions
+            )
+        )
+
+    def test_truncated_batch_splits_and_merges_halves(self) -> None:
+        def generate(prompt: str) -> str:
+            payload = json.loads(prompt.split("Input data as JSON:\n", 1)[1])
+            if len(payload["documents"]) > 1:
+                raise YandexTruncationError("Yandex response was not final")
+            document = payload["documents"][0]
+            return json.dumps(
+                {
+                    "documents": [
+                        {"document_id": document["document_id"], "mentions": []}
+                    ]
+                }
+            )
+
+        media = document(2, connector_id="gdelt", excerpt=None)
+        result = extractor(generate).extract(scope(), (document(1), media))
+
+        self.assertEqual(result.input_document_ids, ("document-1", "document-2"))
+        self.assertEqual(result.batch_count, 2)
+        self.assertEqual(
+            [item.document_id for item in result.coverage],
+            ["document-1", "document-2"],
+        )
 
     def test_invalid_mentions_become_auditable_issues_without_losing_valid_ones(self) -> None:
         scientific = document(1)
@@ -264,11 +368,18 @@ class CandidateMentionExtractorTests(unittest.TestCase):
 
         self.assertEqual([len(batch) for batch in batches], [2, 2, 1])
 
-    def test_rejects_response_level_contract_violation(self) -> None:
+    def test_extra_top_level_keys_do_not_reject_response(self) -> None:
         generator = FakeGenerator({"documents": [], "explanation": "extra"})
 
-        with self.assertRaisesRegex(ValueError, "contain only documents"):
-            extractor(generator).extract(scope(), (document(1),))
+        result = extractor(generator).extract(scope(), (document(1),))
+
+        self.assertEqual(result.mentions, ())
+        self.assertTrue(
+            any(
+                issue.code == CandidateExtractionIssueCode.MISSING_DOCUMENT
+                for issue in result.issues
+            )
+        )
 
 
 if __name__ == "__main__":
