@@ -15,6 +15,7 @@ from nextwave.contracts import SourceDocument, SourceType, TrustTier
 from .identifiers import doi_url, normalize_doi
 
 _OPENALEX_WORK_ID = re.compile(r"W[0-9]+\Z", re.IGNORECASE)
+_OPENALEX_TOPIC_ID = re.compile(r"T[0-9]+\Z", re.IGNORECASE)
 _SCIENTIFIC_WORK_TYPES = {
     "article",
     "book",
@@ -40,11 +41,49 @@ class OpenAlexParseIssue:
 
 
 @dataclass(frozen=True, slots=True)
+class OpenAlexTopicHint:
+    topic_id: str
+    display_name: str
+    score: float
+    primary: bool
+    subfield_id: str
+    subfield_name: str
+    field_id: str
+    field_name: str
+    domain_id: str
+    domain_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAlexKeywordHint:
+    keyword_id: str
+    display_name: str
+    score: float
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAlexDiscoveryHints:
+    document_id: str
+    topics: tuple[OpenAlexTopicHint, ...]
+    keywords: tuple[OpenAlexKeywordHint, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class OpenAlexHintIssue:
+    record_index: int
+    external_id: str | None
+    document_id: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class OpenAlexParseResult:
     """Valid normalized documents plus explicit per-record rejections."""
 
     documents: tuple[SourceDocument, ...]
+    hints: tuple[OpenAlexDiscoveryHints, ...]
     issues: tuple[OpenAlexParseIssue, ...]
+    hint_issues: tuple[OpenAlexHintIssue, ...]
     total_records: int
 
     @property
@@ -99,18 +138,19 @@ def parse_openalex_response(
         raise ValueError("OpenAlex response must contain a results list")
 
     documents: list[SourceDocument] = []
+    hints: list[OpenAlexDiscoveryHints] = []
     issues: list[OpenAlexParseIssue] = []
+    hint_issues: list[OpenAlexHintIssue] = []
     for index, record in enumerate(decoded["results"]):
         external_id = _best_effort_external_id(record)
         try:
-            documents.append(
-                parse_openalex_work(
-                    record,
-                    snapshot_id=snapshot_id,
-                    retrieved_at=retrieved_at,
-                    cutoff_date=cutoff_date,
-                )
+            document = parse_openalex_work(
+                record,
+                snapshot_id=snapshot_id,
+                retrieved_at=retrieved_at,
+                cutoff_date=cutoff_date,
             )
+            documents.append(document)
         except ValueError as error:
             issues.append(
                 OpenAlexParseIssue(
@@ -120,11 +160,58 @@ def parse_openalex_response(
                     message=str(error),
                 )
             )
+            continue
+        try:
+            hints.append(parse_openalex_discovery_hints(record, document.document_id))
+        except ValueError as error:
+            hints.append(OpenAlexDiscoveryHints(document.document_id, (), ()))
+            hint_issues.append(
+                OpenAlexHintIssue(
+                    record_index=index,
+                    external_id=external_id,
+                    document_id=document.document_id,
+                    message=str(error),
+                )
+            )
 
     return OpenAlexParseResult(
         documents=tuple(documents),
+        hints=tuple(hints),
         issues=tuple(issues),
+        hint_issues=tuple(hint_issues),
         total_records=len(decoded["results"]),
+    )
+
+
+def parse_openalex_discovery_hints(
+    record: object,
+    document_id: str,
+) -> OpenAlexDiscoveryHints:
+    """Preserve scored OpenAlex aboutness fields outside the universal document model."""
+
+    if not isinstance(record, dict):
+        raise ValueError("record must be an object")
+    primary_record = record.get("primary_topic")
+    primary_id = _optional_topic_id(primary_record)
+    topic_records = record.get("topics")
+    if topic_records is None:
+        topic_records = []
+    if not isinstance(topic_records, list):
+        raise ValueError("topics must be a list or null")
+    topics = [_topic_hint(value, primary_id) for value in topic_records]
+    if primary_record is not None and primary_id not in {topic.topic_id for topic in topics}:
+        topics.insert(0, _topic_hint(primary_record, primary_id))
+
+    keyword_records = record.get("keywords")
+    if keyword_records is None:
+        keyword_records = []
+    if not isinstance(keyword_records, list):
+        raise ValueError("keywords must be a list or null")
+    keywords = tuple(_keyword_hint(value) for value in keyword_records)
+    return OpenAlexDiscoveryHints(
+        document_id=document_id,
+        topics=tuple(topics),
+        keywords=keywords,
     )
 
 
@@ -276,6 +363,85 @@ def _source_classification(value: object) -> tuple[SourceType, TrustTier]:
     if isinstance(value, str) and value.casefold() in _SCIENTIFIC_WORK_TYPES:
         return SourceType.SCIENTIFIC_PUBLICATION, TrustTier.A
     return SourceType.OTHER, TrustTier.UNKNOWN
+
+
+def _optional_topic_id(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("primary_topic must be an object or null")
+    return _openalex_hint_id(value.get("id"), "T", "primary_topic.id")
+
+
+def _topic_hint(value: object, primary_id: str | None) -> OpenAlexTopicHint:
+    if not isinstance(value, dict):
+        raise ValueError("topic hint must be an object")
+    topic_id = _openalex_hint_id(value.get("id"), "T", "topic.id")
+    return OpenAlexTopicHint(
+        topic_id=topic_id,
+        display_name=_hint_name(value.get("display_name"), "topic.display_name"),
+        score=_hint_score(value.get("score"), "topic.score"),
+        primary=topic_id == primary_id,
+        subfield_id=_hierarchy_id(value.get("subfield"), "subfields", "topic.subfield"),
+        subfield_name=_hierarchy_name(value.get("subfield"), "topic.subfield"),
+        field_id=_hierarchy_id(value.get("field"), "fields", "topic.field"),
+        field_name=_hierarchy_name(value.get("field"), "topic.field"),
+        domain_id=_hierarchy_id(value.get("domain"), "domains", "topic.domain"),
+        domain_name=_hierarchy_name(value.get("domain"), "topic.domain"),
+    )
+
+
+def _keyword_hint(value: object) -> OpenAlexKeywordHint:
+    if not isinstance(value, dict):
+        raise ValueError("keyword hint must be an object")
+    keyword_id = _openalex_hint_id(value.get("id"), "keywords", "keyword.id")
+    return OpenAlexKeywordHint(
+        keyword_id=keyword_id,
+        display_name=_hint_name(value.get("display_name"), "keyword.display_name"),
+        score=_hint_score(value.get("score"), "keyword.score"),
+    )
+
+
+def _openalex_hint_id(value: object, expected_parent: str, field_name: str) -> str:
+    if not isinstance(value, str) or not _is_http_url(value):
+        raise ValueError(f"{field_name} must be an absolute OpenAlex URL")
+    path_parts = [part for part in urlparse(value).path.split("/") if part]
+    if not path_parts:
+        raise ValueError(f"{field_name} has no identifier")
+    identifier = path_parts[-1]
+    if expected_parent == "T":
+        if _OPENALEX_TOPIC_ID.fullmatch(identifier) is None:
+            raise ValueError(f"{field_name} must end with an OpenAlex T identifier")
+    elif len(path_parts) < 2 or path_parts[-2] != expected_parent:
+        raise ValueError(f"{field_name} must use the {expected_parent} path")
+    return identifier
+
+
+def _hint_name(value: object, field_name: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-blank string")
+    return value.strip()
+
+
+def _hint_score(value: object, field_name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise ValueError(f"{field_name} must be a number")
+    score = float(value)
+    if not 0.0 <= score <= 1.0:
+        raise ValueError(f"{field_name} must be between 0 and 1")
+    return score
+
+
+def _hierarchy_id(value: object, parent: str, field_name: str) -> str:
+    if not isinstance(value, dict):
+        raise ValueError(f"{field_name} must be an object")
+    return _openalex_hint_id(value.get("id"), parent, f"{field_name}.id")
+
+
+def _hierarchy_name(value: object, field_name: str) -> str:
+    if not isinstance(value, dict):
+        raise ValueError(f"{field_name} must be an object")
+    return _hint_name(value.get("display_name"), f"{field_name}.display_name")
 
 
 def _is_http_url(value: str) -> bool:

@@ -44,6 +44,42 @@ def make_work(**overrides):
     return work
 
 
+def topic(
+    topic_id: str = "T12345",
+    name: str = "Speculative Decoding for Language Models",
+    score: float = 0.91,
+):
+    return {
+        "id": f"https://openalex.org/{topic_id}",
+        "display_name": name,
+        "score": score,
+        "subfield": {
+            "id": "https://openalex.org/subfields/1702",
+            "display_name": "Artificial Intelligence",
+        },
+        "field": {
+            "id": "https://openalex.org/fields/17",
+            "display_name": "Computer Science",
+        },
+        "domain": {
+            "id": "https://openalex.org/domains/3",
+            "display_name": "Physical Sciences",
+        },
+    }
+
+
+def keyword(
+    keyword_id: str = "speculative-decoding",
+    name: str = "Speculative Decoding",
+    score: float = 0.88,
+):
+    return {
+        "id": f"https://openalex.org/keywords/{keyword_id}",
+        "display_name": name,
+        "score": score,
+    }
+
+
 def parse(*records):
     return parse_openalex_response(
         json.dumps({"results": list(records)}).encode("utf-8"),
@@ -129,6 +165,34 @@ class OpenAlexParserTests(unittest.TestCase):
         second = parse(make_work()).documents[0]
 
         self.assertEqual(first.document_id, second.document_id)
+
+    def test_preserves_scored_topics_and_keywords_as_discovery_hints(self) -> None:
+        topic_record = topic()
+        result = parse(
+            make_work(
+                primary_topic=topic_record,
+                topics=[topic_record, topic("T54321", "Efficient LLM Inference", 0.72)],
+                keywords=[keyword(), keyword("draft-model", "Draft Model", 0.77)],
+            )
+        )
+
+        hints = result.hints[0]
+        self.assertEqual(hints.document_id, result.documents[0].document_id)
+        self.assertEqual(hints.topics[0].topic_id, "T12345")
+        self.assertTrue(hints.topics[0].primary)
+        self.assertEqual(hints.topics[0].subfield_id, "1702")
+        self.assertEqual(hints.keywords[0].keyword_id, "speculative-decoding")
+        self.assertEqual(hints.keywords[0].score, 0.88)
+        self.assertEqual(result.hint_issues, ())
+
+    def test_bad_hints_do_not_discard_an_otherwise_valid_document(self) -> None:
+        result = parse(make_work(topics="not-a-list", keywords=[]))
+
+        self.assertEqual(result.accepted_records, 1)
+        self.assertEqual(result.rejected_records, 0)
+        self.assertEqual(result.hints[0].topics, ())
+        self.assertEqual(len(result.hint_issues), 1)
+        self.assertIn("topics must be a list", result.hint_issues[0].message)
 
 
 if __name__ == "__main__":

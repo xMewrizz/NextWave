@@ -119,13 +119,17 @@ class MediaCloudRequestTests(unittest.TestCase):
         self.assertNotIn("page_size", parameters)
         self.assertNotIn("sort_order", parameters)
 
-    def test_request_requires_bounded_collection_selection(self) -> None:
-        with self.assertRaisesRegex(ValueError, "at least one collection"):
-            build_mediacloud_story_request(
-                make_query(),
-                search_text="artificial intelligence",
-                collection_ids=(),
-            )
+    def test_global_request_omits_collection_and_can_limit_language(self) -> None:
+        request = build_mediacloud_story_request(
+            make_query(),
+            search_text="artificial intelligence",
+            collection_ids=(),
+            languages=("ru",),
+        )
+        parameters = {item.name: item.value for item in request.parameters}
+
+        self.assertNotIn("cs", parameters)
+        self.assertEqual(parameters["q"], '"artificial intelligence" AND language:ru')
 
 
 class MediaCloudConnectorTests(unittest.TestCase):

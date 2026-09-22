@@ -58,6 +58,7 @@ def build_gdelt_request(
     search_text: str,
     max_records: int = 250,
     attempt: int = 1,
+    languages: tuple[str, ...] | None = None,
 ) -> ConnectorRequest:
     """Build one bounded GDELT article-list request for an observation window."""
 
@@ -66,7 +67,7 @@ def build_gdelt_request(
     if query.published_until > _add_months(query.published_from, 3):
         raise ValueError("GDELT article-list window must not exceed three calendar months")
 
-    gdelt_query = _gdelt_query(query, search_text)
+    gdelt_query = _gdelt_query(query, search_text, languages)
     parameters = [
         QueryParameter("enddatetime", f"{query.published_until:%Y%m%d}235959"),
         QueryParameter("format", "json"),
@@ -95,10 +96,11 @@ def build_gdelt_timeline_request(
     *,
     search_text: str,
     attempt: int = 1,
+    languages: tuple[str, ...] | None = None,
 ) -> ConnectorRequest:
     """Build a normalized-volume request, separate from article retrieval."""
 
-    gdelt_query = _gdelt_query(query, search_text)
+    gdelt_query = _gdelt_query(query, search_text, languages)
     parameters = [
         QueryParameter("enddatetime", f"{query.published_until:%Y%m%d}235959"),
         QueryParameter("format", "json"),
@@ -135,12 +137,23 @@ def _add_months(value: date, months: int) -> date:
     return date(year, month, day)
 
 
-def _gdelt_query(query: SourceQuery, search_text: str) -> str:
+def _gdelt_query(
+    query: SourceQuery,
+    search_text: str,
+    languages: tuple[str, ...] | None = None,
+) -> str:
     if search_text not in query.search_texts:
         raise ValueError("search_text must be one of SourceQuery.search_texts")
     if '"' in search_text or not search_text.strip():
         raise ValueError("GDELT search_text must be a non-blank phrase without quotes")
-    return f'"{search_text.strip()}" {_language_filter(query.languages)}'
+    selected_languages = query.languages if languages is None else languages
+    if not selected_languages:
+        raise ValueError("GDELT languages must not be empty")
+    if len(set(selected_languages)) != len(selected_languages):
+        raise ValueError("GDELT languages must be unique")
+    if any(language not in query.languages for language in selected_languages):
+        raise ValueError("GDELT languages must come from SourceQuery.languages")
+    return f'"{search_text.strip()}" {_language_filter(selected_languages)}'
 
 
 def _language_filter(languages: tuple[str, ...]) -> str:
@@ -215,12 +228,14 @@ class GdeltConnector:
         search_text: str,
         max_records: int = 250,
         attempt: int = 1,
+        languages: tuple[str, ...] | None = None,
     ) -> ConnectorRun:
         request = build_gdelt_request(
             query,
             search_text=search_text,
             max_records=max_records,
             attempt=attempt,
+            languages=languages,
         )
         return self._run_request(request, writer)
 
@@ -231,11 +246,13 @@ class GdeltConnector:
         *,
         search_text: str,
         attempt: int = 1,
+        languages: tuple[str, ...] | None = None,
     ) -> ConnectorRun:
         request = build_gdelt_timeline_request(
             query,
             search_text=search_text,
             attempt=attempt,
+            languages=languages,
         )
         return self._run_request(request, writer)
 

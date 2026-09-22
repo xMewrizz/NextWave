@@ -21,7 +21,11 @@ from nextwave.sources import (
 NOW = datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
 
 
-def make_query(*, topic_ids: tuple[str, ...] = ("T10001",)) -> SourceQuery:
+def make_query(
+    *,
+    topic_ids: tuple[str, ...] = ("T10001",),
+    subfield_ids: tuple[str, ...] = (),
+) -> SourceQuery:
     from nextwave.sources import QueryPurpose
 
     return SourceQuery(
@@ -36,6 +40,7 @@ def make_query(*, topic_ids: tuple[str, ...] = ("T10001",)) -> SourceQuery:
         cutoff_date=date(2026, 9, 15),
         languages=("en", "ru"),
         topic_ids=topic_ids,
+        subfield_ids=subfield_ids,
     )
 
 
@@ -89,16 +94,25 @@ class OpenAlexRequestTests(unittest.TestCase):
         self.assertNotIn("search", parameters)
         self.assertEqual(parameters["search.semantic"], "machine learning")
 
-    def test_topic_request_uses_topic_ids_without_search_text(self) -> None:
+    def test_taxonomy_request_uses_topic_ids_without_search_text(self) -> None:
         request = build_openalex_request(
             make_query(topic_ids=("T10001", "T10002")),
-            channel=RetrievalChannel.TOPIC,
+            channel=RetrievalChannel.TAXONOMY,
         )
         parameters = {item.name: item.value for item in request.parameters}
 
         self.assertNotIn("search", parameters)
         self.assertNotIn("search.semantic", parameters)
         self.assertIn("topics.id:T10001|T10002", parameters["filter"])
+
+    def test_taxonomy_request_uses_subfield_for_broad_scope(self) -> None:
+        request = build_openalex_request(
+            make_query(topic_ids=(), subfield_ids=("1702",)),
+            channel=RetrievalChannel.TAXONOMY,
+        )
+        parameters = {item.name: item.value for item in request.parameters}
+
+        self.assertIn("topics.subfield.id:1702", parameters["filter"])
 
     def test_request_url_is_stable(self) -> None:
         request = build_openalex_request(
