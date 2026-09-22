@@ -8,6 +8,8 @@ export type SourceType =
   | 'regulator'
   | 'university'
   | 'company'
+  | 'company_technical'
+  | 'press_release'
   | 'industry_media'
   | 'analytical_report'
   | 'conference'
@@ -15,6 +17,8 @@ export type SourceType =
   | 'other'
 
 export type TrustLevel = 'high' | 'medium' | 'low' | 'unknown'
+
+export type EvidenceDirection = 'support' | 'counter'
 
 export type DevelopmentStage =
   | 'research'
@@ -49,6 +53,7 @@ export interface Evidence {
   published_at: string | null
   retrieved_at: string | null
   excerpt: string | null
+  direction: EvidenceDirection | null
   generated_summary: boolean
 }
 
@@ -107,15 +112,15 @@ export interface UseCase {
 
 export interface Trend extends CandidateAssessment {
   rank: number
-  summary: string
+  summary: string | null
   factors: ScoreFactor[]
-  problem: string
-  advantage: string
+  problem: string | null
+  advantage: string | null
   hypothesis: string | null
-  use_case: UseCase
-  first_seen: string
+  use_case: UseCase | null
+  first_seen: string | null
   timeline: TimelinePoint[]
-  document_count: number
+  document_count: number | null
   limitations: string[]
 }
 
@@ -128,14 +133,15 @@ export interface SourceStat {
 export interface Coverage {
   directions: string[]
   examples: string[]
-  documents_from: string
-  documents_to: string
-  document_count: number
+  documents_from: string | null
+  documents_to: string | null
+  document_count: number | null
   sources: SourceStat[]
-  corpus_version: string
-  method_version: string
-  updated_at: string
+  corpus_version: string | null
+  method_version: string | null
+  updated_at: string | null
   thresholds: Record<string, number>
+  notice: string | null
 }
 
 export interface Stage {
@@ -151,9 +157,13 @@ export interface Analysis {
   progress: number
   notice: string | null
   created_at: string
+  started_at: string | null
   finished_at: string | null
+  error_code: string | null
   corpus_version: string
   method_version: string
+  model_version: string | null
+  feature_version: string | null
   trends: Trend[]
 }
 

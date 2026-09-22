@@ -9,6 +9,20 @@ from enum import Enum
 from pathlib import Path
 from typing import Literal, Union, get_args, get_origin
 
+from nextwave.contracts import (
+    CandidateAssessment,
+    CandidateFeatures,
+    CandidateStatus,
+    DevelopmentStage,
+    Evidence,
+    EvidenceDirection,
+    ExclusionReason,
+    ModelPrediction,
+    SourceType,
+    TrustLevel,
+)
+from pydantic import BaseModel
+
 from app.models import (
     Analysis,
     AnalysisStatus,
@@ -22,25 +36,13 @@ from app.models import (
     Trend,
     UseCase,
 )
-from pydantic import BaseModel
-
-from nextwave.contracts import (
-    CandidateAssessment,
-    CandidateFeatures,
-    CandidateStatus,
-    DevelopmentStage,
-    Evidence,
-    ExclusionReason,
-    ModelPrediction,
-    SourceType,
-    TrustLevel,
-)
 
 TARGET = Path(__file__).resolve().parent.parent / "frontend/src/lib/contracts.generated.ts"
 
 ENUMS = (
     SourceType,
     TrustLevel,
+    EvidenceDirection,
     DevelopmentStage,
     CandidateStatus,
     ExclusionReason,

@@ -1,0 +1,45 @@
+[
+  {
+    "candidate_id": "contract-example-1",
+    "canonical_name": "Пример технологии для проверки контракта",
+    "query": "Проверка интеграции",
+    "features": {
+      "stage": "research",
+      "independent_source_count": 2,
+      "source_type_diversity": 1,
+      "independent_actor_count": 2,
+      "publication_momentum": null,
+      "patent_momentum": null,
+      "evidence_recency_days": 2,
+      "mass_adoption": null,
+      "formed_market": null,
+      "industry_standard": null,
+      "promotional_source_share": null
+    },
+    "prediction": {
+      "weak_signal_score": 0.72,
+      "model_version": "contract-test-model-v1",
+      "feature_version": "contract-test-features-v1",
+      "calibrated": false
+    },
+    "status": "watchlist",
+    "explanation": "Учебный payload: временное покрытие неизвестно; это не вывод реальной модели.",
+    "exclusion_reason": null,
+    "priority_score": null,
+    "evidence": [
+      {
+        "evidence_id": "contract-example-evidence-1",
+        "title": "Источник только для проверки контракта",
+        "url": "https://example.org/contract-fixture",
+        "source_type": "scientific_publication",
+        "language": "ru",
+        "trust_level": "high",
+        "published_at": "2026-09-20",
+        "retrieved_at": "2026-09-22T09:00:00Z",
+        "excerpt": "Учебная цитата для проверки сохранения текста.",
+        "direction": "support",
+        "generated_summary": false
+      }
+    ]
+  }
+]

@@ -17,6 +17,8 @@ class SourceType(StrEnum):
     REGULATOR = "regulator"
     UNIVERSITY = "university"
     COMPANY = "company"
+    COMPANY_TECHNICAL = "company_technical"
+    PRESS_RELEASE = "press_release"
     INDUSTRY_MEDIA = "industry_media"
     ANALYTICAL_REPORT = "analytical_report"
     CONFERENCE = "conference"
@@ -50,6 +52,25 @@ class DevelopmentStage(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ClaimType(StrEnum):
+    NOVELTY = "novelty"
+    GROWTH = "growth"
+    RESEARCH = "research"
+    PATENT = "patent"
+    PROTOTYPE = "prototype"
+    PILOT = "pilot"
+    INVESTMENT = "investment"
+    ADOPTION = "adoption"
+    STANDARD = "standard"
+    MARKET = "market"
+    PROMOTIONAL_CLAIM = "promotional_claim"
+
+
+class EvidenceDirection(StrEnum):
+    SUPPORT = "support"
+    COUNTER = "counter"
+
+
 class CandidateStatus(StrEnum):
     MAIN = "main"
     WATCHLIST = "watchlist"
@@ -69,7 +90,9 @@ class ExclusionReason(StrEnum):
 class ContractModel(BaseModel):
     """Strict base for data that crosses component boundaries."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, str_strip_whitespace=True, allow_inf_nan=False
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +153,31 @@ class SourceDocument:
                 raise ValueError(f"{name} must include a timezone")
 
 
+@dataclass(frozen=True, slots=True)
+class EvidenceClaim:
+    claim_id: str
+    document_id: str
+    claim_type: ClaimType
+    direction: EvidenceDirection
+    text: str
+    locator: str | None = None
+    organization: str | None = None
+    extraction_confidence: float | None = None
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("claim_id", self.claim_id),
+            ("document_id", self.document_id),
+            ("text", self.text),
+        ):
+            if not value.strip():
+                raise ValueError(f"{name} must not be blank")
+        if self.extraction_confidence is not None and not 0 <= self.extraction_confidence <= 1:
+            raise ValueError("extraction_confidence must be between 0 and 1")
+        if self.locator is not None and not self.locator.strip():
+            raise ValueError("locator must not be blank")
+
+
 class Evidence(ContractModel):
     evidence_id: str
     title: str
@@ -140,6 +188,7 @@ class Evidence(ContractModel):
     published_at: date | None = None
     retrieved_at: datetime | None = None
     excerpt: str | None = None
+    direction: EvidenceDirection | None = None
     generated_summary: bool = False
 
     @field_validator("evidence_id", "title", "language")

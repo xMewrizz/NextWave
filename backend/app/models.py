@@ -3,9 +3,8 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
-
 from nextwave.contracts import CandidateAssessment, CandidateStatus, SourceType
+from pydantic import BaseModel, Field
 
 AnalysisStatus = Literal["pending", "running", "done", "empty", "error"]
 Bucket = CandidateStatus
@@ -36,16 +35,16 @@ class Trend(CandidateAssessment):
     """Canonical candidate plus presentation data required by the UI."""
 
     rank: int = Field(ge=1)
-    summary: str
-    factors: list[ScoreFactor]
-    problem: str
-    advantage: str
+    summary: str | None = None
+    factors: list[ScoreFactor] = Field(default_factory=list)
+    problem: str | None = None
+    advantage: str | None = None
     hypothesis: str | None = None
-    use_case: UseCase
-    first_seen: str
-    timeline: list[TimelinePoint]
-    document_count: int = Field(ge=0)
-    limitations: list[str]
+    use_case: UseCase | None = None
+    first_seen: str | None = None
+    timeline: list[TimelinePoint] = Field(default_factory=list)
+    document_count: int | None = Field(default=None, ge=0)
+    limitations: list[str] = Field(default_factory=list)
 
 
 class SourceStat(BaseModel):
@@ -57,14 +56,15 @@ class SourceStat(BaseModel):
 class Coverage(BaseModel):
     directions: list[str]
     examples: list[str]
-    documents_from: date
-    documents_to: date
-    document_count: int
+    documents_from: date | None
+    documents_to: date | None
+    document_count: int | None
     sources: list[SourceStat]
-    corpus_version: str
-    method_version: str
-    updated_at: datetime
+    corpus_version: str | None
+    method_version: str | None
+    updated_at: datetime | None
     thresholds: dict[str, float]
+    notice: str | None = None
 
 
 class Stage(BaseModel):
@@ -80,9 +80,13 @@ class Analysis(BaseModel):
     progress: float = Field(default=0, ge=0, le=1)
     notice: str | None = None
     created_at: datetime
+    started_at: datetime | None = None
     finished_at: datetime | None = None
+    error_code: str | None = None
     corpus_version: str
     method_version: str
+    model_version: str | None = None
+    feature_version: str | None = None
     trends: list[Trend] = Field(default_factory=list)
 
 

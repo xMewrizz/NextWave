@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
+from nextwave.analysis import AnalysisMetadata
 from nextwave.contracts import CandidateStatus
 
 from . import database, pipeline
@@ -16,7 +16,12 @@ from .models import Analysis, AnalysisRequest, AnalysisSummary, Coverage, Stage,
 async def lifespan(_: FastAPI):
     database.init_database()
     database.mark_interrupted_analyses()
-    yield
+    try:
+        yield
+    finally:
+        for task in tuple(_tasks):
+            task.cancel()
+        await asyncio.gather(*_tasks, return_exceptions=True)
 
 
 app = FastAPI(title="Радар зарождающихся технологий", version="0.2.0", lifespan=lifespan)
@@ -35,6 +40,7 @@ async def _execute(analysis_id: str) -> None:
     analysis = database.get_analysis(analysis_id)
     if analysis is None:
         return
+    analysis = analysis.model_copy(update={"started_at": datetime.now(UTC)})
 
     def on_stage(stage: Stage, progress: float) -> None:
         nonlocal analysis
@@ -43,12 +49,28 @@ async def _execute(analysis_id: str) -> None:
         )
         database.save_analysis(analysis)
 
+    def on_metadata(metadata: AnalysisMetadata) -> None:
+        nonlocal analysis
+        analysis = analysis.model_copy(update=metadata.model_dump())
+        database.save_analysis(analysis)
+
     try:
-        trends = await pipeline.run(analysis.query, on_stage)
-    except Exception as exc:  # noqa: BLE001 — состояние ошибки видно пользователю
-        analysis = analysis.model_copy(
-            update={"status": "error", "notice": f"Анализ прерван: {exc}"}
-        )
+        trends = await pipeline.run(analysis.query, on_stage, on_metadata)
+    except (Exception, asyncio.CancelledError) as exc:  # noqa: BLE001 — safe error boundary
+        if isinstance(exc, pipeline.IntegrationUnavailable):
+            code = "model_unavailable"
+            notice = "Интеграция модели недоступна. Анализатор ещё не подключён или не готов к запуску."
+        elif isinstance(exc, pipeline.InvalidAssessment):
+            code = "invalid_model_result"
+            notice = "Модель вернула результат, не соответствующий контракту анализа."
+        elif isinstance(exc, asyncio.CancelledError):
+            code = "interrupted"
+            notice = "Анализ прерван остановкой сервера. Запустите его повторно."
+        else:
+            code = "analysis_failed"
+            notice = "Не удалось выполнить анализ. Повторите запрос позже."
+        # Exception text can include provider credentials or raw data; never persist it.
+        analysis = analysis.model_copy(update={"status": "error", "error_code": code, "notice": notice})
     else:
         analysis = analysis.model_copy(
             update={
@@ -57,24 +79,23 @@ async def _execute(analysis_id: str) -> None:
                 "notice": _notice(trends),
             }
         )
-    analysis = analysis.model_copy(
-        update={"progress": 1.0, "stage": None, "finished_at": datetime.now(UTC)}
-    )
+    analysis = analysis.model_copy(update={"progress": 1.0, "stage": None, "finished_at": datetime.now(UTC)})
     database.save_analysis(analysis)
 
 
 def _notice(trends: list[Trend]) -> str | None:
     if not trends:
-        return (
-            "Направление вне покрытия корпуса. Доступные направления: "
-            f"{', '.join(pipeline.DIRECTIONS)}. Нерелевантная выдача не подставляется."
-        )
+        return "Анализ завершён: анализатор не вернул кандидатов по этому запросу."
     main = [trend for trend in trends if trend.status is CandidateStatus.MAIN]
     if len(main) < pipeline.TOP_N:
         return (
             f"В основной список прошли {len(main)} кандидатов из {pipeline.TOP_N}: "
-            "остальные темы не набрали достаточной доказательной базы или истории в корпусе. "
-            "Они доступны во вкладках «Наблюдение» и «Отсеяны» с указанием причины."
+            "показано фактическое число. Причины решений доступны в карточках кандидатов."
+        )
+    if len(main) > pipeline.TOP_N:
+        return (
+            f"Показаны первые {pipeline.TOP_N} из {len(main)} кандидатов main. "
+            "Все финальные оценки сохранены и доступны через API."
         )
     return None
 
@@ -100,8 +121,8 @@ async def create_analysis(body: AnalysisRequest) -> Analysis:
         query=query,
         status="pending",
         created_at=datetime.now(UTC),
-        corpus_version=pipeline.CORPUS_VERSION,
-        method_version=pipeline.METHOD_VERSION,
+        corpus_version="unavailable",
+        method_version="unavailable",
     )
     database.save_analysis(analysis)
     task = asyncio.create_task(_execute(analysis.id))

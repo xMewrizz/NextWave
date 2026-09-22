@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, Float, String, Text, create_engine, select, update
+from sqlalchemy import JSON, DateTime, Float, String, Text, create_engine, inspect, select, text, update
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -46,14 +46,32 @@ class AnalysisRecord(Base):
     progress: Mapped[float] = mapped_column(Float, default=0)
     notice: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     corpus_version: Mapped[str] = mapped_column(String(100))
     method_version: Mapped[str] = mapped_column(String(100))
+    model_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    feature_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     trends: Mapped[list[dict]] = mapped_column(JSON, default=list)
 
 
 def init_database() -> None:
-    Base.metadata.create_all(engine)
+    """Create fresh storage or add V1-10 columns without rewriting existing results."""
+    with engine.begin() as connection:
+        if connection.dialect.name == "postgresql":
+            connection.execute(text("SELECT pg_advisory_xact_lock(1010)"))
+        Base.metadata.create_all(connection)
+        columns = {column["name"] for column in inspect(connection).get_columns("analyses")}
+        additions = {
+            "started_at": "TIMESTAMP WITH TIME ZONE",
+            "model_version": "TEXT",
+            "feature_version": "TEXT",
+            "error_code": "VARCHAR(64)",
+        }
+        for name, sql_type in additions.items():
+            if name not in columns:
+                connection.execute(text(f"ALTER TABLE analyses ADD COLUMN {name} {sql_type}"))
 
 
 def reset_database() -> None:
@@ -84,9 +102,13 @@ def _record_to_analysis(record: AnalysisRecord) -> Analysis:
         progress=record.progress,
         notice=record.notice,
         created_at=record.created_at,
+        started_at=record.started_at,
         finished_at=record.finished_at,
         corpus_version=record.corpus_version,
         method_version=record.method_version,
+        model_version=record.model_version,
+        feature_version=record.feature_version,
+        error_code=record.error_code,
         trends=[Trend.model_validate(item) for item in record.trends],
     )
 
@@ -99,9 +121,13 @@ def save_analysis(analysis: Analysis) -> None:
         "progress": analysis.progress,
         "notice": analysis.notice,
         "created_at": analysis.created_at,
+        "started_at": analysis.started_at,
         "finished_at": analysis.finished_at,
         "corpus_version": analysis.corpus_version,
         "method_version": analysis.method_version,
+        "model_version": analysis.model_version,
+        "feature_version": analysis.feature_version,
+        "error_code": analysis.error_code,
         "trends": [item.model_dump(mode="json") for item in analysis.trends],
     }
     with session_scope() as session:
@@ -143,6 +169,9 @@ def mark_interrupted_analyses() -> None:
             .values(
                 status="error",
                 stage=None,
+                progress=1.0,
+                finished_at=datetime.now(UTC),
+                error_code="interrupted",
                 notice="Анализ был прерван перезапуском сервера. Запустите его повторно.",
             )
         )
