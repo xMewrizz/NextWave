@@ -46,6 +46,7 @@ data/development/labels.csv
 data/development/*.local.csv
 data/development/*.xlsx
 data/development/discovery/
+data/development/labeling-export-*/
 data/interim/
 data/processed/
 artifacts/

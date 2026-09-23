@@ -141,7 +141,7 @@ class CandidateMentionExtractorTests(unittest.TestCase):
         json.dumps(result.to_dict(), ensure_ascii=False)
 
     def test_malformed_envelope_reports_preview_for_live_diagnosis(self) -> None:
-        generator = FakeGenerator({"documents": [{"unexpected": "shape"}]})
+        generator = FakeGenerator("not json at all")
 
         with self.assertRaisesRegex(ValueError, "preview"):
             extractor(generator).extract(scope(), (document(1),))
@@ -242,6 +242,33 @@ class CandidateMentionExtractorTests(unittest.TestCase):
             [item.document_id for item in result.coverage],
             ["document-1", "document-2"],
         )
+
+    def test_item_without_id_becomes_unnamed_issue_instead_of_killing_batch(
+        self,
+    ) -> None:
+        generator = FakeGenerator(
+            {
+                "documents": [
+                    "just a string, not an object",
+                    {
+                        "document_id": "document-1",
+                        "mentions": [{"text": "Speculative Decoding", "field": "title"}],
+                    },
+                ]
+            }
+        )
+
+        result = extractor(generator).extract(scope(), (document(1),))
+
+        unnamed = [
+            issue
+            for issue in result.issues
+            if issue.code == CandidateExtractionIssueCode.INVALID_ITEM
+            and issue.document_id == ""
+        ]
+        self.assertEqual(len(unnamed), 1)
+        self.assertIn("preview", unnamed[0].message)
+        self.assertEqual(len(result.mentions), 1)
 
     def test_invalid_mentions_become_auditable_issues_without_losing_valid_ones(self) -> None:
         scientific = document(1)

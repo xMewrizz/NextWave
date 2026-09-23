@@ -7,6 +7,7 @@ import io
 import json
 import tempfile
 import unittest
+import zipfile
 from contextlib import redirect_stdout
 from pathlib import Path
 
@@ -190,13 +191,26 @@ class LabelingExportTests(unittest.TestCase):
             for filename in (
                 "negative_candidates.jsonl",
                 "noise_controls.jsonl",
-                "labeling_workbook.xlsx",
                 "manifest.json",
             ):
                 self.assertEqual(
                     (root / "export-1" / filename).read_bytes(),
                     (root / "export-2" / filename).read_bytes(),
                 )
+            self.assertWorkbooksMatch(
+                root / "export-1" / "labeling_workbook.xlsx",
+                root / "export-2" / "labeling_workbook.xlsx",
+            )
+
+    def assertWorkbooksMatch(self, first: Path, second: Path) -> None:
+        # Контейнерные байты xlsx плавают по воле библиотеки openpyxl
+        # (доказано отладкой: содержимое одинаковое, хвосты zip различаются),
+        # поэтому книга сравнивается посодержимому: порядок записей и байты
+        # каждой части.
+        with zipfile.ZipFile(first) as left, zipfile.ZipFile(second) as right:
+            self.assertEqual(left.namelist(), right.namelist())
+            for name in left.namelist():
+                self.assertEqual(left.read(name), right.read(name))
 
     def test_existing_output_directory_is_an_error(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

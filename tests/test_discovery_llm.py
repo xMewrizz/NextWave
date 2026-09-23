@@ -4,10 +4,12 @@ import json
 import unittest
 from collections.abc import Mapping
 from typing import Any
+from urllib.error import URLError
 
 from nextwave.discovery import (
     LlmProvider,
     LlmSelection,
+    UrllibJsonHttpTransport,
     load_llm_runtime_settings,
 )
 from nextwave.discovery.llm import LocalLlamaJsonGenerator, build_json_generator
@@ -147,6 +149,49 @@ class LocalLlamaJsonGeneratorTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "truncated"):
             generator("Interpret AI")
+
+
+class UrllibTransportRetryTests(unittest.TestCase):
+    def test_network_failures_retry_with_backoff_then_succeed(self) -> None:
+        response = HttpResponse(200, {"Content-Type": "application/json"}, b"{}")
+        calls: list[str] = []
+        pauses: list[float] = []
+        transport = UrllibJsonHttpTransport(sleeper=pauses.append)
+
+        def flaky_post_once(url, *, headers, payload, timeout_seconds):
+            calls.append(url)
+            if len(calls) < 3:
+                raise URLError("temporary DNS failure")
+            return response
+
+        transport._post_once = flaky_post_once
+        result = transport.post_json(
+            "https://example.org/api",
+            headers={},
+            payload={},
+            timeout_seconds=5.0,
+        )
+
+        self.assertIs(result, response)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(pauses, [5.0, 15.0])
+
+    def test_persistent_outage_fails_loudly_after_three_attempts(self) -> None:
+        pauses: list[float] = []
+        transport = UrllibJsonHttpTransport(sleeper=pauses.append)
+
+        def dead_post_once(url, *, headers, payload, timeout_seconds):
+            raise URLError("no route to host")
+
+        transport._post_once = dead_post_once
+        with self.assertRaisesRegex(RuntimeError, "after 3 attempts"):
+            transport.post_json(
+                "https://example.org/api",
+                headers={},
+                payload={},
+                timeout_seconds=5.0,
+            )
+        self.assertEqual(pauses, [5.0, 15.0])
 
 
 if __name__ == "__main__":

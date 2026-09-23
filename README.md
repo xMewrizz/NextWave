@@ -152,7 +152,7 @@ python -m nextwave dataset-build --input data/raw/organizer_signals.xlsx
 python -m nextwave labeling-export --runs data/development/discovery/<run_id> --output data/development/labeling-export-v1
 ```
 
-Команда читает слоты из `templates/labeling_workbook.xlsx`, раскладывает кандидатов, шум и черновики доказательств из сейфов и публикует новый каталог: заполненная книга, `negative_candidates.jsonl`, `noise_controls.jsonl`, `manifest.json` с версиями, составом, дефицитами и контрольными суммами. Повтор из тех же входов даёт побайтово те же файлы; существующий каталог не перезаписывается. В книгу попадают только голубые клетки, метки ставит человек.
+Команда читает слоты из `templates/labeling_workbook.xlsx`, раскладывает кандидатов, шум и черновики доказательств из сейфов и публикует новый каталог: заполненная книга, `negative_candidates.jsonl`, `noise_controls.jsonl`, `manifest.json` с версиями, составом, дефицитами и контрольными суммами. Повтор из тех же входов даёт те же JSONL и опись побайтово и то же содержимое книги (байты контейнера xlsx зависят от библиотеки openpyxl); существующий каталог не перезаписывается. В книгу попадают только голубые клетки, метки ставит человек.
 
 ## Данные и секреты
 

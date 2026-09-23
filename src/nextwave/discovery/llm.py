@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -120,7 +121,55 @@ class JsonHttpTransport(Protocol):
 class UrllibJsonHttpTransport:
     """Small standard-library POST transport used by the LLM adapter."""
 
+    #: Bounded retries for transient network failures (a live run died on one).
+    MAX_ATTEMPTS = 3
+    BACKOFF_SECONDS = (5.0, 15.0)
+
+    def __init__(
+        self,
+        *,
+        max_attempts: int = MAX_ATTEMPTS,
+        sleeper: Callable[[float], None] | None = None,
+    ) -> None:
+        if (
+            isinstance(max_attempts, bool)
+            or not isinstance(max_attempts, int)
+            or not 1 <= max_attempts <= 5
+        ):
+            raise ValueError("max_attempts must be between 1 and 5")
+        self._max_attempts = max_attempts
+        self._sleeper = sleeper or time.sleep
+
     def post_json(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str],
+        payload: Mapping[str, Any],
+        timeout_seconds: float,
+    ) -> HttpResponse:
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                return self._post_once(
+                    url,
+                    headers=headers,
+                    payload=payload,
+                    timeout_seconds=timeout_seconds,
+                )
+            except OSError as error:
+                if attempts >= self._max_attempts:
+                    raise RuntimeError(
+                        f"LLM request failed after {attempts} attempts: {error}"
+                    ) from error
+                self._sleeper(
+                    self.BACKOFF_SECONDS[
+                        min(attempts - 1, len(self.BACKOFF_SECONDS) - 1)
+                    ]
+                )
+
+    def _post_once(
         self,
         url: str,
         *,

@@ -6,6 +6,7 @@ from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 import openpyxl
 
@@ -13,6 +14,7 @@ from .queue import LabelingQueue
 
 # Фиксированная метка сборки ради побайтовой воспроизводимости экспорта.
 BUILD_STAMP = datetime(2026, 9, 15)
+_ZIP_STAMP = (1980, 1, 1, 0, 0, 0)
 
 CANDIDATES_SHEET = "Кандидаты"
 EVIDENCE_SHEET = "Доказательства"
@@ -152,7 +154,28 @@ def fill_labeling_workbook(
     stream = BytesIO()
     workbook.save(stream)
     workbook.close()
-    return stream.getvalue()
+    return _normalize_zip(stream.getvalue())
+
+
+def _normalize_zip(data: bytes) -> bytes:
+    """Repack an xlsx with fixed container metadata for byte determinism.
+
+    openpyxl leaves varying bytes in zip headers between processes even for
+    identical sheets, which breaks reproducible checksums. Content is untouched;
+    only entry timestamps and attributes are pinned.
+    """
+
+    source = BytesIO(data)
+    target = BytesIO()
+    with ZipFile(source) as reader:
+        names = reader.namelist()
+        payloads = [(name, reader.read(name)) for name in names]
+    with ZipFile(target, "w", compression=ZIP_DEFLATED) as writer:
+        for name, payload in payloads:
+            info = ZipInfo(name, date_time=_ZIP_STAMP)
+            info.compress_type = ZIP_DEFLATED
+            writer.writestr(info, payload)
+    return target.getvalue()
 
 
 def _candidate_row(sheet: Any, candidate_id: str) -> int | None:

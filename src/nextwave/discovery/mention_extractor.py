@@ -189,11 +189,22 @@ class StructuredCandidateMentionExtractor:
                 document_id, raw_mentions = _parse_document_result(item)
             except ValueError as error:
                 # Одна битая запись не роняет всю пачку: фиксируем проблему
-                # на документе и идём дальше. Без usable ID маппить не на что —
-                # такой ответ остаётся фатальным (см. тест).
+                # на документе и идём дальше. Записи вообще без usable ID
+                # маппить не на что — они уходят в проблему с пустым ID
+                # (структурно допустимо, ниже по течению такие отбрасываются
+                # со счётчиком, а не молча).
                 item_id = item.get("document_id") if isinstance(item, dict) else None
                 if not isinstance(item_id, str) or not item_id.strip():
-                    raise
+                    issues.append(
+                        CandidateExtractionIssue(
+                            code=CandidateExtractionIssueCode.INVALID_ITEM,
+                            document_id="",
+                            message=(
+                                f"{error} (preview: {_preview(item)!r})"
+                            ),
+                        )
+                    )
+                    continue
                 if item_id not in documents_by_id:
                     issues.append(
                         CandidateExtractionIssue(
@@ -207,7 +218,7 @@ class StructuredCandidateMentionExtractor:
                     CandidateExtractionIssue(
                         code=CandidateExtractionIssueCode.INVALID_ITEM,
                         document_id=item_id,
-                        message=str(error),
+                        message=f"{error} (preview: {_preview(item)!r})",
                     )
                 )
                 returned_document_ids.add(item_id)
