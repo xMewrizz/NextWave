@@ -214,7 +214,7 @@ def build_discovery_pipeline_from_environment(
     return DiscoveryPipeline(
         OpenAlexDiscoveryExecutor(
             snapshot_root,
-            api_key=environment.get("NEXTWAVE_OPENALEX_API_KEY") or None,
+            contact_email=environment.get("NEXTWAVE_OPENALEX_MAILTO") or None,
         ),
         MediaDiscoveryExecutor(
             snapshot_root,
@@ -225,7 +225,7 @@ def build_discovery_pipeline_from_environment(
         build_candidate_gate_from_environment(environment),
         CandidateVerificationExecutor(
             snapshot_root,
-            api_key=environment.get("NEXTWAVE_OPENALEX_API_KEY") or None,
+            contact_email=environment.get("NEXTWAVE_OPENALEX_MAILTO") or None,
         ),
         build_evidence_extractor_from_environment(environment),
     )

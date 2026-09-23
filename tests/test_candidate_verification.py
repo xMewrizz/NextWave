@@ -174,13 +174,19 @@ class CandidateVerificationTests(unittest.TestCase):
 
     def test_failure_is_not_recorded_as_zero(self):
         discovery_plan = plan()
-        transport = SequenceTransport(HttpResponse(429, {}, b"rate limited"))
+        transport = SequenceTransport(
+            HttpResponse(429, {}, b"rate limited"),
+            HttpResponse(429, {}, b"rate limited"),
+            HttpResponse(429, {}, b"rate limited"),
+        )
+        pauses: list[float] = []
         with tempfile.TemporaryDirectory() as directory:
             result = CandidateVerificationExecutor(
                 Path(directory),
                 transport=transport,
                 clock=lambda: NOW,
                 monotonic=lambda: 0.0,
+                sleeper=pauses.append,
             ).execute(
                 discovery_plan,
                 aliases(discovery_plan.scope.scope_id, "Speculative decoding"),
@@ -188,6 +194,8 @@ class CandidateVerificationTests(unittest.TestCase):
         self.assertEqual(result.results[0].status, VerificationStatus.FAILED)
         self.assertIsNone(result.results[0].returned_records)
         self.assertEqual(result.results[0].error_code, "http_429")
+        self.assertEqual(result.requests_used, 3)
+        self.assertEqual(pauses, [5.0, 15.0])
 
     def test_unusable_records_are_reported_separately_from_matches(self):
         discovery_plan = plan()
@@ -238,7 +246,7 @@ class CandidateVerificationTests(unittest.TestCase):
     def test_request_timeout_respects_remaining_run_budget(self):
         discovery_plan = plan()
         transport = SequenceTransport(response())
-        ticks = iter((0.0, 119.0))
+        ticks = iter((0.0, 299.0))
         with tempfile.TemporaryDirectory() as directory:
             CandidateVerificationExecutor(
                 Path(directory),
@@ -261,6 +269,29 @@ class CandidateVerificationTests(unittest.TestCase):
                 monotonic=lambda: 0.0,
             ).execute(discovery_plan, aliases(discovery_plan.scope.scope_id, "RAG"))
         self.assertEqual(result.results[0].matching_documents, ())
+
+    def test_retryable_group_failure_retries_with_backoff(self):
+        discovery_plan = plan()
+        transport = SequenceTransport(
+            HttpResponse(429, {}, b'{"error":"limit"}'),
+            response("Speculative decoding reduces inference latency"),
+        )
+        pauses: list[float] = []
+        with tempfile.TemporaryDirectory() as directory:
+            result = CandidateVerificationExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+                sleeper=pauses.append,
+            ).execute(
+                discovery_plan,
+                aliases(discovery_plan.scope.scope_id, "Speculative decoding"),
+            )
+        self.assertEqual(result.results[0].status, VerificationStatus.SEARCHED)
+        self.assertEqual(result.requests_used, 2)
+        self.assertEqual(len(transport.calls), 2)
+        self.assertEqual(pauses, [5.0])
 
 
 if __name__ == "__main__":

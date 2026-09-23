@@ -284,7 +284,7 @@ class OpenAlexTaxonomySourceTests(unittest.TestCase):
         self.assertEqual(result[0].entity_id, "T10682")
         self.assertEqual(result[0].works_count, 134037)
 
-    def test_direction_lookup_calls_subfields_without_saving_api_key_in_url(self) -> None:
+    def test_direction_lookup_calls_subfields_with_mailto_param(self) -> None:
         transport = FakeTransport(
             HttpResponse(
                 200,
@@ -294,7 +294,7 @@ class OpenAlexTaxonomySourceTests(unittest.TestCase):
         )
         source = OpenAlexTaxonomySource(
             transport=transport,
-            api_key="secret-key",
+            contact_email="team@example.com",
         )
 
         result = source.search("artificial intelligence", ScopeGranularity.DIRECTION)
@@ -303,8 +303,8 @@ class OpenAlexTaxonomySourceTests(unittest.TestCase):
         self.assertEqual(result, ())
         self.assertIn("/subfields?", url)
         self.assertIn("search=artificial+intelligence", url)
-        self.assertNotIn("secret-key", url)
-        self.assertEqual(headers["Authorization"], "Bearer secret-key")
+        self.assertIn("mailto=team%40example.com", url)
+        self.assertNotIn("Authorization", headers)
 
 
 class RuntimeQueryResolverTests(unittest.TestCase):

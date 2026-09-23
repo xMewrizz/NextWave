@@ -65,6 +65,7 @@ def build_openalex_request(
     page_index: int = 1,
     per_page: int = 100,
     attempt: int = 1,
+    contact_email: str | None = None,
 ) -> ConnectorRequest:
     """Translate a provider-independent query into one exact OpenAlex request."""
 
@@ -107,6 +108,10 @@ def build_openalex_request(
         parameters.append(QueryParameter("search", search_text or ""))
     elif channel is RetrievalChannel.SEMANTIC:
         parameters.append(QueryParameter("search.semantic", search_text or ""))
+    if contact_email is not None:
+        if not contact_email.strip() or "@" not in contact_email:
+            raise ValueError("contact_email must be a non-blank email address")
+        parameters.append(QueryParameter("mailto", contact_email.strip()))
     parameters.sort(key=lambda parameter: parameter.name)
 
     digest = _request_digest(query, channel, parameters, attempt)
@@ -148,14 +153,14 @@ class OpenAlexConnector:
         self,
         *,
         transport: HttpTransport | None = None,
-        api_key: str | None = None,
+        contact_email: str | None = None,
         timeout_seconds: float = 20.0,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         self._transport = transport or UrllibHttpTransport()
-        self._api_key = api_key
+        self._contact_email = contact_email
         self._timeout_seconds = timeout_seconds
         self._clock = clock or (lambda: datetime.now(UTC))
 
@@ -177,14 +182,13 @@ class OpenAlexConnector:
             page_index=page_index,
             per_page=per_page,
             attempt=attempt,
+            contact_email=self._contact_email,
         )
         started_at = self._clock()
         headers = {
             "Accept": "application/json",
             "User-Agent": "NextWave/0.1",
         }
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
 
         try:
             response = self._transport.get(

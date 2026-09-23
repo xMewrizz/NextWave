@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,23 @@ def _digest(data: bytes) -> dict[str, Any]:
     return {"size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
 
 
+def _normalize_workbook_bytes(data: bytes) -> bytes:
+    """Rewrite xlsx container bytes deterministically.
+
+    openpyxl stamps zip entries with the current time (DOS granularity is
+    2 seconds), so identical content yields different container bytes across
+    a time boundary. Fixed stamps make the published file byte-stable.
+    """
+    reader = zipfile.ZipFile(io.BytesIO(data))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as writer:
+        for item in reader.infolist():
+            info = zipfile.ZipInfo(item.filename, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = item.compress_type
+            writer.writestr(info, reader.read(item.filename))
+    return buffer.getvalue()
+
+
 def export_labeling_bundle(
     *,
     run_dirs: tuple[str | Path, ...],
@@ -85,7 +104,7 @@ def export_labeling_bundle(
     queue = build_labeling_queue(
         runs, candidate_slots=candidate_slots, noise_slots=noise_slots
     )
-    workbook_bytes = fill_labeling_workbook(template, queue)
+    workbook_bytes = _normalize_workbook_bytes(fill_labeling_workbook(template, queue))
     negative_bytes, noise_bytes = queue_to_jsonl(queue)
 
     filled_candidates: dict[str, dict[str, int]] = {}

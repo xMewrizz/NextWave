@@ -15,6 +15,7 @@ from typing import Any
 
 from nextwave.contracts import SourceDocument
 from nextwave.sources import (
+    ConnectorRun,
     ConnectorStatus,
     HttpTransport,
     OpenAlexConnector,
@@ -33,6 +34,11 @@ from .contracts import DiscoveryPlan
 VERIFICATION_VERSION = "candidate-verification-v1"
 DEFAULT_VERIFICATION_MAX_GROUPS = 30
 DEFAULT_VERIFICATION_MAX_RECORDS = 20
+# Повторы при временных сбоях (сеть, 429, 5xx): живой прогон 22.09.2026 показал,
+# что OpenAlex режет частые проверочные запросы лимитом. Все попытки попадают
+# в опись snapshot.
+VERIFICATION_MAX_ATTEMPTS = 3
+VERIFICATION_RETRY_BACKOFF_SECONDS = (5.0, 15.0)
 
 
 class VerificationStatus(StrEnum):
@@ -96,13 +102,14 @@ class CandidateVerificationExecutor:
         snapshot_root: Path = Path("runtime") / "snapshots",
         *,
         transport: HttpTransport | None = None,
-        api_key: str | None = None,
+        contact_email: str | None = None,
         max_groups: int = DEFAULT_VERIFICATION_MAX_GROUPS,
         max_records_per_group: int = DEFAULT_VERIFICATION_MAX_RECORDS,
         request_timeout_seconds: float = 20.0,
-        max_elapsed_seconds: float = 120.0,
+        max_elapsed_seconds: float = 300.0,
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] | None = None,
+        sleeper: Callable[[float], None] | None = None,
     ) -> None:
         if not 1 <= max_groups <= 100:
             raise ValueError("max_groups must be between 1 and 100")
@@ -112,13 +119,14 @@ class CandidateVerificationExecutor:
             raise ValueError("verification time budgets are invalid")
         self._snapshot_root = snapshot_root
         self._transport = transport
-        self._api_key = api_key
+        self._contact_email = contact_email
         self._max_groups = max_groups
         self._max_records = max_records_per_group
         self._request_timeout = request_timeout_seconds
         self._max_elapsed = max_elapsed_seconds
         self._clock = clock or (lambda: datetime.now(UTC))
         self._monotonic = monotonic or time.monotonic
+        self._sleeper = sleeper
 
     def execute(
         self,
@@ -147,10 +155,11 @@ class CandidateVerificationExecutor:
                     None,
                 ))
                 continue
-            results.append(self._search_one(
+            verification, attempts_made = self._search_one(
                 plan, group, timeout_seconds=min(self._request_timeout, remaining_seconds)
-            ))
-            requests_used += 1
+            )
+            results.append(verification)
+            requests_used += attempts_made
         return CandidateVerificationResult(plan.plan_id, tuple(results), requests_used)
 
     def _search_one(
@@ -159,7 +168,7 @@ class CandidateVerificationExecutor:
         group: ResolvedAliasGroup,
         *,
         timeout_seconds: float,
-    ) -> GroupVerification:
+    ) -> tuple[GroupVerification, int]:
         created_at = self._clock()
         if created_at.tzinfo is None or created_at.utcoffset() is None:
             raise ValueError("clock must return timezone-aware datetimes")
@@ -170,35 +179,55 @@ class CandidateVerificationExecutor:
         writer = SnapshotWriter(self._snapshot_root, snapshot_id)
         connector = OpenAlexConnector(
             transport=self._transport,
-            api_key=self._api_key,
+            contact_email=self._contact_email,
             timeout_seconds=timeout_seconds,
             clock=self._clock,
         )
-        run = connector.run_page(
-            query,
-            writer,
-            channel=RetrievalChannel.TEXT,
-            search_text=group.canonical_name,
-            per_page=self._max_records,
-        )
+        runs: list[ConnectorRun] = []
+        for attempt in range(1, VERIFICATION_MAX_ATTEMPTS + 1):
+            run = connector.run_page(
+                query,
+                writer,
+                channel=RetrievalChannel.TEXT,
+                search_text=group.canonical_name,
+                per_page=self._max_records,
+                attempt=attempt,
+            )
+            runs.append(run)
+            if attempt >= VERIFICATION_MAX_ATTEMPTS:
+                break
+            if (
+                run.status is ConnectorStatus.SUCCESS
+                or run.error is None
+                or not run.error.retryable
+            ):
+                break
+            backoff = VERIFICATION_RETRY_BACKOFF_SECONDS[
+                min(attempt - 1, len(VERIFICATION_RETRY_BACKOFF_SECONDS) - 1)
+            ]
+            (self._sleeper or time.sleep)(backoff)
         manifest = SnapshotManifest(
             snapshot_id=snapshot_id,
             snapshot_version=VERIFICATION_VERSION,
             analysis_id=plan.analysis_id,
             created_at=created_at,
             query=query,
-            runs=(run,),
+            runs=tuple(runs),
         )
         snapshot_path = writer.finalize(manifest)
+        run = runs[-1]
         if run.status is not ConnectorStatus.SUCCESS or run.artifact is None:
-            return GroupVerification(
-                group.group_id,
-                VerificationStatus.FAILED,
-                group.canonical_name,
-                None,
-                (),
-                snapshot_path,
-                run.error.code if run.error else "unknown_error",
+            return (
+                GroupVerification(
+                    group.group_id,
+                    VerificationStatus.FAILED,
+                    group.canonical_name,
+                    None,
+                    (),
+                    snapshot_path,
+                    run.error.code if run.error else "unknown_error",
+                ),
+                len(runs),
             )
         try:
             parsed = parse_openalex_response(
@@ -208,14 +237,17 @@ class CandidateVerificationExecutor:
                 cutoff_date=plan.query.cutoff_date,
             )
         except (OSError, ValueError, TypeError):
-            return GroupVerification(
-                group.group_id,
-                VerificationStatus.FAILED,
-                group.canonical_name,
-                run.returned_records,
-                (),
-                snapshot_path,
-                "parse_error",
+            return (
+                GroupVerification(
+                    group.group_id,
+                    VerificationStatus.FAILED,
+                    group.canonical_name,
+                    run.returned_records,
+                    (),
+                    snapshot_path,
+                    "parse_error",
+                ),
+                len(runs),
             )
         hints_by_id = {hint.document_id: hint for hint in parsed.hints}
         matched_by_document: dict[str, SourceDocument] = {}
@@ -223,14 +255,17 @@ class CandidateVerificationExecutor:
         for document in parsed.documents:
             if _matches_name(document, hints_by_id.get(document.document_id), names):
                 matched_by_document.setdefault(document.document_id, document)
-        return GroupVerification(
-            group.group_id,
-            VerificationStatus.SEARCHED,
-            group.canonical_name,
-            parsed.total_records,
-            tuple(matched_by_document.values()),
-            snapshot_path,
-            rejected_record_codes=tuple(issue.code for issue in parsed.issues),
+        return (
+            GroupVerification(
+                group.group_id,
+                VerificationStatus.SEARCHED,
+                group.canonical_name,
+                parsed.total_records,
+                tuple(matched_by_document.values()),
+                snapshot_path,
+                rejected_record_codes=tuple(issue.code for issue in parsed.issues),
+            ),
+            len(runs),
         )
 
 
