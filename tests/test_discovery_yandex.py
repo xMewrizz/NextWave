@@ -314,7 +314,10 @@ class YandexResponseTests(unittest.TestCase):
         )
 
     def test_raw_newline_inside_string_is_tolerated(self) -> None:
-        text = '{"documents": [{"document_id": "d1", "mentions": [{"text": "a\nb", "field": "title"}]}]}'
+        text = (
+            '{"documents": [{"document_id": "d1", "mentions": '
+            '[{"text": "a\nb", "field": "title"}]}]}'
+        )
         adapter, _ = generator(
             HttpResponse(
                 200, {"Content-Type": "application/json"}, yandex_body(text)
