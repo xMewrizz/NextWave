@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,18 +52,40 @@ def _digest(data: bytes) -> dict[str, Any]:
 def _normalize_workbook_bytes(data: bytes) -> bytes:
     """Rewrite xlsx container bytes deterministically.
 
-    openpyxl stamps zip entries with the current time (DOS granularity is
-    2 seconds), so identical content yields different container bytes across
-    a time boundary. Fixed stamps make the published file byte-stable.
+    openpyxl output floats across library versions and time boundaries:
+    zip entry headers carry current timestamps, docProps/core.xml carries
+    created/modified stamps, and entry order is not guaranteed. All three
+    are canonicalized here, so identical content always yields identical
+    container bytes and the manifest hash stays stable.
     """
     reader = zipfile.ZipFile(io.BytesIO(data))
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as writer:
-        for item in reader.infolist():
+        for item in sorted(reader.infolist(), key=lambda entry: entry.filename):
+            payload = reader.read(item.filename)
+            if item.filename == "docProps/core.xml":
+                payload = _pin_core_timestamps(payload)
             info = zipfile.ZipInfo(item.filename, date_time=(1980, 1, 1, 0, 0, 0))
-            info.compress_type = item.compress_type
-            writer.writestr(info, reader.read(item.filename))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.create_system = 0
+            info.external_attr = 0
+            info.extra = b""
+            writer.writestr(info, payload)
     return buffer.getvalue()
+
+
+_CORE_TIMESTAMP = re.compile(
+    rb"<dcterms:(created|modified)[^>]*>.*?</dcterms:(created|modified)>"
+)
+
+
+def _pin_core_timestamps(payload: bytes) -> bytes:
+    """Replace created/modified stamps in core.xml with a fixed value."""
+    return _CORE_TIMESTAMP.sub(
+        lambda match: b"<dcterms:%s xsi:type=\"dcterms:W3CDTF\">1980-01-01T00:00:00Z</dcterms:%s>"
+        % (match.group(1), match.group(2)),
+        payload,
+    )
 
 
 def export_labeling_bundle(
