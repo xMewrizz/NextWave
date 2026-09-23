@@ -136,6 +136,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("data") / "development" / "labeling-export-v1",
         help="новый каталог результата",
     )
+    labeling_export.add_argument(
+        "--domain-map",
+        action="append",
+        default=[],
+        metavar="RUN_ID=Domain",
+        help="привязка запуска к контролируемой области "
+        "(Edge, Защита ИИ, Индустриальный ИИ, Инфраструктура ИИ, Роботы, Финтех); "
+        "нужна, если в сейфе свободный текст вместо области",
+    )
     return parser
 
 
@@ -261,14 +270,28 @@ def _run_discovery_run(
     return 0
 
 
+def _parse_domain_map(entries: list[str]) -> dict[str, str]:
+    """Parse RUN_ID=Domain entries into an audited run-domain mapping."""
+    mapping: dict[str, str] = {}
+    for entry in entries:
+        run_id, separator, domain = entry.partition("=")
+        if not separator or not run_id.strip() or not domain.strip():
+            raise ValueError(
+                f"invalid --domain-map entry {entry!r}; expected RUN_ID=Domain"
+            )
+        mapping[run_id.strip()] = domain.strip()
+    return mapping
+
+
 def _run_labeling_export(
-    runs: list[str], template: Path, output: Path
+    runs: list[str], template: Path, output: Path, domain_map: list[str]
 ) -> int:
     try:
         paths = export_labeling_bundle(
             run_dirs=tuple(runs),
             template_path=template,
             output_dir=output,
+            run_domains=_parse_domain_map(domain_map),
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"Не удалось экспортировать очередь: {error}", file=sys.stderr)
@@ -305,6 +328,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.runs,
             arguments.template,
             arguments.output,
+            arguments.domain_map,
         )
     parser.print_help()
     return 0

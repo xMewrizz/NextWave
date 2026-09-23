@@ -11,6 +11,9 @@ from nextwave.discovery import LlmProvider, LlmSelection
 from nextwave.discovery.llm import (
     YANDEX_COMPLETION_ENDPOINT,
     YandexCompletionJsonGenerator,
+    YandexContentFilterError,
+    YandexFallbackJsonGenerator,
+    YandexTruncationError,
     build_json_generator,
     load_llm_runtime_settings,
     parse_yandex_completion_text,
@@ -190,6 +193,19 @@ class YandexResponseTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "exactly one"):
                     adapter("Технологии в ИИ")
 
+    def test_content_filter_status_raises_distinct_error(self) -> None:
+        body = yandex_body(
+            alternatives=[
+                {
+                    "message": {"role": "assistant", "text": "refusal"},
+                    "status": "ALTERNATIVE_STATUS_CONTENT_FILTER",
+                }
+            ]
+        )
+        with self.assertRaises(YandexContentFilterError) as context:
+            parse_yandex_completion_text(body, "model")
+        self.assertNotIsInstance(context.exception, YandexTruncationError)
+
     def test_rejects_invalid_json_body(self) -> None:
         with self.assertRaisesRegex(ValueError, "valid JSON"):
             parse_yandex_completion_text(b"not json", "model")
@@ -235,6 +251,179 @@ class YandexResponseTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "preview"):
             adapter("Технологии в ИИ")
+
+    def test_unwraps_single_key_wrapper_with_turn_marker(self) -> None:
+        inner = (
+            '>>\n  "normalized_query": "peripheral artificial intelligence",\n'
+            '  "search_texts": ["peripheral artificial intelligence"],\n'
+            '  "languages": ["en"],\n'
+            '  "granularity": "direction"\n'
+        )
+        adapter, _ = generator(
+            HttpResponse(
+                200,
+                {"Content-Type": "application/json"},
+                yandex_body(json.dumps({inner: ""})),
+            )
+        )
+        cleaned = adapter("Периферийный искусственный интеллект")
+        self.assertEqual(json.loads(cleaned)["granularity"], "direction")
+
+    def test_broken_wrapper_stays_rejected(self) -> None:
+        adapter, _ = generator(
+            HttpResponse(
+                200,
+                {"Content-Type": "application/json"},
+                yandex_body(json.dumps({"not json at all": ""})),
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "must be a JSON object"):
+            adapter("Технологии в ИИ")
+
+    def test_drops_junk_keys_around_real_documents(self) -> None:
+        documents = [
+            {"document_id": "document-1", "mentions": []},
+            {"document_id": "document-2", "mentions": []},
+        ]
+        wrapped = {
+            "}\n{": {"": ""},
+            "documents": documents,
+            "}\n": "",
+        }
+        adapter, _ = generator(
+            HttpResponse(
+                200,
+                {"Content-Type": "application/json"},
+                yandex_body(json.dumps(wrapped)),
+            )
+        )
+        cleaned = adapter("Технологии в ИИ")
+        self.assertEqual(json.loads(cleaned), {"documents": documents})
+
+    def test_clean_single_key_response_passes_through(self) -> None:
+        adapter, _ = generator(
+            HttpResponse(
+                200,
+                {"Content-Type": "application/json"},
+                yandex_body('{"normalized_query":"artificial intelligence"}'),
+            )
+        )
+        self.assertEqual(
+            adapter("Технологии в ИИ"),
+            '{"normalized_query":"artificial intelligence"}',
+        )
+
+    def test_raw_newline_inside_string_is_tolerated(self) -> None:
+        text = (
+            '{"documents": [{"document_id": "d1", "mentions": '
+            '[{"text": "a\nb", "field": "title"}]}]}'
+        )
+        adapter, _ = generator(
+            HttpResponse(
+                200, {"Content-Type": "application/json"}, yandex_body(text)
+            )
+        )
+        cleaned = adapter("Технологии в ИИ")
+        self.assertEqual(
+            json.loads(cleaned)["documents"][0]["mentions"][0]["text"], "a\nb"
+        )
+
+
+class YandexFallbackTests(unittest.TestCase):
+    def test_primary_success_leaves_fallback_untouched(self) -> None:
+        primary, _ = generator(
+            HttpResponse(
+                200, {"Content-Type": "application/json"}, yandex_body('{"ok":true}')
+            )
+        )
+        fallback, fallback_transport = generator(
+            HttpResponse(
+                200, {"Content-Type": "application/json"}, yandex_body('{"ok":false}')
+            ),
+            model="YandexGPT Pro 5",
+        )
+        wrapper = YandexFallbackJsonGenerator((primary, fallback))
+
+        self.assertEqual(wrapper("prompt"), '{"ok":true}')
+        self.assertEqual(wrapper.model, "YandexGPT Lite 5")
+        self.assertEqual(fallback_transport.calls, [])
+
+    def test_parse_failure_falls_back_and_reports_model(self) -> None:
+        primary, _ = generator(
+            HttpResponse(
+                200,
+                {"Content-Type": "application/json"},
+                yandex_body(json.dumps({"mangled": ""})),
+            )
+        )
+        fallback, _ = generator(
+            HttpResponse(
+                200, {"Content-Type": "application/json"}, yandex_body('{"ok":true}')
+            ),
+            model="YandexGPT Pro 5",
+        )
+        wrapper = YandexFallbackJsonGenerator((primary, fallback))
+
+        self.assertEqual(wrapper("prompt"), '{"ok":true}')
+        self.assertEqual(wrapper.model, "YandexGPT Pro 5")
+        self.assertEqual(wrapper.provider, LlmProvider.YANDEX)
+
+    def test_all_mangled_raises(self) -> None:
+        first, _ = generator(
+            HttpResponse(
+                200,
+                {"Content-Type": "application/json"},
+                yandex_body(json.dumps({"mangled": ""})),
+            )
+        )
+        second, _ = generator(
+            HttpResponse(
+                200,
+                {"Content-Type": "application/json"},
+                yandex_body(json.dumps({"also mangled": ""})),
+            ),
+            model="YandexGPT Pro 5",
+        )
+        wrapper = YandexFallbackJsonGenerator((first, second))
+
+        with self.assertRaisesRegex(ValueError, "every Yandex model"):
+            wrapper("prompt")
+
+    def test_truncation_propagates_without_fallback(self) -> None:
+        primary, _ = generator(
+            HttpResponse(
+                200,
+                {"Content-Type": "application/json"},
+                yandex_body(
+                    alternatives=[
+                        {
+                            "message": {"role": "assistant", "text": '{"ok":'},
+                            "status": "ALTERNATIVE_STATUS_TRUNCATED_FINAL",
+                        }
+                    ]
+                ),
+            )
+        )
+        fallback, fallback_transport = generator(
+            HttpResponse(
+                200, {"Content-Type": "application/json"}, yandex_body('{"ok":true}')
+            ),
+            model="YandexGPT Pro 5",
+        )
+        wrapper = YandexFallbackJsonGenerator((primary, fallback))
+
+        with self.assertRaises(YandexTruncationError):
+            wrapper("prompt")
+        self.assertEqual(fallback_transport.calls, [])
+
+    def test_fallback_requires_two_models(self) -> None:
+        primary, _ = generator(
+            HttpResponse(
+                200, {"Content-Type": "application/json"}, yandex_body('{"ok":true}')
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "at least two"):
+            YandexFallbackJsonGenerator((primary,))
 
 
 class YandexSettingsTests(unittest.TestCase):

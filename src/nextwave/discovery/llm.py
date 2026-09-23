@@ -309,6 +309,53 @@ class YandexCompletionJsonGenerator:
         return parse_yandex_completion_text(response.body, self.selection.model)
 
 
+class YandexFallbackJsonGenerator:
+    """Try Yandex models in order; report the model that answered last.
+
+    Lite deterministically mangles JSON formatting on some inputs (correct
+    values, destroyed keys), so retrying the same model is useless: a parse
+    failure replays the prompt on the next model. Transport errors and
+    truncation propagate untouched. `.provider`/`.model` mirror the
+    answering selection, so result manifests stay truthful.
+    """
+
+    def __init__(
+        self, generators: tuple[YandexCompletionJsonGenerator, ...]
+    ) -> None:
+        if len(generators) < 2:
+            raise ValueError("fallback requires at least two models")
+        self._generators = generators
+        self._current = generators[0].selection
+
+    @property
+    def provider(self) -> LlmProvider:
+        return self._current.provider
+
+    @property
+    def model(self) -> str:
+        return self._current.model
+
+    def __call__(self, prompt: str) -> str:
+        errors: list[ValueError] = []
+        for generator in self._generators:
+            try:
+                text = generator(prompt)
+            except YandexContentFilterError:
+                # A refusal judges the content, not the format: a stronger
+                # model refuses the same way, so do not waste the call.
+                raise
+            except YandexTruncationError:
+                raise
+            except ValueError as error:
+                errors.append(error)
+                continue
+            self._current = generator.selection
+            return text
+        raise ValueError(
+            "every Yandex model returned unparsable JSON"
+        ) from errors[-1]
+
+
 class LocalLlamaJsonGenerator:
     """Use the pinned local Qwen model through llama.cpp's JSON chat API."""
 
@@ -421,6 +468,74 @@ class YandexTruncationError(ValueError):
     """The model stopped mid-response: callers may retry with a smaller batch."""
 
 
+class YandexContentFilterError(ValueError):
+    """The provider refused the content: retrying or splitting is useless.
+
+    Deliberately NOT a YandexTruncationError: the refusal is deterministic
+    for the same content, so batch splitting would only multiply spend.
+    Callers must skip with honest unknown coverage instead.
+    """
+
+
+def _is_wrapper_junk(value: object) -> bool:
+    """Junk wrapper keys carry nothing: "" or {"": ""} (both observed live)."""
+
+    return value == "" or value == {"": ""}
+
+
+def _dump_canonical(payload: dict) -> str:
+    """Serialize to compact canonical JSON.
+
+    Every success path exits through here, so downstream consumers always
+    receive strict-parseable text no matter what the model emitted
+    (whitespace, raw control characters, wrapper keys).
+    """
+
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _unwrap_wrapper_payload(parsed: dict) -> dict | None:
+    """Drop junk wrapper keys, keep the single substantial field.
+
+    Observed live: {"<junk>": {"": ""}, "documents": [...], "<junk>": ""}.
+    Legit responses never contain junk values, so any junk key means the
+    model wrapped the payload: keep the one substantial field, reject
+    anything else.
+    """
+
+    substantial = [
+        (key, value) for key, value in parsed.items() if not _is_wrapper_junk(value)
+    ]
+    if len(substantial) != 1:
+        return None
+    if not any(_is_wrapper_junk(value) for _, value in parsed.items()):
+        return None
+    key, value = substantial[0]
+    return {key: value}
+
+
+def _unwrap_single_key_payload(only_key: str) -> dict | None:
+    """Recover the payload when the model wraps the whole JSON as one string key.
+
+    Observed live: the entire intended object arrives as a single escaped key
+    with an empty value, sometimes prefixed with a `>>` turn marker and
+    sometimes without the surrounding braces. Unwrap only when that key
+    parses to a dict; anything else stays rejected.
+    """
+
+    candidate = _strip_json_fences(only_key.strip())
+    if candidate.startswith(">>"):
+        candidate = _strip_json_fences(candidate[2:].strip())
+    for variant in (candidate, "{" + candidate + "}"):
+        try:
+            inner = json.loads(variant, strict=False)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(inner, dict):
+            return inner
+    return None
+
+
 def parse_yandex_completion_text(body: bytes, requested_model: str) -> str:
     """Extract the single alternative text and require a JSON object payload."""
 
@@ -439,11 +554,18 @@ def parse_yandex_completion_text(body: bytes, requested_model: str) -> str:
     if not isinstance(text, str) or not text.strip():
         raise ValueError("Yandex response must contain non-empty message text")
     status = alternatives[0].get("status") if isinstance(alternatives[0], dict) else None
+    if isinstance(status, str) and "CONTENT_FILTER" in status:
+        raise YandexContentFilterError(
+            f"Yandex response was refused by content filter (status: {status})"
+        )
     if isinstance(status, str) and status != "ALTERNATIVE_STATUS_FINAL":
         raise YandexTruncationError(f"Yandex response was not final (status: {status})")
     cleaned = _strip_json_fences(text)
     try:
-        parsed = json.loads(cleaned)
+        # strict=False: the model sometimes emits raw control characters
+        # (e.g. newlines) inside string values (observed live). Structure
+        # errors still fail; downstream validators check the shape.
+        parsed = json.loads(cleaned, strict=False)
     except json.JSONDecodeError as error:
         raise ValueError(
             "Yandex response text must be a JSON object "
@@ -454,4 +576,22 @@ def parse_yandex_completion_text(body: bytes, requested_model: str) -> str:
             "Yandex response text must be a JSON object "
             f"(preview: {cleaned[:200]!r})"
         )
-    return cleaned
+    if len(parsed) == 1:
+        ((only_key, only_value),) = parsed.items()
+        if _is_wrapper_junk(only_value):
+            unwrapped = _unwrap_single_key_payload(only_key)
+            if unwrapped is None:
+                raise ValueError(
+                    "Yandex response text must be a JSON object "
+                    f"(preview: {cleaned[:200]!r})"
+                )
+            return _dump_canonical(unwrapped)
+    unwrapped = _unwrap_wrapper_payload(parsed)
+    if unwrapped is not None:
+        return _dump_canonical(unwrapped)
+    if any(_is_wrapper_junk(value) for value in parsed.values()):
+        raise ValueError(
+            "Yandex response text must be a JSON object "
+            f"(preview: {cleaned[:200]!r})"
+        )
+    return _dump_canonical(parsed)

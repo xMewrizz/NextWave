@@ -13,6 +13,7 @@ from nextwave.contracts import SourceDocument
 
 from .alias_resolution import AliasResolutionResult, resolve_candidate_aliases
 from .candidate_gate import (
+    DEFAULT_GATE_MAX_PROPOSALS,
     CandidateGateResult,
     StructuredCandidateGate,
     build_candidate_gate_from_environment,
@@ -43,6 +44,29 @@ from .verification import (
 )
 
 DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v6"
+
+
+def split_gate_batch(
+    batch: CandidateProposalBatch, max_gate_proposals: int
+) -> tuple[CandidateProposalBatch, int]:
+    """Take the bulk-ordered head for the gate; count the skipped tail.
+
+    The batch arrives sorted origins-first, so the head holds the
+    high-visibility classes the corpus needs. The tail is recorded as
+    skipped, never silently dropped.
+    """
+
+    if max_gate_proposals < 1:
+        raise ValueError("max_gate_proposals must be positive")
+    head = batch.proposals[:max_gate_proposals]
+    return (
+        CandidateProposalBatch(
+            analysis_scope_id=batch.analysis_scope_id,
+            proposals=head,
+            exclusions=batch.exclusions,
+        ),
+        len(batch.proposals) - len(head),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,11 +114,16 @@ class DiscoveryPipeline:
         candidate_gate: StructuredCandidateGate,
         verification_executor: CandidateVerificationExecutor,
         evidence_extractor: StructuredEvidenceExtractor,
+        *,
+        max_gate_proposals: int = DEFAULT_GATE_MAX_PROPOSALS,
     ) -> None:
+        if max_gate_proposals < 1:
+            raise ValueError("max_gate_proposals must be positive")
         self._scientific_executor = scientific_executor
         self._media_executor = media_executor
         self._text_extractor = text_extractor
         self._candidate_gate = candidate_gate
+        self._max_gate_proposals = max_gate_proposals
         self._verification_executor = verification_executor
         self._evidence_extractor = evidence_extractor
 
@@ -160,18 +189,24 @@ class DiscoveryPipeline:
             started,
         )
         started = time.monotonic()
+        # Bulk order is origins-first, so the head holds the high-visibility
+        # classes the corpus needs; the tail is recorded as skipped, not judged.
+        gated_proposals, gate_skipped = split_gate_batch(
+            candidate_proposals, self._max_gate_proposals
+        )
         candidate_gate = self._candidate_gate.evaluate(
             plan.scope,
-            candidate_proposals,
+            gated_proposals,
             documents,
         )
         report(
             "gate",
-            f"{len(candidate_gate.accepted_proposal_ids)} accepted",
+            f"{len(candidate_gate.accepted_proposal_ids)} accepted "
+            f"({gate_skipped} skipped by cap {self._max_gate_proposals})",
             started,
         )
         started = time.monotonic()
-        alias_resolution = resolve_candidate_aliases(candidate_proposals, candidate_gate)
+        alias_resolution = resolve_candidate_aliases(gated_proposals, candidate_gate)
         report("aliases", f"{len(alias_resolution.groups)} groups", started)
         started = time.monotonic()
         verification = self._verification_executor.execute(plan, alias_resolution)

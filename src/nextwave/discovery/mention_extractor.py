@@ -18,6 +18,7 @@ from .contracts import AnalysisScope
 from .llm import (
     JsonHttpTransport,
     LlmSelection,
+    YandexContentFilterError,
     YandexTruncationError,
     build_json_generator,
     load_llm_runtime_settings,
@@ -79,6 +80,7 @@ class CandidateExtractionIssueCode(StrEnum):
     MISSING_DOCUMENT = "missing_document"
     INVALID_ITEM = "invalid_item"
     INVALID_MENTION = "invalid_mention"
+    CONTENT_FILTERED = "content_filtered"
     UNAVAILABLE_FIELD = "unavailable_field"
     NON_VERBATIM = "non_verbatim"
     DUPLICATE_MENTION = "duplicate_mention"
@@ -168,6 +170,28 @@ class StructuredCandidateMentionExtractor:
         try:
             raw_response = self._generate(
                 build_candidate_mention_prompt(scope, prompt_documents)
+            )
+        except YandexContentFilterError as error:
+            # Отказ фильтра детерминирован для этого содержимого: делить
+            # пачку бесполезно, только множим траты. Пачка пропускается,
+            # документы получают честное unknown-покрытие без упоминаний;
+            # кодовые хинты OpenAlex их всё равно видят ниже по течению.
+            return CandidateMentionExtractionResult(
+                analysis_scope_id=scope.scope_id,
+                extractor_id=self._extractor_id,
+                input_document_ids=tuple(
+                    document.document_id for document in documents
+                ),
+                mentions=(),
+                issues=tuple(
+                    CandidateExtractionIssue(
+                        code=CandidateExtractionIssueCode.CONTENT_FILTERED,
+                        document_id=document.document_id,
+                        message=str(error),
+                    )
+                    for document in documents
+                ),
+                coverage=coverage,
             )
         except YandexTruncationError:
             # Ответ обрезан лимитом: делим пачку пополам и дочитываем частями.

@@ -68,14 +68,25 @@ def _search_expression(
     normalized = search_text.strip()
     if not normalized or '"' in normalized or "\\" in normalized:
         raise ValueError("Media Cloud search_text must be a plain non-blank phrase")
-    phrase = f'"{normalized}"'
+    words = normalized.split()
+    if len(words) <= 2:
+        # Short phrases occur verbatim in news; proven live ("fintech solutions").
+        subject = f'"{normalized}"'
+    else:
+        # Long phrases never occur verbatim (proven live: 0 hits); AND the
+        # content words instead and let the gate filter downstream. Single
+        # characters are prepositions/particles ("в", "и"), never content.
+        terms = [word for word in words if len(word) >= 2]
+        if not terms:
+            raise ValueError("Media Cloud search_text has no content words")
+        subject = " AND ".join(terms)
     selected_languages = _selected_languages(query, languages)
     filters = [
         f"language:{language.split('-', 1)[0]}" for language in selected_languages
     ]
     if len(filters) == 1:
-        return f"{phrase} AND {filters[0]}"
-    return f"{phrase} AND ({' OR '.join(filters)})"
+        return f"{subject} AND {filters[0]}"
+    return f"{subject} AND ({' OR '.join(filters)})"
 
 
 def _selected_languages(

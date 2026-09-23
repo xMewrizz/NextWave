@@ -101,6 +101,7 @@ def _counts_from_result(result_dict: dict[str, Any]) -> dict[str, int]:
     review = sum(1 for item in decisions if item.get("decision") == "review")
     text_issues = text_extraction.get("issues") or []
     evidence_issues = evidence.get("issues") or []
+    judged = accepted + rejected + review
 
     return {
         "documents": len(result_dict.get("documents") or []),
@@ -109,6 +110,7 @@ def _counts_from_result(result_dict: dict[str, Any]) -> dict[str, int]:
         "accepted": accepted,
         "rejected": rejected,
         "review": review,
+        "gate_skipped": len(proposals.get("proposals") or []) - judged,
         "alias_suggestions": len(aliases.get("review_suggestions") or []),
         "evidence_proposals": len(evidence.get("proposals") or []),
         "issues": len(text_issues) + len(evidence_issues),

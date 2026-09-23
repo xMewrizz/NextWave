@@ -23,14 +23,19 @@ NOW = datetime(2026, 9, 19, 12, 0, tzinfo=UTC)
 US_NATIONAL = 34412234
 
 
-def make_query() -> SourceQuery:
+def make_query(
+    search_texts: tuple[str, ...] = (
+        "artificial intelligence",
+        "speculative decoding",
+    ),
+) -> SourceQuery:
     return SourceQuery(
         query_id="query-ai-001",
         analysis_scope_id="scope-ai-001",
         purpose=QueryPurpose.DISCOVERY,
         raw_query="Технологии в ИИ",
         normalized_query="artificial intelligence",
-        search_texts=("artificial intelligence", "speculative decoding"),
+        search_texts=search_texts,
         published_from=date(2025, 9, 16),
         published_until=date(2026, 9, 15),
         cutoff_date=date(2026, 9, 15),
@@ -130,6 +135,44 @@ class MediaCloudRequestTests(unittest.TestCase):
 
         self.assertNotIn("cs", parameters)
         self.assertEqual(parameters["q"], '"artificial intelligence" AND language:ru')
+
+    def test_long_phrase_uses_and_of_content_words(self) -> None:
+        request = build_mediacloud_story_request(
+            make_query(
+                search_texts=(
+                    "artificial intelligence",
+                    "peripheral artificial intelligence",
+                )
+            ),
+            search_text="peripheral artificial intelligence",
+            collection_ids=(US_NATIONAL,),
+            languages=("en",),
+        )
+        parameters = {item.name: item.value for item in request.parameters}
+
+        self.assertEqual(
+            parameters["q"],
+            "peripheral AND artificial AND intelligence AND language:en",
+        )
+
+    def test_single_character_particles_are_dropped(self) -> None:
+        request = build_mediacloud_story_request(
+            make_query(
+                search_texts=(
+                    "artificial intelligence",
+                    "Перспективные решения в финтехе",
+                )
+            ),
+            search_text="Перспективные решения в финтехе",
+            collection_ids=(US_NATIONAL,),
+            languages=("ru",),
+        )
+        parameters = {item.name: item.value for item in request.parameters}
+
+        self.assertEqual(
+            parameters["q"],
+            "Перспективные AND решения AND финтехе AND language:ru",
+        )
 
 
 class MediaCloudConnectorTests(unittest.TestCase):
