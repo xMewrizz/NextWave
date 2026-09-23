@@ -14,6 +14,7 @@ from nextwave.discovery import (
     LlmSelection,
     ScopeGranularity,
     StructuredCandidateMentionExtractor,
+    YandexContentFilterError,
     YandexTruncationError,
     build_analysis_scope,
     build_candidate_extraction_batches,
@@ -217,6 +218,38 @@ class CandidateMentionExtractorTests(unittest.TestCase):
             any(
                 mention.text == "speculative decoding" for mention in result.mentions
             )
+        )
+
+    def test_content_filter_skips_batch_with_per_document_issues(self) -> None:
+        calls: list[str] = []
+
+        def generate(prompt: str) -> str:
+            calls.append(prompt)
+            raise YandexContentFilterError("content filtered")
+
+        result = extractor(generate).extract(scope(), (document(1), document(2)))
+
+        self.assertEqual(result.mentions, ())
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(
+            [
+                (issue.code, issue.document_id)
+                for issue in result.issues
+            ],
+            [
+                (
+                    CandidateExtractionIssueCode.CONTENT_FILTERED,
+                    "document-1",
+                ),
+                (
+                    CandidateExtractionIssueCode.CONTENT_FILTERED,
+                    "document-2",
+                ),
+            ],
+        )
+        self.assertEqual(
+            [item.document_id for item in result.coverage],
+            ["document-1", "document-2"],
         )
 
     def test_truncated_batch_splits_and_merges_halves(self) -> None:

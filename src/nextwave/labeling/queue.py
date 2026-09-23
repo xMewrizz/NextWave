@@ -226,12 +226,43 @@ def _documents_by_id(result: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     return documents
 
 
+def resolve_run_domains(
+    runs: tuple[DiscoveryRun, ...],
+    run_domains: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Map every run to one controlled organizer domain.
+
+    The run vault stores a free-text domain, so an explicit audited mapping
+    is required. The resolved domain — never the template slot domain —
+    is stamped onto every queued row.
+    """
+    overrides = dict(run_domains or {})
+    resolved: dict[str, str] = {}
+    for run in runs:
+        vault_domain = run.manifest.get("domain")
+        if isinstance(vault_domain, str) and vault_domain in ORGANIZER_SCOPE_KEYS:
+            resolved[run.run_id] = vault_domain
+            continue
+        override = overrides.get(run.run_id)
+        if override in ORGANIZER_SCOPE_KEYS:
+            resolved[run.run_id] = override
+            continue
+        raise ValueError(
+            f"run {run.run_id} has no controlled domain "
+            f"(vault has {vault_domain!r}); re-run discovery with "
+            f"--domain set to one of {sorted(ORGANIZER_SCOPE_KEYS)} or pass "
+            f"--domain-map {run.run_id}=<Domain>"
+        )
+    return resolved
+
+
 def _merged_groups(
     runs: tuple[DiscoveryRun, ...],
-) -> list[tuple[dict[str, Any], str, str]]:
-    """Merge accepted alias groups across runs: (group, run_id, raw_query)."""
+    domains: Mapping[str, str],
+) -> list[tuple[dict[str, Any], str, str, str]]:
+    """Merge accepted alias groups across runs: (group, run_id, raw_query, domain)."""
 
-    merged: dict[str, tuple[dict[str, Any], str, str]] = {}
+    merged: dict[str, tuple[dict[str, Any], str, str, str]] = {}
     for run in runs:
         _check_cutoff(run.manifest, run.run_id)
         raw_query = ((run.plan.get("scope") or {}).get("raw_query") or "").strip()
@@ -240,7 +271,7 @@ def _merged_groups(
             key = group.get("normalization_key") or group.get("group_id")
             if not key or key in merged:
                 continue
-            merged[key] = (group, run.run_id, raw_query)
+            merged[key] = (group, run.run_id, raw_query, domains[run.run_id])
     ordered = sorted(
         merged.values(),
         key=lambda item: (
@@ -254,13 +285,28 @@ def _merged_groups(
 
 
 def _fill_candidates(
-    merged: list[tuple[dict[str, Any], str, str]],
+    merged: list[tuple[dict[str, Any], str, str, str]],
     slots: tuple[CandidateSlot, ...],
     overflow: list[QueueOverflow],
     deficits: list[QueueDeficit],
 ) -> list[QueuedCandidate]:
+    # Candidates keep the domain of the run that produced them; a slot is
+    # filled only from its own domain, otherwise it stays an honest deficit.
+    by_domain: dict[str, list[tuple[dict[str, Any], str, str, str]]] = {}
+    for item in merged:
+        by_domain.setdefault(item[3], []).append(item)
     queued: list[QueuedCandidate] = []
-    for slot, (group, run_id, raw_query) in zip(slots, merged, strict=False):
+    missing: list[QueueDeficit] = []
+    for slot in slots:
+        bucket = by_domain.get(slot.domain) or []
+        if not bucket:
+            missing.append(
+                QueueDeficit(
+                    area=slot.domain, need=slot.planned_class, missing=1
+                )
+            )
+            continue
+        group, run_id, raw_query, domain = bucket.pop(0)
         queued.append(
             QueuedCandidate(
                 candidate_id=slot.candidate_id,
@@ -271,31 +317,30 @@ def _fill_candidates(
                 ),
                 group_id=(group.get("group_id") or "").strip(),
                 source_query=raw_query,
-                domain=slot.domain,
-                analysis_scope_key=_scope_key(slot.domain),
+                domain=domain,
+                analysis_scope_key=_scope_key(domain),
                 run_id=run_id,
             )
         )
-    for group, run_id, _ in merged[len(slots) :]:
-        overflow.append(
-            QueueOverflow(
-                kind="candidate",
-                key=str(group.get("group_id") or group.get("canonical_name")),
-                run_id=run_id,
-                reason="no free candidate slot",
+    for domain in sorted(by_domain):
+        for group, run_id, _raw_query, _domain in by_domain[domain]:
+            overflow.append(
+                QueueOverflow(
+                    kind="candidate",
+                    key=str(group.get("group_id") or group.get("canonical_name")),
+                    run_id=run_id,
+                    reason="no free candidate slot",
+                )
             )
-        )
-    missing: dict[tuple[str, str], int] = {}
-    for slot in slots[len(merged) :]:
-        key = (slot.domain, slot.planned_class)
-        missing[key] = missing.get(key, 0) + 1
-    for (domain, planned_class), count in sorted(missing.items()):
-        deficits.append(QueueDeficit(area=domain, need=planned_class, missing=count))
+    deficits.extend(
+        sorted(missing, key=lambda item: (item.area, item.need, item.missing))
+    )
     return queued
 
 
 def _noise_pool(
     runs: tuple[DiscoveryRun, ...],
+    domains: Mapping[str, str],
     dropped: list[QueueDropped],
 ) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
     """Collect noise candidates per type plus the gate_review backfill pool."""
@@ -333,6 +378,7 @@ def _noise_pool(
                 "text": cleaned,
                 "url": link,
                 "run_id": run.run_id,
+                "domain": domains[run.run_id],
                 "raw_query": raw_query_of(run),
                 "origin_kind": origin_kind,
                 "duplicate_of": duplicate_of,
@@ -371,6 +417,7 @@ def _noise_pool(
                         "text": (proposal.get("canonical_name") or "").strip(),
                         "url": ((document or {}).get("url") or ""),
                         "run_id": run.run_id,
+                        "domain": domains[run.run_id],
                         "raw_query": raw_query_of(run),
                         "origin_kind": "gate_review",
                         "duplicate_of": None,
@@ -425,6 +472,7 @@ def _noise_pool(
                     "text": str(right_name).strip(),
                     "url": None,
                     "run_id": right_run,
+                    "domain": domains[right_run],
                     "raw_query": raw_query_of(run),
                     "origin_kind": "alias_suggestion",
                     "duplicate_of": None,
@@ -452,15 +500,24 @@ def _fill_noise(
             unique.append(item)
         items[:] = unique
     queued: list[QueuedNoise] = []
-    by_type: dict[str, list[dict[str, Any]]] = {}
+    by_type: dict[str, list[NoiseSlot]] = {}
     for slot in slots:
         by_type.setdefault(slot.planned_noise_type, []).append(slot)
+
+    def take_matching(
+        items: list[dict[str, Any]], domain: str
+    ) -> dict[str, Any] | None:
+        for index, item in enumerate(items):
+            if item.get("domain") == domain:
+                return items.pop(index)
+        return None
+
     for noise_type, type_slots in by_type.items():
         items = pool.get(noise_type, [])
         for slot in type_slots:
-            if not items:
+            item = take_matching(items, slot.domain)
+            if item is None:
                 break
-            item = items.pop(0)
             if item["origin_kind"] == "alias_suggestion" and not item["url"]:
                 document_url = ""
             else:
@@ -477,8 +534,8 @@ def _fill_noise(
                     source_query=item["raw_query"],
                     extracted_text=item["text"],
                     source_document_url=document_url,
-                    domain=slot.domain,
-                    analysis_scope_key=_scope_key(slot.domain),
+                    domain=item["domain"],
+                    analysis_scope_key=_scope_key(item["domain"]),
                     duplicate_of_candidate_id=item["duplicate_of"],
                     origin_kind=item["origin_kind"],
                 )
@@ -489,19 +546,23 @@ def _fill_noise(
         if filled < len(type_slots):
             short[noise_type] = len(type_slots) - filled
     for noise_type in sorted(short):
-        while short[noise_type] > 0 and review_pool:
-            item = review_pool.pop(0)
+        type_slots = by_type[noise_type]
+        while short[noise_type] > 0:
+            filled_ids = {item_queued.noise_id for item_queued in queued}
+            slot = next(
+                (candidate for candidate in type_slots if candidate.noise_id not in filled_ids),
+                None,
+            )
+            if slot is None:
+                break
+            item = take_matching(review_pool, slot.domain)
+            if item is None:
+                break
             if not item["text"] or not item["url"]:
                 dropped.append(
                     QueueDropped(reason="no_url", detail=f"gate_review:{item['text'][:60]}")
                 )
                 continue
-            slot = next(
-                slot
-                for slot in by_type[noise_type]
-                if slot.noise_id
-                not in {item_queued.noise_id for item_queued in queued}
-            )
             queued.append(
                 QueuedNoise(
                     noise_id=slot.noise_id,
@@ -509,8 +570,8 @@ def _fill_noise(
                     source_query=item["raw_query"],
                     extracted_text=item["text"],
                     source_document_url=item["url"],
-                    domain=slot.domain,
-                    analysis_scope_key=_scope_key(slot.domain),
+                    domain=item["domain"],
+                    analysis_scope_key=_scope_key(item["domain"]),
                     duplicate_of_candidate_id=None,
                     origin_kind="gate_review",
                 )
@@ -640,16 +701,22 @@ def build_labeling_queue(
     *,
     candidate_slots: tuple[CandidateSlot, ...] = (),
     noise_slots: tuple[NoiseSlot, ...] = (),
+    run_domains: Mapping[str, str] | None = None,
 ) -> LabelingQueue:
-    """Build the deterministic review queue from persisted runs and template slots."""
+    """Build the deterministic review queue from persisted runs and template slots.
+
+    Every row keeps the domain of the run that produced it; slots from other
+    domains stay honest deficits instead of being filled with foreign data.
+    """
 
     ordered_runs = tuple(sorted(runs, key=lambda run: run.run_id))
+    domains = resolve_run_domains(ordered_runs, run_domains)
     overflow: list[QueueOverflow] = []
     deficits: list[QueueDeficit] = []
     dropped: list[QueueDropped] = []
-    merged = _merged_groups(ordered_runs)
+    merged = _merged_groups(ordered_runs, domains)
     queued_candidates = _fill_candidates(merged, candidate_slots, overflow, deficits)
-    pool, review_pool = _noise_pool(ordered_runs, dropped)
+    pool, review_pool = _noise_pool(ordered_runs, domains, dropped)
     queued_noise = _fill_noise(pool, review_pool, noise_slots, dropped, overflow, deficits)
     counters = {"unknown_trust": 0, "missing_date": 0, "future_evidence": 0}
     queued_evidence = _fill_evidence(ordered_runs, queued_candidates, counters)

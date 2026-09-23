@@ -36,7 +36,9 @@ def document(document_id: str) -> dict:
     }
 
 
-def write_run_dir(root: Path, run_id: str, *, group_name: str = "Alpha Tech") -> Path:
+def write_run_dir(
+    root: Path, run_id: str, *, group_name: str = "Alpha Tech", domain: str = "Edge"
+) -> Path:
     group_id = f"group-{run_id}"
     document_id = f"document-{run_id}"
     plan = {
@@ -94,6 +96,7 @@ def write_run_dir(root: Path, run_id: str, *, group_name: str = "Alpha Tech") ->
     manifest = {
         "run_id": run_id,
         "cutoff_date": CUTOFF,
+        "domain": domain,
         "counts": {},
         "outputs": [
             {"filename": "plan.json", **digest(plan_bytes)},

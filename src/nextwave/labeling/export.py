@@ -7,6 +7,7 @@ import io
 import json
 import re
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from .queue import (
     NoiseSlot,
     build_labeling_queue,
     queue_to_jsonl,
+    resolve_run_domains,
 )
 from .workbook import (
     count_evidence_rows,
@@ -93,6 +95,7 @@ def export_labeling_bundle(
     run_dirs: tuple[str | Path, ...],
     template_path: str | Path,
     output_dir: str | Path,
+    run_domains: Mapping[str, str] | None = None,
 ) -> LabelingExportPaths:
     """Build the queue from runs and publish workbook, JSONL and manifest."""
 
@@ -125,7 +128,10 @@ def export_labeling_bundle(
         for row in noise_rows
     )
     queue = build_labeling_queue(
-        runs, candidate_slots=candidate_slots, noise_slots=noise_slots
+        runs,
+        candidate_slots=candidate_slots,
+        noise_slots=noise_slots,
+        run_domains=run_domains,
     )
     workbook_bytes = _normalize_workbook_bytes(fill_labeling_workbook(template, queue))
     negative_bytes, noise_bytes = queue_to_jsonl(queue)
@@ -147,6 +153,7 @@ def export_labeling_bundle(
         "inputs": [
             {
                 "run_id": run.run_id,
+                "domain": resolve_run_domains((run,), run_domains)[run.run_id],
                 "cutoff_date": run.manifest.get("cutoff_date"),
                 "counts": run.manifest.get("counts"),
             }

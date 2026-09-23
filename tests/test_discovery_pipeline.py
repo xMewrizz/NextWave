@@ -9,6 +9,9 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from nextwave.discovery import (
+    CandidateMentionKind,
+    CandidateProposal,
+    CandidateProposalBatch,
     CandidateVerificationExecutor,
     DiscoveryBudget,
     DiscoveryPipeline,
@@ -22,6 +25,7 @@ from nextwave.discovery import (
     StructuredEvidenceExtractor,
     build_analysis_scope,
     build_discovery_plan,
+    split_gate_batch,
 )
 from nextwave.sources import (
     ConnectorId,
@@ -280,6 +284,62 @@ class DiscoveryPipelineTests(unittest.TestCase):
         )
         self.assertEqual(len(verification_transport.calls), 1)
         json.dumps(result.to_dict(), ensure_ascii=False)
+
+
+def make_proposal(proposal_id: str) -> CandidateProposal:
+    return CandidateProposal(
+        proposal_id=proposal_id,
+        analysis_scope_id="scope-ai-001",
+        canonical_name=f"Tech {proposal_id}",
+        normalized_name=f"tech {proposal_id}",
+        aliases=(),
+        mention_ids=(),
+        source_kinds=(CandidateMentionKind.TITLE,),
+        connector_ids=("openalex",),
+        provider_term_ids=(),
+        document_ids=(f"document-{proposal_id}",),
+        origin_ids=(f"origin-{proposal_id}",),
+        max_provider_score=None,
+        primary_provider_topic=False,
+    )
+
+
+class GateCapTests(unittest.TestCase):
+    def test_split_takes_bulk_head_and_counts_skipped(self) -> None:
+        batch = CandidateProposalBatch(
+            analysis_scope_id="scope-ai-001",
+            proposals=tuple(make_proposal(f"p{index}") for index in range(5)),
+            exclusions=(),
+        )
+
+        sub, skipped = split_gate_batch(batch, 2)
+
+        self.assertEqual(
+            [item.proposal_id for item in sub.proposals], ["p0", "p1"]
+        )
+        self.assertEqual(sub.analysis_scope_id, "scope-ai-001")
+        self.assertEqual(skipped, 3)
+
+    def test_split_without_shortage_skips_nothing(self) -> None:
+        batch = CandidateProposalBatch(
+            analysis_scope_id="scope-ai-001",
+            proposals=(make_proposal("p0"),),
+            exclusions=(),
+        )
+
+        sub, skipped = split_gate_batch(batch, 300)
+
+        self.assertEqual(len(sub.proposals), 1)
+        self.assertEqual(skipped, 0)
+
+    def test_split_rejects_non_positive_cap(self) -> None:
+        batch = CandidateProposalBatch(
+            analysis_scope_id="scope-ai-001",
+            proposals=(make_proposal("p0"),),
+            exclusions=(),
+        )
+        with self.assertRaisesRegex(ValueError, "positive"):
+            split_gate_batch(batch, 0)
 
 
 class DiscoveryProgressTests(unittest.TestCase):

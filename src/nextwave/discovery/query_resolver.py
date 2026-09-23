@@ -27,6 +27,8 @@ from .llm import (
     JsonHttpTransport,
     LlmProvider,
     LlmSelection,
+    YandexCompletionJsonGenerator,
+    YandexFallbackJsonGenerator,
     build_json_generator,
     load_llm_runtime_settings,
 )
@@ -367,13 +369,37 @@ def build_query_resolver_from_environment(
     """Build the configured live resolver without logging or serializing credentials."""
 
     settings = load_llm_runtime_settings(os.environ if environment is None else environment)
-    generator = build_json_generator(
-        settings,
-        transport=llm_transport,
-    )
+    if (
+        settings.selection.provider is LlmProvider.YANDEX
+        and settings.selection.model == "YandexGPT Lite 5"
+    ):
+        # Lite is the only selection with a proven stronger fallback:
+        # Lite mangles JSON keys on some inputs while Pro answers cleanly.
+        # The wrapper reports the model that answered last, so manifests stay
+        # truthful.
+        lite = YandexCompletionJsonGenerator(
+            settings.api_key,
+            folder_id=settings.yandex_folder_id,
+            selection=settings.selection,
+            transport=llm_transport,
+        )
+        pro = YandexCompletionJsonGenerator(
+            settings.api_key,
+            folder_id=settings.yandex_folder_id,
+            selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Pro 5"),
+            transport=llm_transport,
+        )
+        generator: Callable[[str], str] = YandexFallbackJsonGenerator((lite, pro))
+        selection: LlmSelection | YandexFallbackJsonGenerator = generator
+    else:
+        generator = build_json_generator(
+            settings,
+            transport=llm_transport,
+        )
+        selection = settings.selection
     interpreter = StructuredQueryInterpreter(
         generator,
-        selection=settings.selection,
+        selection=selection,
         version=(
             LOCAL_ADAPTER_VERSION
             if settings.selection.provider is LlmProvider.HUGGINGFACE

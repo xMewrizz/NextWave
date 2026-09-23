@@ -68,6 +68,7 @@ def make_run(
     documents: list | None = None,
     raw_query: str = "Технологии в ИИ",
     cutoff: str = CUTOFF,
+    domain: str = "Финтех",
 ) -> DiscoveryRun:
     plan = {
         "plan_id": f"plan-{run_id}",
@@ -90,7 +91,7 @@ def make_run(
         "media": {"documents": []},
         "verification": {"results": []},
     }
-    manifest = {"run_id": run_id, "cutoff_date": cutoff}
+    manifest = {"run_id": run_id, "cutoff_date": cutoff, "domain": domain}
     return DiscoveryRun(
         run_id=run_id, run_dir=Path(run_id), plan=plan, result=result, manifest=manifest
     )
@@ -387,6 +388,52 @@ class QueueJsonlTests(unittest.TestCase):
         negative, noise = queue_to_jsonl(queue)
 
         self.assertEqual((negative, noise), (b"", b""))
+
+
+class QueueDomainTests(unittest.TestCase):
+    def test_foreign_domain_slot_stays_deficit(self) -> None:
+        run = make_run("run-1", groups=[group("group-a", "Alpha Tech")])
+        slots = (
+            CandidateSlot("team-negative-001", "Роботы", "mature"),
+            CandidateSlot("team-negative-002", "Финтех", "mature"),
+        )
+
+        queue = build_labeling_queue((run,), candidate_slots=slots)
+
+        self.assertEqual(len(queue.candidates), 1)
+        self.assertEqual(queue.candidates[0].candidate_id, "team-negative-002")
+        self.assertEqual(queue.candidates[0].domain, "Финтех")
+        self.assertEqual(queue.candidates[0].analysis_scope_key, "fintech-v1")
+        self.assertEqual(
+            [(item.area, item.need, item.missing) for item in queue.deficits],
+            [("Роботы", "mature", 1)],
+        )
+
+    def test_run_domains_override_maps_free_text_vault(self) -> None:
+        run = make_run(
+            "run-1",
+            groups=[group("group-a", "Alpha Tech")],
+            domain="Перспективные решения в финтехе",
+        )
+        slots = (CandidateSlot("team-negative-001", "Финтех", "mature"),)
+
+        queue = build_labeling_queue(
+            (run,), candidate_slots=slots, run_domains={"run-1": "Финтех"}
+        )
+
+        self.assertEqual(len(queue.candidates), 1)
+        self.assertEqual(queue.candidates[0].domain, "Финтех")
+
+    def test_run_without_controlled_domain_is_rejected(self) -> None:
+        run = make_run(
+            "run-1",
+            groups=[group("group-a", "Alpha Tech")],
+            domain="Перспективные решения в финтехе",
+        )
+        slots = (CandidateSlot("team-negative-001", "Финтех", "mature"),)
+
+        with self.assertRaisesRegex(ValueError, "no controlled domain"):
+            build_labeling_queue((run,), candidate_slots=slots)
 
 
 if __name__ == "__main__":
