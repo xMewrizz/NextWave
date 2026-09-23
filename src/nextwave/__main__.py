@@ -21,6 +21,7 @@ from .discovery import (
     build_query_resolver_from_environment,
     save_discovery_run,
 )
+from .labeling.export import export_labeling_bundle
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -112,6 +113,28 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data") / "development" / "discovery",
         help="корень для каталогов запусков",
+    )
+    labeling_export = commands.add_parser(
+        "labeling-export",
+        help="собрать очередь разметки из запусков в книгу, JSONL и опись",
+    )
+    labeling_export.add_argument(
+        "--runs",
+        nargs="+",
+        required=True,
+        help="каталоги запусков discovery (plan.json + pipeline_result.json + manifest.json)",
+    )
+    labeling_export.add_argument(
+        "--template",
+        type=Path,
+        default=Path("templates") / "labeling_workbook.xlsx",
+        help="шаблон книги экспертной проверки",
+    )
+    labeling_export.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / "labeling-export-v1",
+        help="новый каталог результата",
     )
     return parser
 
@@ -238,6 +261,27 @@ def _run_discovery_run(
     return 0
 
 
+def _run_labeling_export(
+    runs: list[str], template: Path, output: Path
+) -> int:
+    try:
+        paths = export_labeling_bundle(
+            run_dirs=tuple(runs),
+            template_path=template,
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось экспортировать очередь: {error}", file=sys.stderr)
+        return 1
+
+    print("Очередь разметки успешно экспортирована.")
+    print(f"Книга: {paths.workbook}")
+    print(f"Кандидаты: {paths.candidates}")
+    print(f"Шум: {paths.noise}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     arguments = parser.parse_args(argv)
@@ -255,6 +299,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.published_from,
             arguments.env_file,
             arguments.output_root,
+        )
+    if arguments.command == "labeling-export":
+        return _run_labeling_export(
+            arguments.runs,
+            arguments.template,
+            arguments.output,
         )
     parser.print_help()
     return 0
