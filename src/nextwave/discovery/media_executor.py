@@ -39,6 +39,12 @@ from .executor import DiscoveryBudgetUsage, DiscoveryParseIssue, DiscoveryStopRe
 MEDIA_DISCOVERY_VERSION = "media-discovery-v1"
 _CYRILLIC = re.compile(r"[А-Яа-яЁё]")
 
+# Повторы при временных сбоях (сеть, 429, 5xx): живой прогон 22.09.2026 показал,
+# что первая попытка может лечь на секундной потере сети. Все попытки попадают
+# в опись snapshot как отдельные запуски; usage считает их честно.
+MEDIA_MAX_ATTEMPTS = 3
+MEDIA_RETRY_BACKOFF_SECONDS = (5.0, 15.0)
+
 
 class MediaFallbackReason(StrEnum):
     NOT_NEEDED = "not_needed"
@@ -149,6 +155,62 @@ class MediaDiscoveryExecutor:
         self._sleeper = sleeper
         self._mediacloud_min_interval_seconds = mediacloud_min_interval_seconds
         self._gdelt_min_interval_seconds = gdelt_min_interval_seconds
+
+    def _run_with_retries(
+        self,
+        make_run: Callable[[int], ConnectorRun],
+    ) -> tuple[tuple[ConnectorRun, ...], ConnectorRun]:
+        """Repeat one connector call while the failure is retryable.
+
+        Every attempt is returned: attempts are real requests, so the caller
+        appends all of them to the snapshot manifest and usage counters.
+        """
+
+        attempts: list[ConnectorRun] = []
+        for index in range(MEDIA_MAX_ATTEMPTS):
+            run = make_run(index + 1)
+            attempts.append(run)
+            if index >= MEDIA_MAX_ATTEMPTS - 1:
+                return tuple(attempts), run
+            if (
+                run.status is ConnectorStatus.SUCCESS
+                or run.error is None
+                or not run.error.retryable
+            ):
+                return tuple(attempts), run
+            backoff = MEDIA_RETRY_BACKOFF_SECONDS[
+                min(index, len(MEDIA_RETRY_BACKOFF_SECONDS) - 1)
+            ]
+            (self._sleeper or time.sleep)(backoff)
+        return tuple(attempts), attempts[-1]
+
+    def _mediacloud_page_fetch(
+        self,
+        connector: MediaCloudConnector,
+        query: SourceQuery,
+        writer: SnapshotWriter,
+        *,
+        search_text: str,
+        languages: tuple[str, ...],
+        collection_ids: tuple[int, ...],
+        page_size: int,
+        pagination_token: str | None,
+        page_index: int,
+    ) -> Callable[[int], ConnectorRun]:
+        def fetch(attempt: int) -> ConnectorRun:
+            return connector.run_page(
+                query,
+                writer,
+                search_text=search_text,
+                languages=languages,
+                collection_ids=collection_ids,
+                page_size=page_size,
+                pagination_token=pagination_token,
+                page_index=page_index,
+                attempt=attempt,
+            )
+
+        return fetch
 
     def execute(self, plan: DiscoveryPlan) -> MediaDiscoveryResult:
         mediacloud_budget = plan.budget_for(ConnectorId.MEDIACLOUD)
@@ -284,17 +346,20 @@ class MediaDiscoveryExecutor:
 
             step = queue.popleft()
             remaining = budget.max_documents - len(documents_by_origin)
-            run = connector.run_page(
-                plan.query,
-                writer,
-                search_text=step.search_text,
-                languages=step.languages,
-                collection_ids=self._mediacloud_collection_ids,
-                page_size=min(100, remaining),
-                pagination_token=step.pagination_token,
-                page_index=step.page_index,
+            attempts, run = self._run_with_retries(
+                self._mediacloud_page_fetch(
+                    connector,
+                    plan.query,
+                    writer,
+                    search_text=step.search_text,
+                    languages=step.languages,
+                    collection_ids=self._mediacloud_collection_ids,
+                    page_size=min(100, remaining),
+                    pagination_token=step.pagination_token,
+                    page_index=step.page_index,
+                )
             )
-            runs.append(run)
+            runs.extend(attempts)
             if run.status is not ConnectorStatus.SUCCESS or run.artifact is None:
                 continue
             successful_requests += 1
@@ -361,13 +426,16 @@ class MediaDiscoveryExecutor:
         )
         started = self._monotonic()
         recent_query = _gdelt_recent_query(plan.query)
-        run = connector.run_window(
-            recent_query,
-            writer,
-            search_text=plan.query.normalized_query,
-            max_records=min(250, budget.max_documents),
+        attempts, run = self._run_with_retries(
+            lambda attempt: connector.run_window(
+                recent_query,
+                writer,
+                search_text=plan.query.normalized_query,
+                max_records=min(250, budget.max_documents),
+                attempt=attempt,
+            )
         )
-        runs = (run,)
+        runs = attempts
         documents: tuple[SourceDocument, ...] = ()
         issues: tuple[DiscoveryParseIssue, ...] = ()
         returned_records = 0

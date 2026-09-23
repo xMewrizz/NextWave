@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from datetime import UTC, date, datetime, timedelta
@@ -172,6 +173,50 @@ class SnapshotWriterTests(unittest.TestCase):
                 writer.finalize(make_manifest(artifact))
 
             self.assertFalse((Path(temp_dir) / "snapshot-ai-001").exists())
+
+    def test_publish_staging_retries_transient_permission_errors(self) -> None:
+        from unittest.mock import patch
+
+        from nextwave.sources.snapshots import publish_staging
+
+        real_replace = os.replace
+        calls: list[int] = []
+
+        def flaky_replace(source, target):
+            calls.append(1)
+            if len(calls) < 3:
+                raise PermissionError(13, "transient OS lock")
+            return real_replace(source, target)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            staging = Path(temp_dir) / "staging"
+            (staging / "inner").mkdir(parents=True)
+            (staging / "inner" / "a.json").write_bytes(b"{}")
+            final = Path(temp_dir) / "final"
+            with patch(
+                "nextwave.sources.snapshots.os.replace", side_effect=flaky_replace
+            ):
+                publish_staging(staging, final, pause_seconds=0)
+
+            self.assertTrue((final / "inner" / "a.json").is_file())
+            self.assertEqual(len(calls), 3)
+
+    def test_publish_staging_rejects_other_os_errors_immediately(self) -> None:
+        from unittest.mock import patch
+
+        from nextwave.sources.snapshots import publish_staging
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch(
+                "nextwave.sources.snapshots.os.replace",
+                side_effect=OSError(28, "no space left"),
+            ):
+                with self.assertRaisesRegex(OSError, "no space left"):
+                    publish_staging(
+                        Path(temp_dir) / "staging",
+                        Path(temp_dir) / "final",
+                        pause_seconds=0,
+                    )
 
 
 if __name__ == "__main__":

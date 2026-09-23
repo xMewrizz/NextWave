@@ -21,6 +21,7 @@ from .discovery import (
     build_query_resolver_from_environment,
     save_discovery_run,
 )
+from .labeling.export import export_labeling_bundle
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -82,13 +83,14 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     discovery_run.add_argument(
         "--analysis-scope-key",
-        required=True,
-        help="ключ широкой области; для labeling — один из 6 ключей организаторов",
+        default=None,
+        help="ключ широкой области; для labeling — один из 6 ключей организаторов, "
+        "иначе берётся scope_id из разбора запроса",
     )
     discovery_run.add_argument(
         "--domain",
-        required=True,
-        help="человекочитаемая область, например Инфраструктура ИИ",
+        default=None,
+        help="человекочитаемая область; по умолчанию — исходный текст запроса",
     )
     discovery_run.add_argument(
         "--cutoff-date",
@@ -111,6 +113,28 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data") / "development" / "discovery",
         help="корень для каталогов запусков",
+    )
+    labeling_export = commands.add_parser(
+        "labeling-export",
+        help="собрать очередь разметки из запусков в книгу, JSONL и опись",
+    )
+    labeling_export.add_argument(
+        "--runs",
+        nargs="+",
+        required=True,
+        help="каталоги запусков discovery (plan.json + pipeline_result.json + manifest.json)",
+    )
+    labeling_export.add_argument(
+        "--template",
+        type=Path,
+        default=Path("templates") / "labeling_workbook.xlsx",
+        help="шаблон книги экспертной проверки",
+    )
+    labeling_export.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / "labeling-export-v1",
+        help="новый каталог результата",
     )
     return parser
 
@@ -152,8 +176,17 @@ def _read_environment_file(path: Path) -> dict[str, str]:
 def _runtime_environment(
     env_file: Path,
     process_environment: Mapping[str, str] | None = None,
+    *,
+    dotenv_path: Path | None = None,
 ) -> dict[str, str]:
+    """Layer settings: committed file < local .env < process environment.
+
+    The local `.env` (git-ignored) overrides the committed settings file, and
+    explicit process variables win over everything. Missing files are empty.
+    """
+
     values = _read_environment_file(env_file)
+    values.update(_read_environment_file(dotenv_path or Path(".env")))
     values.update(os.environ if process_environment is None else process_environment)
     return values
 
@@ -180,8 +213,8 @@ def _parse_iso_date(value: str, flag: str) -> date:
 def _run_discovery_run(
     query: str,
     analysis_id: str,
-    analysis_scope_key: str,
-    domain: str,
+    analysis_scope_key: str | None,
+    domain: str | None,
     cutoff_text: str,
     published_from_text: str | None,
     env_file: Path,
@@ -197,6 +230,12 @@ def _run_discovery_run(
             raise ValueError("--published-from must not be later than --cutoff-date")
         environment = _runtime_environment(env_file)
         resolution = build_query_resolver_from_environment(environment).resolve(query)
+        # Пользователь домен не выбирает: область выводится из разбора запроса.
+        # Явные флаги нужны только разметке, чтобы привязать запуск к квоте области.
+        effective_scope_key = (analysis_scope_key or resolution.scope.scope_id).strip()
+        effective_domain = (domain or resolution.scope.raw_query).strip()
+        if not effective_scope_key or not effective_domain:
+            raise ValueError("analysis scope key and domain must not be blank")
         plan = build_discovery_plan(
             analysis_id=analysis_id,
             scope=resolution.scope,
@@ -209,8 +248,8 @@ def _run_discovery_run(
         run_dir = save_discovery_run(
             plan,
             result,
-            analysis_scope_key=analysis_scope_key,
-            domain=domain,
+            analysis_scope_key=effective_scope_key,
+            domain=effective_domain,
             output_root=output_root,
         )
     except (OSError, RuntimeError, ValueError) as error:
@@ -219,6 +258,27 @@ def _run_discovery_run(
 
     print("Поиск завершён, запуск сохранён.")
     print(f"Каталог запуска: {run_dir}")
+    return 0
+
+
+def _run_labeling_export(
+    runs: list[str], template: Path, output: Path
+) -> int:
+    try:
+        paths = export_labeling_bundle(
+            run_dirs=tuple(runs),
+            template_path=template,
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось экспортировать очередь: {error}", file=sys.stderr)
+        return 1
+
+    print("Очередь разметки успешно экспортирована.")
+    print(f"Книга: {paths.workbook}")
+    print(f"Кандидаты: {paths.candidates}")
+    print(f"Шум: {paths.noise}")
+    print(f"Manifest: {paths.manifest}")
     return 0
 
 
@@ -239,6 +299,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.published_from,
             arguments.env_file,
             arguments.output_root,
+        )
+    if arguments.command == "labeling-export":
+        return _run_labeling_export(
+            arguments.runs,
+            arguments.template,
+            arguments.output,
         )
     parser.print_help()
     return 0

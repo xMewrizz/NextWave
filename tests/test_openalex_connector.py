@@ -174,14 +174,14 @@ class OpenAlexConnectorTests(unittest.TestCase):
             self.assertEqual(run.returned_records, 2)
             self.assertEqual(stored.read_bytes(), body)
 
-    def test_api_key_is_sent_in_header_and_not_saved_in_request(self) -> None:
+    def test_contact_email_is_sent_as_mailto_param(self) -> None:
         body = b'{"meta":{"count":0},"results":[]}'
         transport = FakeTransport(
             HttpResponse(200, {"Content-Type": "application/json"}, body)
         )
         connector = OpenAlexConnector(
             transport=transport,
-            api_key="secret-key",
+            contact_email="team@example.com",
             clock=fixed_clock(),
         )
 
@@ -194,9 +194,9 @@ class OpenAlexConnectorTests(unittest.TestCase):
             )
 
         url, headers, _ = transport.calls[0]
-        self.assertEqual(headers["Authorization"], "Bearer secret-key")
-        self.assertNotIn("secret-key", url)
-        self.assertNotIn("secret-key", str(run.request.to_dict()))
+        self.assertNotIn("Authorization", headers)
+        self.assertIn("mailto=team%40example.com", url)
+        self.assertIn("mailto", str(run.request.to_dict()))
 
     def test_http_error_body_is_saved_and_coverage_is_unknown(self) -> None:
         body = b'{"error":"rate limit"}'

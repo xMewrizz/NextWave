@@ -98,7 +98,7 @@ from .openalex_parser import (
     parse_openalex_work,
     reconstruct_openalex_abstract,
 )
-from .snapshots import SnapshotWriter
+from .snapshots import SnapshotWriter, publish_staging
 
 __all__ = [
     "CONNECTOR_REQUEST_SCHEMA_VERSION",
@@ -155,6 +155,7 @@ __all__ = [
     "SnapshotManifest",
     "SnapshotStatus",
     "SnapshotWriter",
+    "publish_staging",
     "SourceQuery",
     "UrllibHttpTransport",
     "build_openalex_request",

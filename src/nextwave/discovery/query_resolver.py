@@ -158,13 +158,13 @@ class OpenAlexTaxonomySource:
         self,
         *,
         transport: HttpTransport | None = None,
-        api_key: str | None = None,
+        contact_email: str | None = None,
         timeout_seconds: float = 20.0,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         self._transport = transport or UrllibHttpTransport()
-        self._api_key = api_key
+        self._contact_email = contact_email
         self._timeout_seconds = timeout_seconds
 
     def search(
@@ -181,17 +181,18 @@ class OpenAlexTaxonomySource:
         select_fields = ["id", "display_name", "works_count"]
         if level is TaxonomyLevel.TOPIC:
             select_fields.append("description")
-        parameters = urlencode(
-            {
-                "per-page": str(MAX_TAXONOMY_CANDIDATES),
-                "search": normalized_query,
-                "select": ",".join(select_fields),
-            }
-        )
+        raw_parameters = {
+            "per-page": str(MAX_TAXONOMY_CANDIDATES),
+            "search": normalized_query,
+            "select": ",".join(select_fields),
+        }
+        if self._contact_email is not None:
+            if not self._contact_email.strip() or "@" not in self._contact_email:
+                raise ValueError("contact_email must be a non-blank email address")
+            raw_parameters["mailto"] = self._contact_email.strip()
+        parameters = urlencode(raw_parameters)
         url = f"{OPENALEX_API_ROOT}/{entity_path}?{parameters}"
         headers = {"Accept": "application/json", "User-Agent": "NextWave/0.1"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
         response = self._transport.get(
             url,
             headers=headers,

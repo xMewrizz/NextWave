@@ -18,11 +18,12 @@ from .contracts import AnalysisScope
 from .llm import (
     JsonHttpTransport,
     LlmSelection,
+    YandexTruncationError,
     build_json_generator,
     load_llm_runtime_settings,
 )
 
-CANDIDATE_TEXT_EXTRACTOR_VERSION = "candidate-text-extractor-v1"
+CANDIDATE_TEXT_EXTRACTOR_VERSION = "candidate-text-extractor-v2"
 MAX_CANDIDATE_BATCH_DOCUMENTS = 8
 MAX_CANDIDATE_FIELD_CHARS = 4000
 MAX_CANDIDATE_BATCH_INPUT_CHARS = 24_000
@@ -76,6 +77,7 @@ class CandidateExtractionIssueCode(StrEnum):
     UNKNOWN_DOCUMENT = "unknown_document"
     DUPLICATE_DOCUMENT = "duplicate_document"
     MISSING_DOCUMENT = "missing_document"
+    INVALID_ITEM = "invalid_item"
     INVALID_MENTION = "invalid_mention"
     UNAVAILABLE_FIELD = "unavailable_field"
     NON_VERBATIM = "non_verbatim"
@@ -163,16 +165,64 @@ class StructuredCandidateMentionExtractor:
             raise ValueError("documents must contain unique document_id values")
 
         prompt_documents, coverage = _prompt_documents(documents)
-        raw_response = self._generate(
-            build_candidate_mention_prompt(scope, prompt_documents)
-        )
+        try:
+            raw_response = self._generate(
+                build_candidate_mention_prompt(scope, prompt_documents)
+            )
+        except YandexTruncationError:
+            # Ответ обрезан лимитом: делим пачку пополам и дочитываем частями.
+            # Глубина ограничена — пополам нельзя делить один документ.
+            if len(documents) == 1:
+                raise
+            midpoint = len(documents) // 2
+            return _merge_split_results(
+                self.extract(scope, documents[:midpoint]),
+                self.extract(scope, documents[midpoint:]),
+            )
         response_documents = _parse_response_envelope(raw_response)
         mentions: dict[str, CandidateMention] = {}
         issues: list[CandidateExtractionIssue] = []
         returned_document_ids: set[str] = set()
 
         for item in response_documents:
-            document_id, raw_mentions = _parse_document_result(item)
+            try:
+                document_id, raw_mentions = _parse_document_result(item)
+            except ValueError as error:
+                # Одна битая запись не роняет всю пачку: фиксируем проблему
+                # на документе и идём дальше. Записи вообще без usable ID
+                # маппить не на что — они уходят в проблему с пустым ID
+                # (структурно допустимо, ниже по течению такие отбрасываются
+                # со счётчиком, а не молча).
+                item_id = item.get("document_id") if isinstance(item, dict) else None
+                if not isinstance(item_id, str) or not item_id.strip():
+                    issues.append(
+                        CandidateExtractionIssue(
+                            code=CandidateExtractionIssueCode.INVALID_ITEM,
+                            document_id="",
+                            message=(
+                                f"{error} (preview: {_preview(item)!r})"
+                            ),
+                        )
+                    )
+                    continue
+                if item_id not in documents_by_id:
+                    issues.append(
+                        CandidateExtractionIssue(
+                            code=CandidateExtractionIssueCode.UNKNOWN_DOCUMENT,
+                            document_id=item_id,
+                            message=str(error),
+                        )
+                    )
+                    continue
+                issues.append(
+                    CandidateExtractionIssue(
+                        code=CandidateExtractionIssueCode.INVALID_ITEM,
+                        document_id=item_id,
+                        message=f"{error} (preview: {_preview(item)!r})",
+                    )
+                )
+                returned_document_ids.add(item_id)
+                continue
             document = documents_by_id.get(document_id)
             if document is None:
                 issues.append(
@@ -363,6 +413,35 @@ class StructuredCandidateMentionExtractor:
         )
 
 
+def _merge_split_results(
+    first: CandidateMentionExtractionResult,
+    second: CandidateMentionExtractionResult,
+) -> CandidateMentionExtractionResult:
+    """Combine two halves of a batch split after a truncated model response."""
+
+    mentions = {
+        mention.mention_id: mention for mention in (*first.mentions, *second.mentions)
+    }
+    issues = sorted(
+        (*first.issues, *second.issues),
+        key=lambda value: (
+            value.document_id,
+            value.code.value,
+            value.field or "",
+            value.text or "",
+        ),
+    )
+    return CandidateMentionExtractionResult(
+        analysis_scope_id=first.analysis_scope_id,
+        extractor_id=first.extractor_id,
+        input_document_ids=(*first.input_document_ids, *second.input_document_ids),
+        mentions=tuple(sorted(mentions.values(), key=lambda value: value.mention_id)),
+        issues=tuple(issues),
+        coverage=(*first.coverage, *second.coverage),
+        batch_count=first.batch_count + second.batch_count,
+    )
+
+
 def build_candidate_mention_prompt(
     scope: AnalysisScope,
     documents: Mapping[str, Mapping[str, str | None]],
@@ -443,7 +522,9 @@ def build_candidate_text_extractor_from_environment(
         transport=llm_transport,
         json_schema=CANDIDATE_MENTION_JSON_SCHEMA,
         schema_name="candidate_mentions",
-        max_output_tokens=2000,
+        # 8 документов по до 12 названий: живой прогон 22.09.2026 показал,
+        # что 2000 токенов обрезают ответ.
+        max_output_tokens=4000,
     )
     return StructuredCandidateMentionExtractor(
         generator,
@@ -493,22 +574,40 @@ def _candidate_prompt_chars(document: SourceDocument) -> int:
     return title_chars + excerpt_chars + len(document.document_id) + 128
 
 
+def _preview(value: object, limit: int = 300) -> str:
+    """Shorten a malformed payload for error messages (public source data only)."""
+
+    try:
+        text = json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        text = repr(value)
+    return text[:limit]
+
+
 def _parse_response_envelope(raw_response: str) -> list[object]:
+    # Tolerant reader at the top level: extra keys are ignored, every document
+    # below is still validated strictly (verbatim text, known IDs, no dupes).
     try:
         payload = json.loads(raw_response)
     except json.JSONDecodeError as error:
-        raise ValueError("candidate extractor must return one JSON object") from error
-    if not isinstance(payload, dict) or set(payload) != {"documents"}:
-        raise ValueError("candidate extractor response must contain only documents")
-    documents = payload["documents"]
-    if not isinstance(documents, list):
-        raise ValueError("candidate extractor documents must be a list")
-    return documents
+        raise ValueError(
+            "candidate extractor must return one JSON object "
+            f"(preview: {raw_response[:300]!r})"
+        ) from error
+    if not isinstance(payload, dict) or not isinstance(payload.get("documents"), list):
+        raise ValueError(
+            "candidate extractor response must contain a documents list "
+            f"(preview: {_preview(payload)!r})"
+        )
+    return payload["documents"]
 
 
 def _parse_document_result(value: object) -> tuple[str, list[object]]:
     if not isinstance(value, dict) or set(value) != {"document_id", "mentions"}:
-        raise ValueError("candidate extractor document must contain document_id and mentions")
+        raise ValueError(
+            "candidate extractor document must contain document_id and mentions "
+            f"(preview: {_preview(value)!r})"
+        )
     document_id = value["document_id"]
     mentions = value["mentions"]
     if not isinstance(document_id, str) or not document_id.strip():

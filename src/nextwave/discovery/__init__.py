@@ -88,6 +88,7 @@ from .llm import (
     LlmSelection,
     UrllibJsonHttpTransport,
     YandexCompletionJsonGenerator,
+    YandexTruncationError,
     load_llm_runtime_settings,
     parse_yandex_completion_text,
 )
@@ -291,6 +292,7 @@ __all__ = [
     "TaxonomySource",
     "UrllibJsonHttpTransport",
     "YandexCompletionJsonGenerator",
+    "YandexTruncationError",
     "VerificationStatus",
     "build_analysis_scope",
     "build_candidate_mention",
