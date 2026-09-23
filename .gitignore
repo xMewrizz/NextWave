@@ -55,3 +55,9 @@ indexes/
 
 # Logs
 *.log
+
+# Agent and orchestration state (never commit)
+.omo/
+.opencode/
+AGENTS.md
+NEXTWAVE_AGENT_HANDOFF.md
