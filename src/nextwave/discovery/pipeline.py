@@ -113,6 +113,29 @@ class DiscoveryPipelineResult:
     evidence_extraction: EvidenceExtractionResult
     pipeline_version: str = DISCOVERY_PIPELINE_VERSION
 
+    @property
+    def gate_skipped_proposal_ids(self) -> tuple[str, ...]:
+        checked = set(self.candidate_gate.input_proposal_ids)
+        return tuple(
+            proposal.proposal_id
+            for proposal in self.candidate_proposals.proposals
+            if proposal.proposal_id not in checked
+        )
+
+    @property
+    def gate_coverage_complete(self) -> bool:
+        return not self.gate_skipped_proposal_ids
+
+    def gate_coverage_dict(self) -> dict[str, Any]:
+        skipped = self.gate_skipped_proposal_ids
+        return {
+            "status": "complete" if not skipped else "partial",
+            "total_proposals": len(self.candidate_proposals.proposals),
+            "checked_proposals": len(self.candidate_gate.input_proposal_ids),
+            "skipped_proposals": len(skipped),
+            "skipped_proposal_ids": list(skipped),
+        }
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "plan_id": self.plan_id,
@@ -124,6 +147,7 @@ class DiscoveryPipelineResult:
             "text_extraction": (self.text_extraction.to_dict() if self.text_extraction else None),
             "candidate_proposals": self.candidate_proposals.to_dict(),
             "candidate_gate": self.candidate_gate.to_dict(),
+            "gate_coverage": self.gate_coverage_dict(),
             "alias_resolution": self.alias_resolution.to_dict(),
             "verification": self.verification.to_dict(),
             "origin_resolution": self.origin_resolution.to_dict(),
@@ -232,7 +256,8 @@ class DiscoveryPipeline:
         report(
             "gate",
             f"{len(candidate_gate.accepted_proposal_ids)} accepted "
-            f"({gate_skipped} skipped by cap {self._max_gate_proposals})",
+            f"({len(gated_proposals.proposals)} of "
+            f"{len(candidate_proposals.proposals)} checked; {gate_skipped} skipped)",
             started,
         )
         started = time.monotonic()

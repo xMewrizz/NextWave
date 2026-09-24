@@ -37,7 +37,12 @@ def document(document_id: str) -> dict:
 
 
 def write_run_dir(
-    root: Path, run_id: str, *, group_name: str = "Alpha Tech", domain: str = "Edge"
+    root: Path,
+    run_id: str,
+    *,
+    group_name: str = "Alpha Tech",
+    domain: str = "Edge",
+    analysis_status: str = "complete",
 ) -> Path:
     group_id = f"group-{run_id}"
     document_id = f"document-{run_id}"
@@ -97,6 +102,7 @@ def write_run_dir(
         "run_id": run_id,
         "cutoff_date": CUTOFF,
         "domain": domain,
+        "analysis_status": analysis_status,
         "counts": {},
         "outputs": [
             {"filename": "plan.json", **digest(plan_bytes)},
@@ -112,6 +118,27 @@ def write_run_dir(
 
 
 class LabelingExportTests(unittest.TestCase):
+    def test_rejects_partial_discovery_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = write_run_dir(root, "run-partial", analysis_status="partial")
+            output = root / "export-partial"
+
+            exit_code = main(
+                [
+                    "labeling-export",
+                    "--runs",
+                    str(run_dir),
+                    "--template",
+                    str(TEMPLATE),
+                    "--output",
+                    str(output),
+                ]
+            )
+
+            self.assertEqual(exit_code, 1)
+            self.assertFalse(output.exists())
+
     def test_exports_workbook_jsonl_and_consistent_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

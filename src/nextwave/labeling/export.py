@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from ..datasets.artifacts import publish_artifact_bundle
-from ..discovery.run_store import assert_labeling_cutoff, load_discovery_run
+from ..discovery.run_store import assert_run_labeling_eligible, load_discovery_run
 from .contracts import LABELING_CUTOFF_DATE, RUBRIC_VERSION
 from .queue import (
     QUEUE_SCHEMA_VERSION,
@@ -107,7 +107,7 @@ def export_labeling_bundle(
 
     runs = tuple(load_discovery_run(run_dir) for run_dir in run_dirs)
     for run in runs:
-        assert_labeling_cutoff(str(run.manifest.get("cutoff_date")))
+        assert_run_labeling_eligible(run)
 
     candidate_rows = read_candidate_slots(template)
     noise_rows = read_noise_slots(template)

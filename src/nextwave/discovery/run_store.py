@@ -25,7 +25,7 @@ from nextwave.sources import publish_staging
 from .contracts import DiscoveryPlan
 from .pipeline import DISCOVERY_PIPELINE_VERSION, DiscoveryPipelineResult
 
-DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION = "discovery-run-manifest-v1"
+DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION = "discovery-run-manifest-v2"
 
 # Must stay in sync with LABELING.md and labeling/contracts.py.
 # Runs with any other cutoff are fine for demo, but only this date is
@@ -101,7 +101,16 @@ def _counts_from_result(result_dict: dict[str, Any]) -> dict[str, int]:
     review = sum(1 for item in decisions if item.get("decision") == "review")
     text_issues = text_extraction.get("issues") or []
     evidence_issues = evidence.get("issues") or []
-    judged = accepted + rejected + review
+    input_proposal_ids = gate.get("input_proposal_ids")
+    checked = (
+        len(input_proposal_ids)
+        if isinstance(input_proposal_ids, list)
+        else accepted + rejected + review
+    )
+    coverage = result_dict.get("gate_coverage") or {}
+    skipped = coverage.get("skipped_proposals")
+    if not isinstance(skipped, int) or isinstance(skipped, bool):
+        skipped = len(proposals.get("proposals") or []) - checked
 
     return {
         "documents": len(result_dict.get("documents") or []),
@@ -110,7 +119,7 @@ def _counts_from_result(result_dict: dict[str, Any]) -> dict[str, int]:
         "accepted": accepted,
         "rejected": rejected,
         "review": review,
-        "gate_skipped": len(proposals.get("proposals") or []) - judged,
+        "gate_skipped": skipped,
         "alias_suggestions": len(aliases.get("review_suggestions") or []),
         "evidence_proposals": len(evidence.get("proposals") or []),
         "issues": len(text_issues) + len(evidence_issues),
@@ -133,10 +142,12 @@ def _snapshot_ids_from_result(result_dict: dict[str, Any]) -> list[str]:
     return sorted(set(found))
 
 
-def is_labeling_eligible(cutoff_iso: str) -> bool:
-    """Only the fixed labeling cutoff may train the model; anything else is demo-only."""
+def is_labeling_eligible(
+    cutoff_iso: str, analysis_status: str = "complete"
+) -> bool:
+    """Require both the fixed cutoff and complete candidate coverage."""
 
-    return cutoff_iso == LABELING_CUTOFF_DATE_ISO
+    return cutoff_iso == LABELING_CUTOFF_DATE_ISO and analysis_status == "complete"
 
 
 def assert_labeling_cutoff(cutoff_iso: str) -> None:
@@ -145,6 +156,38 @@ def assert_labeling_cutoff(cutoff_iso: str) -> None:
             "run cutoff "
             f"{cutoff_iso!r} is not eligible for labeling; "
             f"expected {LABELING_CUTOFF_DATE_ISO!r}"
+        )
+
+
+def analysis_status_from_result(result_dict: dict[str, Any]) -> str:
+    """Read new coverage metadata or infer legacy partial Gate runs."""
+
+    coverage = result_dict.get("gate_coverage") or {}
+    status = coverage.get("status")
+    if status in {"complete", "partial"}:
+        return str(status)
+    if status is not None:
+        raise ValueError(f"invalid candidate gate coverage status: {status!r}")
+    proposals = (result_dict.get("candidate_proposals") or {}).get("proposals") or []
+    input_ids = (result_dict.get("candidate_gate") or {}).get("input_proposal_ids")
+    if isinstance(input_ids, list) and len(input_ids) < len(proposals):
+        return "partial"
+    return "complete"
+
+
+def assert_run_labeling_eligible(run: DiscoveryRun) -> None:
+    """Reject demo-date and partial-coverage runs before queue construction."""
+
+    cutoff_iso = str(run.manifest.get("cutoff_date"))
+    assert_labeling_cutoff(cutoff_iso)
+    status = str(
+        run.manifest.get("analysis_status")
+        or analysis_status_from_result(run.result)
+    )
+    if status != "complete":
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for labeling; "
+            f"candidate gate coverage is {status!r}"
         )
 
 
@@ -192,6 +235,7 @@ def save_discovery_run(
     result_bytes = _pretty_bytes(result_dict)
     counts = _counts_from_result(result_dict)
     cutoff_iso = str(plan.query.cutoff_date)
+    analysis_status = analysis_status_from_result(result_dict)
 
     manifest_dict: dict[str, Any] = {
         "schema_version": DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION,
@@ -201,7 +245,8 @@ def save_discovery_run(
         "domain": domain.strip(),
         "raw_query": plan.scope.raw_query,
         "cutoff_date": cutoff_iso,
-        "labeling_eligible": is_labeling_eligible(cutoff_iso),
+        "analysis_status": analysis_status,
+        "labeling_eligible": is_labeling_eligible(cutoff_iso, analysis_status),
         "pipeline_version": result.pipeline_version or DISCOVERY_PIPELINE_VERSION,
         "gate_id": (result_dict.get("candidate_gate") or {}).get("gate_id"),
         "snapshot_ids": _snapshot_ids_from_result(result_dict),

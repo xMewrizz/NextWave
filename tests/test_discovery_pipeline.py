@@ -279,6 +279,12 @@ class DiscoveryPipelineTests(unittest.TestCase):
         self.assertEqual(result.origin_resolution.candidates[0].document_count, 4)
         self.assertEqual(result.origin_resolution.candidates[0].exact_origin_count, 3)
         self.assertEqual(len(result.evidence_extraction.proposals), 2)
+        self.assertTrue(result.gate_coverage_complete)
+        self.assertEqual(result.gate_coverage_dict()["status"], "complete")
+        self.assertEqual(
+            result.gate_coverage_dict()["checked_proposals"],
+            result.gate_coverage_dict()["total_proposals"],
+        )
         self.assertTrue(
             all(item.review_status == "pending" for item in result.evidence_extraction.proposals)
         )

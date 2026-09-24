@@ -24,11 +24,10 @@ from .llm import (
 
 CANDIDATE_GATE_VERSION = "candidate-gate-v1"
 MAX_GATE_BATCH_PROPOSALS = 6
-# Cost and latency guard for one analysis. The pipeline distributes this
-# budget across observable coverage strata instead of taking only the most
-# frequent proposals. Skipped IDs remain recoverable as the difference
-# between the proposal batch and CandidateGateResult.input_proposal_ids.
-DEFAULT_GATE_MAX_PROPOSALS = 300
+# Emergency server guard, not a normal retrieval budget. Grounded unique
+# proposals below this ceiling are all judged. Reaching the ceiling makes the
+# whole analysis partial and therefore ineligible for ranking and labeling.
+DEFAULT_GATE_MAX_PROPOSALS = 1000
 MAX_GATE_CONTEXT_DOCUMENTS = 3
 MAX_GATE_TITLE_CHARS = 300
 MAX_GATE_EXCERPT_CHARS = 700

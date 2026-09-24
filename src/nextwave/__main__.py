@@ -265,7 +265,16 @@ def _run_discovery_run(
         print(f"Не удалось выполнить поиск: {error}", file=sys.stderr)
         return 1
 
-    print("Поиск завершён, запуск сохранён.")
+    coverage = result.to_dict().get("gate_coverage") or {}
+    if coverage.get("status") == "partial":
+        print(
+            "Поиск сохранён с неполным покрытием Candidate Gate: "
+            f"проверено {coverage.get('checked_proposals', 0)} из "
+            f"{coverage.get('total_proposals', 0)}. "
+            "Запуск нельзя использовать для итогового рейтинга или разметки."
+        )
+    else:
+        print("Поиск завершён, запуск сохранён.")
     print(f"Каталог запуска: {run_dir}")
     return 0
 
