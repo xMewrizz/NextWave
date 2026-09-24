@@ -7,6 +7,8 @@ checked against expert decisions, never used to pre-classify queue entries.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -26,8 +28,15 @@ from .contracts import (
     TrustLevel,
 )
 
-QUEUE_SCHEMA_VERSION = "labeling-queue-v2"
+QUEUE_SCHEMA_VERSION = "labeling-queue-v3"
 MAX_EVIDENCE_ROWS = 400
+
+_SCIENTIFIC_CONNECTORS = frozenset({"openalex", "crossref"})
+_MEDIA_CONNECTORS = frozenset({"mediacloud", "gdelt"})
+_ALLOWED_MEDIA_PROVIDERS = ("mediacloud", "gdelt")
+_STRATA_ORDER = ("cross_source", "media_present", "multi_origin", "single_origin")
+_QUEUE_IDENTITY_SEPARATORS = re.compile(r"[-‐‑‒–—−_]+")
+_QUEUE_IDENTITY_WORD = re.compile(r"[^\W_]+", re.UNICODE)
 
 _EXCLUSION_NOISE = {
     "scope_term": NoiseType.BROAD_CONCEPT,
@@ -101,6 +110,7 @@ class QueuedCandidate:
     domain: str
     analysis_scope_key: str
     run_id: str
+    selection_stratum: str = "single_origin"
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +172,7 @@ class RunSearchCoverage:
     run_id: str
     raw_query: str
     source_classes: tuple[str, ...]
+    notes: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,14 +280,15 @@ def _merged_groups(
 ) -> list[tuple[dict[str, Any], str, str, str]]:
     """Merge accepted alias groups across runs: (group, run_id, raw_query, domain)."""
 
-    merged: dict[str, tuple[dict[str, Any], str, str, str]] = {}
+    merged: dict[tuple[str, str], tuple[dict[str, Any], str, str, str]] = {}
     for run in runs:
         _check_cutoff(run.manifest, run.run_id)
         raw_query = ((run.plan.get("scope") or {}).get("raw_query") or "").strip()
         groups = (run.result.get("alias_resolution") or {}).get("groups") or []
         for group in groups:
-            key = group.get("normalization_key") or group.get("group_id")
-            if not key or key in merged:
+            group_key = group.get("normalization_key") or group.get("group_id")
+            key = (domains[run.run_id], group_key)
+            if not group_key or key in merged:
                 continue
             merged[key] = (group, run.run_id, raw_query, domains[run.run_id])
     ordered = sorted(
@@ -291,6 +303,104 @@ def _merged_groups(
     return ordered
 
 
+def _selection_stratum(group: Mapping[str, Any]) -> str:
+    """One observable stratum per accepted group (no evidence/labels)."""
+
+    raw_connectors = group.get("connector_ids") or []
+    connectors = {
+        str(item).casefold()
+        for item in raw_connectors
+        if isinstance(item, str) and str(item).strip()
+    }
+    has_scientific = bool(connectors & _SCIENTIFIC_CONNECTORS)
+    has_media = bool(connectors & _MEDIA_CONNECTORS)
+    if has_scientific and has_media:
+        return "cross_source"
+    if has_media:
+        return "media_present"
+    raw_origins = group.get("origin_ids") or []
+    unique_origins = {
+        str(item).strip()
+        for item in raw_origins
+        if isinstance(item, str) and str(item).strip()
+    }
+    if len(unique_origins) >= 2:
+        return "multi_origin"
+    return "single_origin"
+
+
+def _rank_key(item: tuple[dict[str, Any], str, str, str]) -> tuple[int, int, str, str]:
+    group = item[0]
+    origin_count = len(
+        {
+            str(value).strip()
+            for value in (group.get("origin_ids") or [])
+            if isinstance(value, str) and value.strip()
+        }
+    )
+    document_count = len(
+        {
+            str(value).strip()
+            for value in (group.get("document_ids") or [])
+            if isinstance(value, str) and value.strip()
+        }
+    )
+    return (
+        -origin_count,
+        -document_count,
+        (group.get("canonical_name") or "").casefold(),
+        group.get("group_id") or "",
+    )
+
+
+def _singularize_token(token: str) -> str:
+    if len(token) > 3 and token.endswith("s") and not token.endswith(("ss", "us", "is")):
+        return token[:-1]
+    return token
+
+
+def _queue_identity_key(name: str) -> str:
+    """Conservative queue identity: case/space/_/- plus simple plural.
+
+    Only strips a trailing ``s`` (never for ``ss``/``us``/``is``). RAG versus
+    Retrieval-Augmented Generation keeps different token sequences, so
+    abbreviations and semantic synonyms never collapse here.
+    """
+
+    normalized = unicodedata.normalize("NFKC", name or "").casefold()
+    normalized = _QUEUE_IDENTITY_SEPARATORS.sub(" ", normalized)
+    tokens = _QUEUE_IDENTITY_WORD.findall(normalized)
+    return " ".join(_singularize_token(token) for token in tokens)
+
+
+def _suppress_queue_duplicates(
+    merged: list[tuple[dict[str, Any], str, str, str]],
+    overflow: list[QueueOverflow],
+) -> list[tuple[dict[str, Any], str, str, str]]:
+    """Drop obvious spelling variants before slot filling (queue-level only)."""
+
+    seen: set[tuple[str, str]] = set()
+    kept: list[tuple[dict[str, Any], str, str, str]] = []
+    for item in merged:
+        group = item[0]
+        identity = _queue_identity_key(str(group.get("canonical_name") or ""))
+        scoped_identity = (item[3], identity)
+        if identity and scoped_identity in seen:
+            overflow.append(
+                QueueOverflow(
+                    kind="candidate_duplicate",
+                    key=str(group.get("group_id") or group.get("canonical_name")),
+                    run_id=item[1],
+                    reason="equivalent queue identity",
+                )
+            )
+            continue
+        if identity:
+            seen.add(scoped_identity)
+        kept.append(item)
+    return kept
+
+
 def _fill_candidates(
     merged: list[tuple[dict[str, Any], str, str, str]],
     slots: tuple[CandidateSlot, ...],
@@ -299,19 +409,42 @@ def _fill_candidates(
 ) -> list[QueuedCandidate]:
     # Candidates keep the domain of the run that produced them; a slot is
     # filled only from its own domain, otherwise it stays an honest deficit.
+    # Within one domain slots are filled round-robin across non-empty strata
+    # (cross_source, media_present, multi_origin, single_origin); an empty
+    # stratum simply donates its turn to the next non-empty one.
     by_domain: dict[str, list[tuple[dict[str, Any], str, str, str]]] = {}
     for item in merged:
         by_domain.setdefault(item[3], []).append(item)
+    ordered_by_domain: dict[str, list[tuple[dict[str, Any], str, str, str]]] = {}
+    for domain, items in by_domain.items():
+        strata: dict[str, list[tuple[dict[str, Any], str, str, str]]] = {
+            key: [] for key in _STRATA_ORDER
+        }
+        for item in items:
+            strata[_selection_stratum(item[0])].append(item)
+        for key in _STRATA_ORDER:
+            strata[key].sort(key=_rank_key)
+        positions = {key: 0 for key in _STRATA_ORDER}
+        ordered: list[tuple[dict[str, Any], str, str, str]] = []
+        while True:
+            progressed = False
+            for key in _STRATA_ORDER:
+                bucket = strata[key]
+                index = positions[key]
+                if index >= len(bucket):
+                    continue
+                ordered.append(bucket[index])
+                positions[key] = index + 1
+                progressed = True
+            if not progressed:
+                break
+        ordered_by_domain[domain] = ordered
     queued: list[QueuedCandidate] = []
-    missing: list[QueueDeficit] = []
+    missing_counts: dict[str, int] = {}
     for slot in slots:
-        bucket = by_domain.get(slot.domain) or []
+        bucket = ordered_by_domain.get(slot.domain) or []
         if not bucket:
-            missing.append(
-                QueueDeficit(
-                    area=slot.domain, need="candidate_review", missing=1
-                )
-            )
+            missing_counts[slot.domain] = missing_counts.get(slot.domain, 0) + 1
             continue
         group, run_id, raw_query, domain = bucket.pop(0)
         queued.append(
@@ -326,10 +459,11 @@ def _fill_candidates(
                 domain=domain,
                 analysis_scope_key=_scope_key(domain),
                 run_id=run_id,
+                selection_stratum=_selection_stratum(group),
             )
         )
-    for domain in sorted(by_domain):
-        for group, run_id, _raw_query, _domain in by_domain[domain]:
+    for domain in sorted(ordered_by_domain):
+        for group, run_id, _raw_query, _domain in ordered_by_domain[domain]:
             overflow.append(
                 QueueOverflow(
                     kind="candidate",
@@ -339,7 +473,13 @@ def _fill_candidates(
                 )
             )
     deficits.extend(
-        sorted(missing, key=lambda item: (item.area, item.need, item.missing))
+        sorted(
+            (
+                QueueDeficit(area=area, need="candidate_review", missing=count)
+                for area, count in missing_counts.items()
+            ),
+            key=lambda item: (item.area, item.need, item.missing),
+        )
     )
     return queued
 
@@ -686,32 +826,95 @@ def _replace_evidence_id(entry: QueuedEvidence, number: int) -> QueuedEvidence:
     return replace(entry, evidence_id=f"evidence-{number:03d}")
 
 
-def _search_coverage(runs: tuple[DiscoveryRun, ...]) -> tuple[RunSearchCoverage, ...]:
-    """Record completed searches, including valid zero-result responses.
+def _usage_requests_and_stop(value: Any) -> tuple[int | None, str | None, bool]:
+    """Return (requests_used, stop_reason, has_usage) for one usage payload."""
 
-    The review contract operates on source classes, not provider names. A
-    failed or partial snapshot is not evidence that the class was checked
-    completely; a complete zero-result snapshot is.
+    if isinstance(value, Mapping):
+        requests = value.get("requests_used")
+        stop = value.get("stop_reason")
+        requests_used = (
+            requests if isinstance(requests, int) and not isinstance(requests, bool) else 0
+        )
+        stop_reason = str(stop).strip() if isinstance(stop, str) and str(stop).strip() else None
+        return requests_used, stop_reason, True
+    if isinstance(value, list):
+        total = 0
+        stops: list[str] = []
+        seen_any = False
+        for entry in value:
+            if not isinstance(entry, Mapping):
+                continue
+            seen_any = True
+            requests = entry.get("requests_used")
+            if isinstance(requests, int) and not isinstance(requests, bool):
+                total += requests
+            stop = entry.get("stop_reason")
+            if isinstance(stop, str) and stop.strip() and stop.strip() not in stops:
+                stops.append(stop.strip())
+        if not seen_any:
+            return None, None, False
+        stop_reason = ",".join(stops) if stops else None
+        return total, stop_reason, True
+    return None, None, False
+
+
+def _search_coverage(runs: tuple[DiscoveryRun, ...]) -> tuple[RunSearchCoverage, ...]:
+    """Record searched source classes with honest machine notes.
+
+    ``complete`` with executed requests counts as covered; ``partial`` with
+    ``requests_used > 0`` also counts but keeps ``status(stop_reason)`` in the
+    note. ``failed``, missing runs and zero-request classes never count.
+    Unknown media providers are never counted as Media Cloud.
     """
 
     coverage: list[RunSearchCoverage] = []
     for run in runs:
         raw_query = ((run.plan.get("scope") or {}).get("raw_query") or "").strip()
         source_classes: list[str] = []
+        notes: list[str] = []
         scientific = run.result.get("scientific") or {}
-        if scientific.get("status") == "complete":
+        scientific_status = scientific.get("status")
+        scientific_requests, scientific_stop, scientific_has_usage = (
+            _usage_requests_and_stop(scientific.get("usage"))
+        )
+        scientific_verified = False
+        if scientific_status == "complete":
+            if scientific_has_usage and (scientific_requests or 0) > 0:
+                scientific_verified = True
+        elif scientific_status == "partial":
+            if (scientific_requests or 0) > 0:
+                scientific_verified = True
+        if scientific_verified:
             source_classes.append("scientific")
+            if scientific_stop:
+                notes.append(f"scientific={scientific_status}({scientific_stop})")
+            else:
+                notes.append(f"scientific={scientific_status}")
         media = run.result.get("media") or {}
-        if (
-            media.get("status") == "complete"
-            and media.get("provider_used") in ("mediacloud", "gdelt")
-        ):
+        media_status = media.get("status")
+        provider = media.get("provider_used")
+        provider_ok = provider in _ALLOWED_MEDIA_PROVIDERS
+        media_requests, media_stop, media_has_usage = _usage_requests_and_stop(
+            media.get("usage")
+        )
+        media_verified = False
+        if provider_ok and media_status in ("complete", "partial"):
+            if media_has_usage and (media_requests or 0) > 0:
+                media_verified = True
+        if media_verified:
             source_classes.append("industry")
+            if media_status == "partial" and media_stop:
+                notes.append(f"industry={media_status}({provider},{media_stop})")
+            elif provider:
+                notes.append(f"industry={media_status}({provider})")
+            else:
+                notes.append(f"industry={media_status}")
         coverage.append(
             RunSearchCoverage(
                 run_id=run.run_id,
                 raw_query=raw_query,
                 source_classes=tuple(source_classes),
+                notes=";".join(notes),
             )
         )
     return tuple(coverage)
@@ -736,6 +939,7 @@ def build_labeling_queue(
     deficits: list[QueueDeficit] = []
     dropped: list[QueueDropped] = []
     merged = _merged_groups(ordered_runs, domains)
+    merged = _suppress_queue_duplicates(merged, overflow)
     queued_candidates = _fill_candidates(merged, candidate_slots, overflow, deficits)
     pool = _noise_pool(ordered_runs, domains, dropped, overflow)
     queued_noise = _fill_noise(pool, noise_slots, dropped, overflow, deficits)

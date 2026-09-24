@@ -112,7 +112,7 @@ def fill_labeling_workbook(
     Only blue (pipeline) cells are written. Grey identifiers, review pools,
     domains, cutoff dates and all yellow expert cells stay byte-identical,
     except decision rows, which arrive pre-filled with evidence links and
-    machine search coverage (columns L/M/N), plus navigation hyperlinks on ID
+    machine search coverage (columns L/M/N/P), plus navigation hyperlinks on ID
     cells, freeze panes and filters. The reviewer deletes unused evidence
     links instead of typing identifiers by hand.
     """
@@ -240,6 +240,12 @@ def _fill_decision_links(
                 row,
                 "N",
                 "|".join(search.source_classes) if search else None,
+            )
+            _set_cell(
+                decisions,
+                row,
+                "P",
+                search.notes if search and search.notes else None,
             )
 
 

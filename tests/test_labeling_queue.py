@@ -70,8 +70,10 @@ def make_run(
     cutoff: str = CUTOFF,
     domain: str = "Финтех",
     scientific_status: str = "complete",
+    scientific_usage: dict | None = None,
     media_status: str = "failed",
     media_provider: str | None = None,
+    media_usage: list | dict | None = None,
 ) -> DiscoveryRun:
     plan = {
         "plan_id": f"plan-{run_id}",
@@ -90,12 +92,14 @@ def make_run(
         "candidate_gate": {"gate_id": "gate-1", "decisions": decisions or []},
         "text_extraction": {"issues": issues or []},
         "evidence_extraction": {"proposals": evidence or []},
-        "scientific": {"status": scientific_status, "documents": documents or []},
+        "scientific": {"status": scientific_status, "documents": documents or []}
+        | ({"usage": scientific_usage} if scientific_usage is not None else {}),
         "media": {
             "status": media_status,
             "provider_used": media_provider,
             "documents": [],
-        },
+        }
+        | ({"usage": media_usage} if media_usage is not None else {}),
         "verification": {"results": []},
     }
     manifest = {"run_id": run_id, "cutoff_date": cutoff, "domain": domain}
@@ -433,13 +437,27 @@ class QueueSearchCoverageTests(unittest.TestCase):
         run = make_run(
             "run-1",
             scientific_status="complete",
+            scientific_usage={"requests_used": 1, "stop_reason": "channels_exhausted"},
+            media_status="complete",
+            media_provider="gdelt",
+            media_usage=[{"requests_used": 1, "stop_reason": "channels_exhausted"}],
+        )
+
+        coverage = build_labeling_queue((run,)).search_coverage[0]
+
+        self.assertEqual(coverage.source_classes, ("scientific", "industry"))
+
+    def test_complete_without_usage_is_not_claimed_as_coverage(self) -> None:
+        run = make_run(
+            "run-1",
+            scientific_status="complete",
             media_status="complete",
             media_provider="gdelt",
         )
 
         coverage = build_labeling_queue((run,)).search_coverage[0]
 
-        self.assertEqual(coverage.source_classes, ("scientific", "industry"))
+        self.assertEqual(coverage.source_classes, ())
 
     def test_failed_or_unknown_search_is_not_claimed_as_coverage(self) -> None:
         run = make_run(

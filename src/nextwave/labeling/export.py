@@ -138,6 +138,10 @@ def export_labeling_bundle(
     filled_candidates: dict[str, int] = {}
     for item in queue.candidates:
         filled_candidates[item.domain] = filled_candidates.get(item.domain, 0) + 1
+    filled_candidate_strata: dict[str, int] = {}
+    for item in queue.candidates:
+        stratum = getattr(item, "selection_stratum", "single_origin") or "single_origin"
+        filled_candidate_strata[stratum] = filled_candidate_strata.get(stratum, 0) + 1
     filled_noise: dict[str, int] = {}
     for item in queue.noise:
         filled_noise[item.planned_noise_type] = (
@@ -165,6 +169,7 @@ def export_labeling_bundle(
             "evidence_rows": count_evidence_rows(template),
         },
         "filled_candidates": filled_candidates,
+        "filled_candidate_strata": filled_candidate_strata,
         "filled_noise": filled_noise,
         "evidence_rows": len(queue.evidence),
         "deficits": [
