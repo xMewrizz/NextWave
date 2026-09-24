@@ -286,7 +286,12 @@ class DiscoveryPipelineTests(unittest.TestCase):
         json.dumps(result.to_dict(), ensure_ascii=False)
 
 
-def make_proposal(proposal_id: str) -> CandidateProposal:
+def make_proposal(
+    proposal_id: str,
+    *,
+    origin_count: int = 1,
+    connector_ids: tuple[str, ...] = ("openalex",),
+) -> CandidateProposal:
     return CandidateProposal(
         proposal_id=proposal_id,
         analysis_scope_id="scope-ai-001",
@@ -295,17 +300,19 @@ def make_proposal(proposal_id: str) -> CandidateProposal:
         aliases=(),
         mention_ids=(),
         source_kinds=(CandidateMentionKind.TITLE,),
-        connector_ids=("openalex",),
+        connector_ids=connector_ids,
         provider_term_ids=(),
-        document_ids=(f"document-{proposal_id}",),
-        origin_ids=(f"origin-{proposal_id}",),
+        document_ids=tuple(
+            f"document-{proposal_id}-{index}" for index in range(origin_count)
+        ),
+        origin_ids=tuple(f"origin-{proposal_id}-{index}" for index in range(origin_count)),
         max_provider_score=None,
         primary_provider_topic=False,
     )
 
 
 class GateCapTests(unittest.TestCase):
-    def test_split_takes_bulk_head_and_counts_skipped(self) -> None:
+    def test_split_redistributes_places_when_only_one_stratum_exists(self) -> None:
         batch = CandidateProposalBatch(
             analysis_scope_id="scope-ai-001",
             proposals=tuple(make_proposal(f"p{index}") for index in range(5)),
@@ -319,6 +326,31 @@ class GateCapTests(unittest.TestCase):
         )
         self.assertEqual(sub.analysis_scope_id, "scope-ai-001")
         self.assertEqual(skipped, 3)
+
+    def test_split_represents_each_visibility_stratum(self) -> None:
+        batch = CandidateProposalBatch(
+            analysis_scope_id="scope-ai-001",
+            proposals=(
+                make_proposal("established-1", origin_count=8),
+                make_proposal("established-2", origin_count=5),
+                make_proposal("emerging", origin_count=2),
+                make_proposal("novel"),
+                make_proposal(
+                    "cross-source",
+                    origin_count=2,
+                    connector_ids=("mediacloud", "openalex"),
+                ),
+            ),
+            exclusions=(),
+        )
+
+        sub, skipped = split_gate_batch(batch, 4)
+
+        self.assertEqual(
+            [item.proposal_id for item in sub.proposals],
+            ["cross-source", "emerging", "novel", "established-1"],
+        )
+        self.assertEqual(skipped, 1)
 
     def test_split_without_shortage_skips_nothing(self) -> None:
         batch = CandidateProposalBatch(

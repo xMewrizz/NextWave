@@ -24,16 +24,10 @@ from .llm import (
 
 CANDIDATE_GATE_VERSION = "candidate-gate-v1"
 MAX_GATE_BATCH_PROPOSALS = 6
-# TEMPORARY cost control (revisit triggers below): the gate judges only the
-# first N proposals in bulk order (origins first). Mature and hype are
-# high-visibility classes by definition, so the top slice keeps the corpus
-# whole while cutting ~75% of model calls. The skipped tail is recorded,
-# never silently dropped.
-# The cap is provably neutral while verification consumes at most 30 accepted
-# groups: N=300 is 10x headroom over what verification can reach. REVISIT if
-# a vault shows verification.requests_used < 30 while gate_skipped > 0
-# (verification starved) or if tail material is needed (e.g. duplicate-noise
-# backfill for labeling).
+# Cost and latency guard for one analysis. The pipeline distributes this
+# budget across observable coverage strata instead of taking only the most
+# frequent proposals. Skipped IDs remain recoverable as the difference
+# between the proposal batch and CandidateGateResult.input_proposal_ids.
 DEFAULT_GATE_MAX_PROPOSALS = 300
 MAX_GATE_CONTEXT_DOCUMENTS = 3
 MAX_GATE_TITLE_CHARS = 300

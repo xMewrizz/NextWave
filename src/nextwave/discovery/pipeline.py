@@ -20,6 +20,7 @@ from .candidate_gate import (
 )
 from .candidates import (
     CandidateMention,
+    CandidateProposal,
     CandidateProposalBatch,
     build_candidate_proposals,
     build_openalex_candidate_mentions,
@@ -43,30 +44,57 @@ from .verification import (
     CandidateVerificationResult,
 )
 
-DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v7"
+DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v8"
 
 
 def split_gate_batch(
     batch: CandidateProposalBatch, max_gate_proposals: int
 ) -> tuple[CandidateProposalBatch, int]:
-    """Take the bulk-ordered head for the gate; count the skipped tail.
+    """Select a deterministic mix of proposal visibility strata for the gate.
 
-    The batch arrives sorted origins-first, so the head holds the
-    high-visibility classes the corpus needs. The tail is recorded as
-    skipped, never silently dropped.
+    Cross-source, two-to-three-origin, single-origin, and four-plus-origin
+    proposals take turns. Empty strata donate their places to the remaining
+    ones, so the cap is always filled without letting prevalence alone decide
+    which candidates are judged.
     """
 
     if max_gate_proposals < 1:
         raise ValueError("max_gate_proposals must be positive")
-    head = batch.proposals[:max_gate_proposals]
+    if len(batch.proposals) <= max_gate_proposals:
+        selected = batch.proposals
+    else:
+        strata: tuple[list[CandidateProposal], ...] = ([], [], [], [])
+        for proposal in batch.proposals:
+            strata[_gate_stratum(proposal)].append(proposal)
+        positions = [0] * len(strata)
+        selected_items: list[CandidateProposal] = []
+        while len(selected_items) < max_gate_proposals:
+            for index, stratum in enumerate(strata):
+                if positions[index] >= len(stratum):
+                    continue
+                selected_items.append(stratum[positions[index]])
+                positions[index] += 1
+                if len(selected_items) == max_gate_proposals:
+                    break
+        selected = tuple(selected_items)
     return (
         CandidateProposalBatch(
             analysis_scope_id=batch.analysis_scope_id,
-            proposals=head,
+            proposals=selected,
             exclusions=batch.exclusions,
         ),
-        len(batch.proposals) - len(head),
+        len(batch.proposals) - len(selected),
     )
+
+
+def _gate_stratum(proposal: CandidateProposal) -> int:
+    if len(proposal.connector_ids) > 1:
+        return 0
+    if 2 <= proposal.origin_count <= 3:
+        return 1
+    if proposal.origin_count <= 1:
+        return 2
+    return 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,8 +221,6 @@ class DiscoveryPipeline:
             started,
         )
         started = time.monotonic()
-        # Bulk order is origins-first, so the head holds the high-visibility
-        # classes the corpus needs; the tail is recorded as skipped, not judged.
         gated_proposals, gate_skipped = split_gate_batch(
             candidate_proposals, self._max_gate_proposals
         )
