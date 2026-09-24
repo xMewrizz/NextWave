@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from nextwave.discovery.run_store import DiscoveryRun
-from nextwave.labeling.contracts import NegativeClass, NoiseType
+from nextwave.labeling.contracts import NoiseType
 from nextwave.labeling.queue import (
     CandidateSlot,
     NoiseSlot,
@@ -69,6 +69,9 @@ def make_run(
     raw_query: str = "Технологии в ИИ",
     cutoff: str = CUTOFF,
     domain: str = "Финтех",
+    scientific_status: str = "complete",
+    media_status: str = "failed",
+    media_provider: str | None = None,
 ) -> DiscoveryRun:
     plan = {
         "plan_id": f"plan-{run_id}",
@@ -87,8 +90,12 @@ def make_run(
         "candidate_gate": {"gate_id": "gate-1", "decisions": decisions or []},
         "text_extraction": {"issues": issues or []},
         "evidence_extraction": {"proposals": evidence or []},
-        "scientific": {"documents": documents or []},
-        "media": {"documents": []},
+        "scientific": {"status": scientific_status, "documents": documents or []},
+        "media": {
+            "status": media_status,
+            "provider_used": media_provider,
+            "documents": [],
+        },
         "verification": {"results": []},
     }
     manifest = {"run_id": run_id, "cutoff_date": cutoff, "domain": domain}
@@ -147,8 +154,8 @@ class QueueCandidateTests(unittest.TestCase):
             ],
         )
         slots = (
-            CandidateSlot("team-negative-001", "Финтех", NegativeClass.MATURE.value),
-            CandidateSlot("team-negative-002", "Финтех", NegativeClass.MATURE.value),
+            CandidateSlot("team-negative-001", "Финтех"),
+            CandidateSlot("team-negative-002", "Финтех"),
         )
 
         queue = build_labeling_queue((run1, run2), candidate_slots=slots)
@@ -168,9 +175,9 @@ class QueueCandidateTests(unittest.TestCase):
     def test_shortage_becomes_deficit_and_surplus_becomes_overflow(self) -> None:
         run = make_run("run-1", groups=[group("group-a", "Alpha Tech")])
         slots = (
-            CandidateSlot("team-negative-001", "Финтех", NegativeClass.MATURE.value),
-            CandidateSlot("team-negative-002", "Финтех", NegativeClass.MARKETING_HYPE.value),
-            CandidateSlot("team-negative-003", "Роботы", NegativeClass.MATURE.value),
+            CandidateSlot("team-negative-001", "Финтех"),
+            CandidateSlot("team-negative-002", "Финтех"),
+            CandidateSlot("team-negative-003", "Роботы"),
         )
 
         queue = build_labeling_queue((run,), candidate_slots=slots)
@@ -178,12 +185,12 @@ class QueueCandidateTests(unittest.TestCase):
         self.assertEqual(len(queue.candidates), 1)
         self.assertEqual(
             [(item.area, item.need, item.missing) for item in queue.deficits],
-            [("Роботы", "mature", 1), ("Финтех", "marketing_hype", 1)],
+            [("Роботы", "candidate_review", 1), ("Финтех", "candidate_review", 1)],
         )
 
     def test_wrong_cutoff_run_is_rejected(self) -> None:
         run = make_run("run-1", groups=[group("group-a", "Alpha Tech")], cutoff="2026-09-16")
-        slots = (CandidateSlot("team-negative-001", "Финтех", "mature"),)
+        slots = (CandidateSlot("team-negative-001", "Финтех"),)
 
         with self.assertRaisesRegex(ValueError, "not eligible for labeling"):
             build_labeling_queue((run,), candidate_slots=slots)
@@ -249,7 +256,35 @@ class QueueNoiseTests(unittest.TestCase):
         self.assertEqual(by_id["noise-004"].extracted_text, "made up fragment")
         self.assertTrue(all(item.origin_kind != "gate_review" for item in queue.noise))
 
-    def test_gate_review_backfills_short_types_with_flag(self) -> None:
+    def test_gate_reject_uses_proposal_document_when_basis_is_missing(self) -> None:
+        run = make_run(
+            "run-1",
+            proposals=[
+                {
+                    "proposal_id": "proposal-1",
+                    "canonical_name": "Broad Area",
+                    "document_ids": ["document-1"],
+                }
+            ],
+            decisions=[
+                {
+                    "proposal_id": "proposal-1",
+                    "decision": "reject",
+                    "reason": "generic_area",
+                    "basis_document_ids": [],
+                    "explanation": "Too broad.",
+                }
+            ],
+            documents=[document("document-1", url="https://example.org/broad")],
+        )
+        slots = (NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Финтех"),)
+
+        queue = build_labeling_queue((run,), noise_slots=slots)
+
+        self.assertEqual(len(queue.noise), 1)
+        self.assertEqual(queue.noise[0].source_document_url, "https://example.org/broad")
+
+    def test_gate_review_stays_unresolved_instead_of_becoming_noise(self) -> None:
         run = make_run(
             "run-1",
             proposals=[{"proposal_id": "proposal-1", "canonical_name": "Fuzzy Thing"}],
@@ -268,9 +303,12 @@ class QueueNoiseTests(unittest.TestCase):
 
         queue = build_labeling_queue((run,), noise_slots=slots)
 
-        self.assertEqual(len(queue.noise), 1)
-        self.assertEqual(queue.noise[0].extracted_text, "Fuzzy Thing")
-        self.assertEqual(queue.noise[0].origin_kind, "gate_review")
+        self.assertEqual(queue.noise, ())
+        self.assertEqual(
+            [(item.area, item.need, item.missing) for item in queue.deficits],
+            [("duplicate", "noise", 1)],
+        )
+        self.assertEqual(queue.overflow[0].kind, "gate_review")
 
     def test_alias_suggestion_becomes_duplicate(self) -> None:
         run = make_run(
@@ -284,19 +322,19 @@ class QueueNoiseTests(unittest.TestCase):
                     "shared_origin_ids": ["origin-1"],
                 }
             ],
-            documents=[document("document-1", url="https://example.org/left")],
+            documents=[
+                document("document-group-left-0", url="https://example.org/left"),
+                document("document-group-right-0", url="https://example.org/right"),
+            ],
         )
         slots = (NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Финтех"),)
 
         queue = build_labeling_queue((run,), noise_slots=slots)
 
-        # Right side has no document URL in fixtures: recorded as dropped, slot stays short.
-        self.assertEqual(queue.noise, ())
-        self.assertTrue(any(item.reason == "no_url" for item in queue.dropped))
-        self.assertEqual(
-            [(item.area, item.missing) for item in queue.deficits],
-            [("duplicate", 1)],
-        )
+        self.assertEqual(len(queue.noise), 1)
+        self.assertEqual(queue.noise[0].extracted_text, "Right Tech")
+        self.assertEqual(queue.noise[0].source_document_url, "https://example.org/right")
+        self.assertEqual(queue.noise[0].origin_kind, "alias_suggestion")
 
 
 class QueueEvidenceTests(unittest.TestCase):
@@ -323,7 +361,7 @@ class QueueEvidenceTests(unittest.TestCase):
             evidence=proposals,
             documents=proposals_documents,
         )
-        slots = (CandidateSlot("team-negative-001", "Финтех", "mature"),)
+        slots = (CandidateSlot("team-negative-001", "Финтех"),)
 
         queue = build_labeling_queue((run,), candidate_slots=slots)
 
@@ -348,7 +386,7 @@ class QueueEvidenceTests(unittest.TestCase):
             evidence=proposals,
             documents=documents,
         )
-        slots = (CandidateSlot("team-negative-001", "Финтех", "mature"),)
+        slots = (CandidateSlot("team-negative-001", "Финтех"),)
 
         queue = build_labeling_queue((run,), candidate_slots=slots)
 
@@ -364,7 +402,7 @@ class QueueJsonlTests(unittest.TestCase):
             decisions=[],
             documents=[document("document-group-a-0")],
         )
-        candidate_slots = (CandidateSlot("team-negative-001", "Финтех", "mature"),)
+        candidate_slots = (CandidateSlot("team-negative-001", "Финтех"),)
         noise_slots = (NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Финтех"),)
 
         first = build_labeling_queue(
@@ -390,12 +428,38 @@ class QueueJsonlTests(unittest.TestCase):
         self.assertEqual((negative, noise), (b"", b""))
 
 
+class QueueSearchCoverageTests(unittest.TestCase):
+    def test_complete_zero_result_search_still_counts_as_coverage(self) -> None:
+        run = make_run(
+            "run-1",
+            scientific_status="complete",
+            media_status="complete",
+            media_provider="gdelt",
+        )
+
+        coverage = build_labeling_queue((run,)).search_coverage[0]
+
+        self.assertEqual(coverage.source_classes, ("scientific", "industry"))
+
+    def test_failed_or_unknown_search_is_not_claimed_as_coverage(self) -> None:
+        run = make_run(
+            "run-1",
+            scientific_status="failed",
+            media_status="complete",
+            media_provider="unexpected-provider",
+        )
+
+        coverage = build_labeling_queue((run,)).search_coverage[0]
+
+        self.assertEqual(coverage.source_classes, ())
+
+
 class QueueDomainTests(unittest.TestCase):
     def test_foreign_domain_slot_stays_deficit(self) -> None:
         run = make_run("run-1", groups=[group("group-a", "Alpha Tech")])
         slots = (
-            CandidateSlot("team-negative-001", "Роботы", "mature"),
-            CandidateSlot("team-negative-002", "Финтех", "mature"),
+            CandidateSlot("team-negative-001", "Роботы"),
+            CandidateSlot("team-negative-002", "Финтех"),
         )
 
         queue = build_labeling_queue((run,), candidate_slots=slots)
@@ -406,7 +470,7 @@ class QueueDomainTests(unittest.TestCase):
         self.assertEqual(queue.candidates[0].analysis_scope_key, "fintech-v1")
         self.assertEqual(
             [(item.area, item.need, item.missing) for item in queue.deficits],
-            [("Роботы", "mature", 1)],
+            [("Роботы", "candidate_review", 1)],
         )
 
     def test_run_domains_override_maps_free_text_vault(self) -> None:
@@ -415,7 +479,7 @@ class QueueDomainTests(unittest.TestCase):
             groups=[group("group-a", "Alpha Tech")],
             domain="Перспективные решения в финтехе",
         )
-        slots = (CandidateSlot("team-negative-001", "Финтех", "mature"),)
+        slots = (CandidateSlot("team-negative-001", "Финтех"),)
 
         queue = build_labeling_queue(
             (run,), candidate_slots=slots, run_domains={"run-1": "Финтех"}
@@ -430,7 +494,7 @@ class QueueDomainTests(unittest.TestCase):
             groups=[group("group-a", "Alpha Tech")],
             domain="Перспективные решения в финтехе",
         )
-        slots = (CandidateSlot("team-negative-001", "Финтех", "mature"),)
+        slots = (CandidateSlot("team-negative-001", "Финтех"),)
 
         with self.assertRaisesRegex(ValueError, "no controlled domain"):
             build_labeling_queue((run,), candidate_slots=slots)

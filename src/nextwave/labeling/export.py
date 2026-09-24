@@ -115,7 +115,6 @@ def export_labeling_bundle(
         CandidateSlot(
             candidate_id=row["candidate_id"],
             domain=row["domain"],
-            planned_class=row["planned_class"],
         )
         for row in candidate_rows
     )
@@ -136,10 +135,9 @@ def export_labeling_bundle(
     workbook_bytes = _normalize_workbook_bytes(fill_labeling_workbook(template, queue))
     negative_bytes, noise_bytes = queue_to_jsonl(queue)
 
-    filled_candidates: dict[str, dict[str, int]] = {}
+    filled_candidates: dict[str, int] = {}
     for item in queue.candidates:
-        bucket = filled_candidates.setdefault(item.domain, {})
-        bucket[item.planned_class] = bucket.get(item.planned_class, 0) + 1
+        filled_candidates[item.domain] = filled_candidates.get(item.domain, 0) + 1
     filled_noise: dict[str, int] = {}
     for item in queue.noise:
         filled_noise[item.planned_noise_type] = (

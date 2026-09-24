@@ -39,6 +39,7 @@ from .queue import (
     QueuedNoise,
     QueueDropped,
     QueueOverflow,
+    RunSearchCoverage,
     build_labeling_queue,
     queue_to_jsonl,
 )
@@ -78,6 +79,7 @@ __all__ = [
     "QueueOverflow",
     "ReviewRound",
     "ReviewStatus",
+    "RunSearchCoverage",
     "SearchCoverage",
     "SearchSourceClass",
     "SourceType",

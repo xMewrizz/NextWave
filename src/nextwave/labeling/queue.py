@@ -1,9 +1,8 @@
 """Deterministic review-queue construction from persisted discovery runs.
 
-Pipeline proposes (objects + links), humans dispose (labels). This module never
-assigns mature/marketing_hype: candidate slots (template-owned IDs, domains and
-quota buckets) are filled from merged discovery groups, noise slots from mapped
-discovery exhaust. Shortages become deficits that drive targeted searches.
+Pipeline proposes objects and links; humans assign labels. Candidate slots are
+neutral review rows with template-owned IDs and domains. Class quotas are
+checked against expert decisions, never used to pre-classify queue entries.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ from .contracts import (
     TrustLevel,
 )
 
-QUEUE_SCHEMA_VERSION = "labeling-queue-v1"
+QUEUE_SCHEMA_VERSION = "labeling-queue-v2"
 MAX_EVIDENCE_ROWS = 400
 
 _EXCLUSION_NOISE = {
@@ -77,11 +76,10 @@ _TRUST_LEVEL = {
 
 @dataclass(frozen=True, slots=True)
 class CandidateSlot:
-    """One template row awaiting a technology: ID, domain and quota bucket."""
+    """One neutral template row awaiting a technology from the same domain."""
 
     candidate_id: str
     domain: str
-    planned_class: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,7 +94,6 @@ class NoiseSlot:
 @dataclass(frozen=True, slots=True)
 class QueuedCandidate:
     candidate_id: str
-    planned_class: str
     canonical_name: str
     aliases: tuple[str, ...]
     group_id: str
@@ -159,6 +156,15 @@ class QueueDropped:
 
 
 @dataclass(frozen=True, slots=True)
+class RunSearchCoverage:
+    """Completed source classes searched for one discovery run."""
+
+    run_id: str
+    raw_query: str
+    source_classes: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class LabelingQueue:
     candidates: tuple[QueuedCandidate, ...]
     noise: tuple[QueuedNoise, ...]
@@ -169,6 +175,7 @@ class LabelingQueue:
     unknown_trust_count: int
     missing_date_count: int
     future_evidence_count: int
+    search_coverage: tuple[RunSearchCoverage, ...] = ()
     schema_version: str = QUEUE_SCHEMA_VERSION
 
 
@@ -302,7 +309,7 @@ def _fill_candidates(
         if not bucket:
             missing.append(
                 QueueDeficit(
-                    area=slot.domain, need=slot.planned_class, missing=1
+                    area=slot.domain, need="candidate_review", missing=1
                 )
             )
             continue
@@ -310,7 +317,6 @@ def _fill_candidates(
         queued.append(
             QueuedCandidate(
                 candidate_id=slot.candidate_id,
-                planned_class=slot.planned_class,
                 canonical_name=(group.get("canonical_name") or "").strip(),
                 aliases=_clean_aliases(
                     (group.get("canonical_name") or ""), group.get("aliases")
@@ -342,11 +348,11 @@ def _noise_pool(
     runs: tuple[DiscoveryRun, ...],
     domains: Mapping[str, str],
     dropped: list[QueueDropped],
-) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
-    """Collect noise candidates per type plus the gate_review backfill pool."""
+    overflow: list[QueueOverflow],
+) -> dict[str, list[dict[str, Any]]]:
+    """Collect typed noise without converting unresolved Gate reviews."""
 
     pool: dict[str, list[dict[str, Any]]] = {}
-    review_pool: list[dict[str, Any]] = []
 
     def documents_of(run: DiscoveryRun) -> dict[str, dict[str, Any]]:
         return _documents_by_id(run.result)
@@ -389,9 +395,11 @@ def _noise_pool(
         _check_cutoff(run.manifest, run.run_id)
         documents = documents_of(run)
         proposals = {
-        item.get("proposal_id"): item
-        for item in ((run.result.get("candidate_proposals") or {}).get("proposals") or [])
-    }
+            item.get("proposal_id"): item
+            for item in (
+                (run.result.get("candidate_proposals") or {}).get("proposals") or []
+            )
+        }
         gate = run.result.get("candidate_gate") or {}
         for exclusion in (run.result.get("candidate_proposals") or {}).get("exclusions") or []:
             reason = exclusion.get("reason")
@@ -410,18 +418,19 @@ def _noise_pool(
                 continue
             proposal = proposals.get(decision.get("proposal_id")) or {}
             basis = decision.get("basis_document_ids") or []
-            document = documents.get(basis[0]) if basis else None
+            document_ids = (*basis, *(proposal.get("document_ids") or []))
+            document = next(
+                (documents[item] for item in document_ids if item in documents),
+                None,
+            )
             if decision.get("decision") == "review":
-                review_pool.append(
-                    {
-                        "text": (proposal.get("canonical_name") or "").strip(),
-                        "url": ((document or {}).get("url") or ""),
-                        "run_id": run.run_id,
-                        "domain": domains[run.run_id],
-                        "raw_query": raw_query_of(run),
-                        "origin_kind": "gate_review",
-                        "duplicate_of": None,
-                    }
+                overflow.append(
+                    QueueOverflow(
+                        kind="gate_review",
+                        key=str(decision.get("proposal_id") or "unknown"),
+                        run_id=run.run_id,
+                        reason="requires human resolution before noise typing",
+                    )
                 )
                 continue
             reason = decision.get("reason")
@@ -435,6 +444,8 @@ def _noise_pool(
                 origin_kind="gate_reject",
             )
         for issue in (run.result.get("text_extraction") or {}).get("issues") or []:
+            if not isinstance(issue.get("text"), str) or not issue["text"].strip():
+                continue
             document = documents.get(issue.get("document_id") or "")
             add(
                 NoiseType.EXTRACTION_ERROR,
@@ -453,24 +464,35 @@ def _noise_pool(
                     QueueDropped(reason="bad_suggestion_shape", detail=run.run_id)
                 )
                 continue
-            right_name = None
+            right_group = None
             right_run = run.run_id
             for candidate_run in runs:
                 groups = (candidate_run.result.get("alias_resolution") or {}).get("groups") or []
                 for group in groups:
                     if group.get("group_id") == right:
-                        right_name = group.get("canonical_name")
+                        right_group = group
                         right_run = candidate_run.run_id
                         break
-            if not right_name:
+            if not right_group:
                 dropped.append(
                     QueueDropped(reason="unknown_alias_side", detail=str(right))
                 )
                 continue
+            right_documents = documents_of(
+                next(item for item in runs if item.run_id == right_run)
+            )
+            right_document = next(
+                (
+                    right_documents[item]
+                    for item in right_group.get("document_ids") or []
+                    if item in right_documents
+                ),
+                None,
+            )
             pool.setdefault(NoiseType.DUPLICATE.value, []).append(
                 {
-                    "text": str(right_name).strip(),
-                    "url": None,
+                    "text": str(right_group.get("canonical_name") or "").strip(),
+                    "url": (right_document or {}).get("url"),
                     "run_id": right_run,
                     "domain": domains[right_run],
                     "raw_query": raw_query_of(run),
@@ -478,12 +500,11 @@ def _noise_pool(
                     "duplicate_of": None,
                 }
             )
-    return pool, review_pool
+    return pool
 
 
 def _fill_noise(
     pool: dict[str, list[dict[str, Any]]],
-    review_pool: list[dict[str, Any]],
     slots: tuple[NoiseSlot, ...],
     dropped: list[QueueDropped],
     overflow: list[QueueOverflow],
@@ -518,13 +539,13 @@ def _fill_noise(
             item = take_matching(items, slot.domain)
             if item is None:
                 break
-            if item["origin_kind"] == "alias_suggestion" and not item["url"]:
-                document_url = ""
-            else:
-                document_url = item["url"]
+            document_url = item["url"]
             if not document_url:
                 dropped.append(
-                    QueueDropped(reason="no_url", detail=f"alias_suggestion:{item['text'][:60]}")
+                    QueueDropped(
+                        reason="no_url",
+                        detail=f"{item['origin_kind']}:{item['text'][:60]}",
+                    )
                 )
                 continue
             queued.append(
@@ -546,37 +567,6 @@ def _fill_noise(
         if filled < len(type_slots):
             short[noise_type] = len(type_slots) - filled
     for noise_type in sorted(short):
-        type_slots = by_type[noise_type]
-        while short[noise_type] > 0:
-            filled_ids = {item_queued.noise_id for item_queued in queued}
-            slot = next(
-                (candidate for candidate in type_slots if candidate.noise_id not in filled_ids),
-                None,
-            )
-            if slot is None:
-                break
-            item = take_matching(review_pool, slot.domain)
-            if item is None:
-                break
-            if not item["text"] or not item["url"]:
-                dropped.append(
-                    QueueDropped(reason="no_url", detail=f"gate_review:{item['text'][:60]}")
-                )
-                continue
-            queued.append(
-                QueuedNoise(
-                    noise_id=slot.noise_id,
-                    planned_noise_type=noise_type,
-                    source_query=item["raw_query"],
-                    extracted_text=item["text"],
-                    source_document_url=item["url"],
-                    domain=item["domain"],
-                    analysis_scope_key=_scope_key(item["domain"]),
-                    duplicate_of_candidate_id=None,
-                    origin_kind="gate_review",
-                )
-            )
-            short[noise_type] -= 1
         if short[noise_type] > 0:
             deficits.append(
                 QueueDeficit(area=noise_type, need="noise", missing=short[noise_type])
@@ -696,6 +686,37 @@ def _replace_evidence_id(entry: QueuedEvidence, number: int) -> QueuedEvidence:
     return replace(entry, evidence_id=f"evidence-{number:03d}")
 
 
+def _search_coverage(runs: tuple[DiscoveryRun, ...]) -> tuple[RunSearchCoverage, ...]:
+    """Record completed searches, including valid zero-result responses.
+
+    The review contract operates on source classes, not provider names. A
+    failed or partial snapshot is not evidence that the class was checked
+    completely; a complete zero-result snapshot is.
+    """
+
+    coverage: list[RunSearchCoverage] = []
+    for run in runs:
+        raw_query = ((run.plan.get("scope") or {}).get("raw_query") or "").strip()
+        source_classes: list[str] = []
+        scientific = run.result.get("scientific") or {}
+        if scientific.get("status") == "complete":
+            source_classes.append("scientific")
+        media = run.result.get("media") or {}
+        if (
+            media.get("status") == "complete"
+            and media.get("provider_used") in ("mediacloud", "gdelt")
+        ):
+            source_classes.append("industry")
+        coverage.append(
+            RunSearchCoverage(
+                run_id=run.run_id,
+                raw_query=raw_query,
+                source_classes=tuple(source_classes),
+            )
+        )
+    return tuple(coverage)
+
+
 def build_labeling_queue(
     runs: tuple[DiscoveryRun, ...],
     *,
@@ -716,8 +737,8 @@ def build_labeling_queue(
     dropped: list[QueueDropped] = []
     merged = _merged_groups(ordered_runs, domains)
     queued_candidates = _fill_candidates(merged, candidate_slots, overflow, deficits)
-    pool, review_pool = _noise_pool(ordered_runs, domains, dropped)
-    queued_noise = _fill_noise(pool, review_pool, noise_slots, dropped, overflow, deficits)
+    pool = _noise_pool(ordered_runs, domains, dropped, overflow)
+    queued_noise = _fill_noise(pool, noise_slots, dropped, overflow, deficits)
     counters = {"unknown_trust": 0, "missing_date": 0, "future_evidence": 0}
     queued_evidence = _fill_evidence(ordered_runs, queued_candidates, counters)
     return LabelingQueue(
@@ -730,6 +751,7 @@ def build_labeling_queue(
         unknown_trust_count=counters["unknown_trust"],
         missing_date_count=counters["missing_date"],
         future_evidence_count=counters["future_evidence"],
+        search_coverage=_search_coverage(ordered_runs),
     )
 
 
