@@ -157,6 +157,7 @@ class OpenAlexDiscoveryResult:
 # что OpenAlex режет частые запросы лимитом. Все попытки попадают в опись.
 OPENALEX_MAX_ATTEMPTS = 3
 OPENALEX_RETRY_BACKOFF_SECONDS = (5.0, 15.0)
+MAX_OPENALEX_RETRY_DELAY_SECONDS = 120.0
 
 
 def build_openalex_search_schedule(query: SourceQuery) -> tuple[OpenAlexSearchStep, ...]:
@@ -223,6 +224,12 @@ class OpenAlexDiscoveryExecutor:
             backoff = OPENALEX_RETRY_BACKOFF_SECONDS[
                 min(index, len(OPENALEX_RETRY_BACKOFF_SECONDS) - 1)
             ]
+            if run.error.retry_after_seconds is not None:
+                if run.error.retry_after_seconds > MAX_OPENALEX_RETRY_DELAY_SECONDS:
+                    # The failure remains retryable in a later run, but this
+                    # bounded execution cannot wait out a long server delay.
+                    return tuple(attempts), run
+                backoff = max(backoff, run.error.retry_after_seconds)
             (self._sleeper or time.sleep)(backoff)
         return tuple(attempts), attempts[-1]
 

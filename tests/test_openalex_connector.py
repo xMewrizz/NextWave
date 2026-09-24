@@ -198,6 +198,113 @@ class OpenAlexConnectorTests(unittest.TestCase):
         self.assertIn("mailto=team%40example.com", url)
         self.assertIn("mailto", str(run.request.to_dict()))
 
+    def test_retry_after_header_is_recorded_on_rate_limit(self) -> None:
+        body = b'{"error":"Rate limit exceeded, retry in 39s"}'
+        transport = FakeTransport(
+            HttpResponse(
+                429,
+                {"Content-Type": "application/json", "Retry-After": "39"},
+                body,
+            )
+        )
+        connector = OpenAlexConnector(transport=transport, clock=fixed_clock())
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = connector.run_page(
+                make_query(),
+                SnapshotWriter(Path(temp_dir), "snapshot-ai-001"),
+                channel=RetrievalChannel.TEXT,
+                search_text="artificial intelligence",
+            )
+
+        self.assertEqual(run.error.code, "http_429")
+        self.assertEqual(run.error.retry_after_seconds, 39.0)
+
+    def test_garbage_retry_after_header_is_ignored(self) -> None:
+        body = b'{"error":"Rate limit exceeded"}'
+        transport = FakeTransport(
+            HttpResponse(
+                429,
+                {"Content-Type": "application/json", "Retry-After": "soon"},
+                body,
+            )
+        )
+        connector = OpenAlexConnector(transport=transport, clock=fixed_clock())
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = connector.run_page(
+                make_query(),
+                SnapshotWriter(Path(temp_dir), "snapshot-ai-001"),
+                channel=RetrievalChannel.TEXT,
+                search_text="artificial intelligence",
+            )
+
+        self.assertIsNone(run.error.retry_after_seconds)
+
+    def test_non_finite_retry_after_header_is_ignored(self) -> None:
+        transport = FakeTransport(
+            HttpResponse(
+                429,
+                {"Content-Type": "application/json", "Retry-After": "NaN"},
+                b'{"error":"Rate limit exceeded"}',
+            )
+        )
+        connector = OpenAlexConnector(transport=transport, clock=fixed_clock())
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = connector.run_page(
+                make_query(),
+                SnapshotWriter(Path(temp_dir), "snapshot-ai-001"),
+                channel=RetrievalChannel.TEXT,
+                search_text="artificial intelligence",
+            )
+
+        self.assertIsNone(run.error.retry_after_seconds)
+        self.assertTrue(run.error.retryable)
+
+    def test_excessive_retry_after_remains_retryable_later(self) -> None:
+        body = b'{"error":"Rate limit exceeded, retry in 9612s"}'
+        transport = FakeTransport(
+            HttpResponse(
+                429,
+                {"Content-Type": "application/json", "Retry-After": "9612"},
+                body,
+            )
+        )
+        connector = OpenAlexConnector(transport=transport, clock=fixed_clock())
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = connector.run_page(
+                make_query(),
+                SnapshotWriter(Path(temp_dir), "snapshot-ai-001"),
+                channel=RetrievalChannel.TEXT,
+                search_text="artificial intelligence",
+            )
+
+        self.assertEqual(run.error.retry_after_seconds, 9612.0)
+        self.assertTrue(run.error.retryable)
+
+    def test_boundary_retry_after_stays_retryable(self) -> None:
+        body = b'{"error":"Rate limit exceeded, retry in 120s"}'
+        transport = FakeTransport(
+            HttpResponse(
+                429,
+                {"Content-Type": "application/json", "Retry-After": "120"},
+                body,
+            )
+        )
+        connector = OpenAlexConnector(transport=transport, clock=fixed_clock())
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = connector.run_page(
+                make_query(),
+                SnapshotWriter(Path(temp_dir), "snapshot-ai-001"),
+                channel=RetrievalChannel.TEXT,
+                search_text="artificial intelligence",
+            )
+
+        self.assertTrue(run.error.retryable)
+
     def test_http_error_body_is_saved_and_coverage_is_unknown(self) -> None:
         body = b'{"error":"rate limit"}'
         transport = FakeTransport(

@@ -73,6 +73,24 @@ class MediaCloudParserTests(unittest.TestCase):
         self.assertEqual(result.rejected_records, 1)
         self.assertEqual(result.issues[0].code, "after_cutoff")
 
+    def test_index_lag_after_cutoff_keeps_published_story(self) -> None:
+        result = parse(
+            make_story(publish_date="2026-09-10", indexed_date="2026-09-20 10:30:00+00:00"),
+        )
+
+        self.assertEqual(result.accepted_records, 1)
+        self.assertEqual(result.rejected_records, 0)
+        self.assertEqual(result.documents[0].published_at, date(2026, 9, 10))
+
+    def test_undated_story_observed_after_cutoff_is_rejected(self) -> None:
+        result = parse(
+            make_story(publish_date=None, indexed_date="2026-09-20 10:30:00+00:00"),
+        )
+
+        self.assertEqual(result.accepted_records, 0)
+        self.assertEqual(result.rejected_records, 1)
+        self.assertEqual(result.issues[0].code, "after_cutoff")
+
     def test_rejects_missing_title(self) -> None:
         result = parse(make_story(title=""))
 

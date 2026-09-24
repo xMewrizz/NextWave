@@ -196,6 +196,56 @@ class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
         self.assertEqual(len(result.documents), 1)
         self.assertEqual(result.documents[0].title, "Work W1")
 
+    def test_retry_honors_server_retry_after_over_backoff(self) -> None:
+        transport = SequenceTransport(
+            [
+                HttpResponse(
+                    429,
+                    {"Content-Type": "application/json", "Retry-After": "39"},
+                    b'{"error":"limit"}',
+                ),
+                response(work("W1", doi="10.1234/one")),
+                response(),
+                response(),
+                response(),
+            ]
+        )
+        pauses: list[float] = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+                sleeper=pauses.append,
+            ).execute(plan())
+
+        self.assertEqual(pauses, [39.0])
+        self.assertEqual(len(result.documents), 1)
+
+    def test_long_retry_after_stops_current_attempt_without_sleeping(self) -> None:
+        limited = HttpResponse(
+            429,
+            {"Content-Type": "application/json", "Retry-After": "9612"},
+            b'{"error":"limit"}',
+        )
+        transport = SequenceTransport([limited, limited, limited, limited])
+        pauses: list[float] = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+                sleeper=pauses.append,
+            ).execute(plan())
+
+        self.assertEqual(pauses, [])
+        self.assertEqual(result.usage.requests_used, 4)
+        self.assertTrue(all(run.error.retryable for run in result.manifest.runs))
+
     def test_executes_bounded_channels_deduplicates_and_publishes_snapshot(self) -> None:
         transport = SequenceTransport(
             [

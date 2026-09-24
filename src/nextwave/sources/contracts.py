@@ -6,6 +6,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from enum import Enum, StrEnum
+from math import isfinite
 from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
@@ -231,10 +232,15 @@ class ConnectorError:
     code: str
     message: str
     retryable: bool
+    retry_after_seconds: float | None = None
 
     def __post_init__(self) -> None:
         _require_stable_id(self.code, "error code")
         _require_text(self.message, "error message")
+        if self.retry_after_seconds is not None and (
+            not isfinite(self.retry_after_seconds) or self.retry_after_seconds < 0
+        ):
+            raise ValueError("retry_after_seconds must be finite and non-negative")
 
 
 @dataclass(frozen=True, slots=True)

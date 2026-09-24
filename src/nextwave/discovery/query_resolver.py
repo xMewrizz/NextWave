@@ -143,6 +143,11 @@ Return exactly one JSON object with these fields and no Markdown:
 
 Do not list technologies that were not present in the request. Do not narrow a broad field to
 one application. The word "technologies" does not make a broad field into one technology.
+Applied qualifiers are part of the scope and must survive normalization: industrial,
+peripheral, financial, medical and similar domain adjectives stay in normalized_query
+(for "Промышленный искусственный интеллект" use "industrial artificial intelligence",
+not "artificial intelligence"). Dropping the qualifier changes the scope; adding
+technologies the user did not name narrows it. Both are wrong.
 For both "ИИ" and "Технологии в ИИ", use normalized_query "artificial intelligence" and
 granularity "direction". For "спекулятивное декодирование", use normalized_query
 "speculative decoding" and granularity "technology". Search texts must be concise search

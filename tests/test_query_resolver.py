@@ -15,6 +15,7 @@ from nextwave.discovery import (
     TaxonomyCandidate,
     TaxonomyLevel,
     TaxonomyLookupStatus,
+    build_interpretation_prompt,
     build_query_resolver_from_environment,
     parse_openalex_taxonomy_response,
     select_taxonomy_candidate,
@@ -262,6 +263,14 @@ class QueryResolverTests(unittest.TestCase):
         self.assertIs(result.taxonomy_status, TaxonomyLookupStatus.UNAVAILABLE)
         self.assertIn("TimeoutError", result.taxonomy_error)
         self.assertEqual(result.scope.normalized_query, "artificial intelligence")
+
+
+class InterpretationPromptTests(unittest.TestCase):
+    def test_prompt_preserves_applied_qualifiers(self) -> None:
+        prompt = build_interpretation_prompt("Промышленный искусственный интеллект")
+
+        self.assertIn("industrial artificial intelligence", prompt)
+        self.assertIn("qualifier", prompt.casefold())
 
 
 class OpenAlexTaxonomySourceTests(unittest.TestCase):

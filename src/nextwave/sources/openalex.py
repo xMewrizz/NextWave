@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from math import isfinite
 from urllib.parse import urlencode
 
 from .contracts import (
@@ -275,6 +276,25 @@ class OpenAlexConnector:
             error=ConnectorError(
                 code=f"http_{status_code}",
                 message=f"OpenAlex returned HTTP {status_code}",
-                retryable=status_code in {408, 425, 429} or status_code >= 500,
+                retryable=_is_retryable(status_code),
+                retry_after_seconds=_retry_after_seconds(response),
             ),
         )
+
+
+def _is_retryable(status_code: int) -> bool:
+    return status_code in {408, 425, 429} or status_code >= 500
+
+
+def _retry_after_seconds(response: HttpResponse) -> float | None:
+    """Honor the server's Retry-After header; ignore garbage instead of guessing."""
+
+    for name, value in response.headers.items():
+        if name.casefold() != "retry-after":
+            continue
+        try:
+            seconds = float(value.strip())
+        except (AttributeError, ValueError):
+            return None
+        return seconds if isfinite(seconds) and seconds >= 0 else None
+    return None
