@@ -213,12 +213,30 @@ def build_candidate_mention(
 def build_openalex_candidate_mentions(
     documents: tuple[SourceDocument, ...],
     hints: tuple[OpenAlexDiscoveryHints, ...],
+    *,
+    grounded_mentions: tuple[CandidateMention, ...],
 ) -> tuple[CandidateMention, ...]:
-    """Adapt OpenAlex-specific topics and keywords to the shared mention contract."""
+    """Attach OpenAlex metadata only to names already grounded in document text.
+
+    OpenAlex topics and keywords describe what a publication is about.  They are
+    useful corroborating metadata, but are not proof that the term names a
+    concrete technology.  A provider term therefore becomes a mention only
+    when the text extractor found the same normalized name in the same
+    document title or abstract.
+    """
 
     documents_by_id = _documents_by_id(documents)
     if len({hint.document_id for hint in hints}) != len(hints):
         raise ValueError("hints must contain unique document_id values")
+    grounded_names = {
+        (mention.document_id, mention.normalized_text)
+        for mention in grounded_mentions
+        if mention.kind
+        in {
+            CandidateMentionKind.TITLE,
+            CandidateMentionKind.EXCERPT,
+        }
+    }
     mentions: list[CandidateMention] = []
     for hint in hints:
         document = documents_by_id.get(hint.document_id)
@@ -227,6 +245,8 @@ def build_openalex_candidate_mentions(
         if document.connector_id != "openalex":
             raise ValueError("OpenAlex hints must reference an OpenAlex document")
         for keyword in hint.keywords:
+            if (hint.document_id, _normalize_name(keyword.display_name)) not in grounded_names:
+                continue
             mentions.append(
                 build_candidate_mention(
                     document,
@@ -239,6 +259,8 @@ def build_openalex_candidate_mentions(
                 )
             )
         for topic in hint.topics:
+            if (hint.document_id, _normalize_name(topic.display_name)) not in grounded_names:
+                continue
             mentions.append(
                 build_candidate_mention(
                     document,

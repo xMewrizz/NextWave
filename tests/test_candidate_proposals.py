@@ -6,6 +6,7 @@ from datetime import date
 
 from nextwave.contracts import SourceDocument, SourceType, TrustTier
 from nextwave.discovery import (
+    CandidateMention,
     CandidateMentionKind,
     ProposalExclusionReason,
     ScopeGranularity,
@@ -89,6 +90,19 @@ def topic(
     )
 
 
+def grounded(document: SourceDocument, *names: str) -> tuple[CandidateMention, ...]:
+    return tuple(
+        build_candidate_mention(
+            document,
+            text=name,
+            kind=CandidateMentionKind.TITLE,
+            locator=f"title[{index}]",
+            extractor_id="text-v1",
+        )
+        for index, name in enumerate(names)
+    )
+
+
 class CandidateProposalTests(unittest.TestCase):
     def test_aggregates_same_term_across_independent_origins(self) -> None:
         documents = (document(1), document(2))
@@ -105,7 +119,14 @@ class CandidateProposalTests(unittest.TestCase):
             ),
         )
 
-        mentions = build_openalex_candidate_mentions(documents, hints)
+        mentions = build_openalex_candidate_mentions(
+            documents,
+            hints,
+            grounded_mentions=(
+                *grounded(documents[0], "Speculative decoding"),
+                *grounded(documents[1], "Speculative decoding"),
+            ),
+        )
         batch = build_candidate_proposals(scope(), documents, mentions)
 
         self.assertEqual(len(batch.proposals), 1)
@@ -166,7 +187,15 @@ class CandidateProposalTests(unittest.TestCase):
             ),
         )
 
-        mentions = build_openalex_candidate_mentions(documents, hints)
+        mentions = build_openalex_candidate_mentions(
+            documents,
+            hints,
+            grounded_mentions=grounded(
+                documents[0],
+                "Artificial Intelligence",
+                "Example University",
+            ),
+        )
         batch = build_candidate_proposals(scope(), documents, mentions)
 
         self.assertEqual(batch.proposals, ())
@@ -201,7 +230,15 @@ class CandidateProposalTests(unittest.TestCase):
             ),
         )
 
-        mentions = build_openalex_candidate_mentions(documents, hints)
+        mentions = build_openalex_candidate_mentions(
+            documents,
+            hints,
+            grounded_mentions=(
+                *grounded(documents[0], "High score single", "Repeated mechanism"),
+                *grounded(documents[1], "Repeated mechanism"),
+                *grounded(documents[2], "Other mechanism"),
+            ),
+        )
         batch = build_candidate_proposals(scope(), documents, mentions)
 
         self.assertEqual(batch.proposals[0].canonical_name, "Repeated mechanism")
@@ -221,7 +258,14 @@ class CandidateProposalTests(unittest.TestCase):
             for number in (1, 2)
         )
 
-        mentions = build_openalex_candidate_mentions(documents, hints)
+        mentions = build_openalex_candidate_mentions(
+            documents,
+            hints,
+            grounded_mentions=(
+                *grounded(documents[0], "Shared mechanism"),
+                *grounded(documents[1], "Shared mechanism"),
+            ),
+        )
         proposal = build_candidate_proposals(scope(), documents, mentions).proposals[0]
 
         self.assertEqual(proposal.document_count, 2)
@@ -237,7 +281,29 @@ class CandidateProposalTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "reference a supplied document"):
-            build_openalex_candidate_mentions((document(1),), hints)
+            build_openalex_candidate_mentions(
+                (document(1),),
+                hints,
+                grounded_mentions=(),
+            )
+
+    def test_does_not_promote_ungrounded_provider_terms(self) -> None:
+        documents = (document(1),)
+        hints = (
+            OpenAlexDiscoveryHints(
+                document_id="document-1",
+                topics=(topic("T100", "Artificial Intelligence", 0.99),),
+                keywords=(keyword("inference", "Inference", 0.95),),
+            ),
+        )
+
+        mentions = build_openalex_candidate_mentions(
+            documents,
+            hints,
+            grounded_mentions=(),
+        )
+
+        self.assertEqual(mentions, ())
 
     def test_combines_mentions_from_scientific_and_media_connectors(self) -> None:
         openalex_document = document(1)

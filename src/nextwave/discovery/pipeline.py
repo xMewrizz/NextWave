@@ -43,7 +43,7 @@ from .verification import (
     CandidateVerificationResult,
 )
 
-DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v6"
+DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v7"
 
 
 def split_gate_batch(
@@ -163,17 +163,21 @@ class DiscoveryPipeline:
         text_extraction = (
             self._text_extractor.extract_many(plan.scope, documents) if documents else None
         )
+        grounded_mentions = text_extraction.mentions if text_extraction is not None else ()
         mentions_by_id = {
-            mention.mention_id: mention
+            mention.mention_id: mention for mention in grounded_mentions
+        }
+        mentions_by_id.update(
+            (
+                mention.mention_id,
+                mention,
+            )
             for mention in build_openalex_candidate_mentions(
                 scientific.documents,
                 scientific.hints,
+                grounded_mentions=grounded_mentions,
             )
-        }
-        if text_extraction is not None:
-            mentions_by_id.update(
-                (mention.mention_id, mention) for mention in text_extraction.mentions
-            )
+        )
         mentions = tuple(sorted(mentions_by_id.values(), key=lambda mention: mention.mention_id))
         report("extraction", f"{len(mentions)} mentions", started)
         started = time.monotonic()
