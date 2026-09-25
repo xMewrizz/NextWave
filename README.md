@@ -103,7 +103,12 @@ python -m nextwave --version
 ## Проверка LLM-контура
 
 Query Resolver, извлечение кандидатов, Candidate Gate и извлечение evidence используют
-`YandexGPT Lite 5`. Провайдер и модель зафиксированы в `config/hackathon.env`; API-ключ и ID
+явно настроенные YandexGPT-модели: основная пара `NEXTWAVE_LLM_PROVIDER/MODEL` —
+`YandexGPT Lite 5`, а Candidate Gate — отдельная пара
+`NEXTWAVE_GATE_LLM_PROVIDER/MODEL` — `YandexGPT Pro 5`. Это две фиксированные
+конфигурации, а не автоматический routing и не скрытый fallback; пользователь
+интерфейса ничего не выбирает и не вводит. Провайдер и модели зафиксированы в
+`config/hackathon.env`; API-ключ и ID
 каталога являются серверными секретами и не передаются во frontend, prompt, snapshots или
 логи. Query Resolver может повторить только повреждённый JSON через `YandexGPT Pro 5` и
 сохраняет фактически ответившую модель. Остальные этапы не выполняют скрытый fallback:

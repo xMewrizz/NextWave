@@ -55,7 +55,7 @@ def write_run_dir(
     gate_proposals = [] if is_complete else [{"proposal_id": "p1"}]
     gate_inputs: list = [] if is_complete else []
     result = {
-        "pipeline_version": "discovery-pipeline-v9",
+        "pipeline_version": "discovery-pipeline-v10",
         "alias_resolution": {
             "groups": [
                 {
@@ -72,7 +72,7 @@ def write_run_dir(
         },
         "candidate_proposals": {"proposals": gate_proposals, "exclusions": []},
         "candidate_gate": {
-            "gate_id": "yandex-yandexgpt-lite-5-candidate-gate-v4",
+            "gate_id": "yandex-yandexgpt-pro-5-candidate-gate-v4",
             "input_proposal_ids": gate_inputs,
             "decisions": [],
         },
@@ -119,8 +119,8 @@ def write_run_dir(
         "cutoff_date": CUTOFF,
         "domain": domain,
         "analysis_status": analysis_status,
-        "pipeline_version": "discovery-pipeline-v9",
-        "gate_id": "yandex-yandexgpt-lite-5-candidate-gate-v4",
+        "pipeline_version": "discovery-pipeline-v10",
+        "gate_id": "yandex-yandexgpt-pro-5-candidate-gate-v4",
         "counts": {},
         "outputs": [
             {"filename": "plan.json", **digest(plan_bytes)},

@@ -1,4 +1,4 @@
-"""Provenance control: only current v9 / Gate v4 complete runs enter labeling."""
+"""Provenance control: only v10 / qualification Pro 5 Gate runs enter labeling."""
 
 from __future__ import annotations
 
@@ -11,12 +11,17 @@ from io import StringIO
 from pathlib import Path
 
 from nextwave.__main__ import main
-from nextwave.discovery.candidate_gate import CANDIDATE_GATE_VERSION
+from nextwave.discovery.candidate_gate import (
+    CANDIDATE_GATE_VERSION,
+    QUALIFICATION_GATE_ID,
+)
 from nextwave.discovery.pipeline import DISCOVERY_PIPELINE_VERSION
 from nextwave.discovery.run_store import DiscoveryRun, assert_run_labeling_eligible
 
 CUTOFF = "2026-09-15"
-CURRENT_GATE_ID = f"yandex-yandexgpt-lite-5-{CANDIDATE_GATE_VERSION}"
+CURRENT_GATE_ID = QUALIFICATION_GATE_ID
+LITE_GATE_ID = "yandex-yandexgpt-lite-5-candidate-gate-v4"
+PRO51_GATE_ID = "yandex-yandexgpt-pro-5-1-candidate-gate-v4"
 OLD_GATE_ID = "yandex-yandexgpt-lite-5-candidate-gate-v1"
 
 
@@ -148,22 +153,34 @@ def write_provenance_dir(
 
 
 class ProvenanceEligibilityTests(unittest.TestCase):
-    def test_current_v9_gate_v4_is_accepted(self) -> None:
+    def test_current_v10_gate_v4_is_accepted(self) -> None:
         run = provenance_run("run-new")
         assert_run_labeling_eligible(run)
-        self.assertEqual(DISCOVERY_PIPELINE_VERSION, "discovery-pipeline-v9")
+        self.assertEqual(DISCOVERY_PIPELINE_VERSION, "discovery-pipeline-v10")
         self.assertEqual(CANDIDATE_GATE_VERSION, "candidate-gate-v4")
 
     def test_old_gate_v1_is_rejected(self) -> None:
         run = provenance_run("run-old-gate", gate_id=OLD_GATE_ID)
-        with self.assertRaisesRegex(ValueError, "candidate-gate-v4"):
+        with self.assertRaisesRegex(ValueError, "qualification gate"):
+            assert_run_labeling_eligible(run)
+
+    def test_lite_gate_v4_is_rejected(self) -> None:
+        run = provenance_run("run-lite-gate", gate_id=LITE_GATE_ID)
+        self.assertEqual(run.manifest["gate_id"], LITE_GATE_ID)
+        with self.assertRaisesRegex(ValueError, "qualification gate"):
+            assert_run_labeling_eligible(run)
+
+    def test_pro51_gate_v4_is_rejected(self) -> None:
+        run = provenance_run("run-pro51-gate", gate_id=PRO51_GATE_ID)
+        self.assertEqual(run.manifest["gate_id"], PRO51_GATE_ID)
+        with self.assertRaisesRegex(ValueError, "qualification gate"):
             assert_run_labeling_eligible(run)
 
     def test_old_pipeline_version_is_rejected(self) -> None:
-        for old in ("discovery-pipeline-v6", "discovery-pipeline-v8"):
+        for old in ("discovery-pipeline-v6", "discovery-pipeline-v8", "discovery-pipeline-v9"):
             with self.subTest(old=old):
                 run = provenance_run("run-old-pipe", pipeline_version=old)
-                with self.assertRaisesRegex(ValueError, "discovery-pipeline-v9"):
+                with self.assertRaisesRegex(ValueError, "discovery-pipeline-v10"):
                     assert_run_labeling_eligible(run)
 
     def test_partial_gate_coverage_is_rejected(self) -> None:

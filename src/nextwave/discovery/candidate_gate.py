@@ -19,10 +19,11 @@ from .llm import (
     JsonHttpTransport,
     LlmSelection,
     build_json_generator,
-    load_llm_runtime_settings,
+    load_gate_llm_settings,
 )
 
 CANDIDATE_GATE_VERSION = "candidate-gate-v4"
+QUALIFICATION_GATE_ID = "yandex-yandexgpt-pro-5-candidate-gate-v4"
 MAX_GATE_BATCH_PROPOSALS = 6
 # Emergency server guard, not a normal retrieval budget. Grounded unique
 # proposals below this ceiling are all judged. Reaching the ceiling makes the
@@ -419,7 +420,7 @@ def build_candidate_gate_from_environment(
     *,
     llm_transport: JsonHttpTransport | None = None,
 ) -> StructuredCandidateGate:
-    settings = load_llm_runtime_settings(os.environ if environment is None else environment)
+    settings = load_gate_llm_settings(os.environ if environment is None else environment)
     generator = build_json_generator(
         settings,
         transport=llm_transport,

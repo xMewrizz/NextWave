@@ -200,7 +200,11 @@ Query Resolver должен выполнять следующие правила
 - интерпретация, рассмотренные элементы таксономии, выбор и версия resolver сохраняются для аудита.
 
 Для интерпретации запроса и структурированного извлечения MVP использует пару
-`provider=yandex`, `model=YandexGPT Lite 5`. Для неё нужны серверные
+`provider=yandex`, `model=YandexGPT Lite 5` (`NEXTWAVE_LLM_PROVIDER/MODEL`). Candidate Gate
+использует отдельно настроенную пару `NEXTWAVE_GATE_LLM_PROVIDER/MODEL`:
+`provider=yandex`, `model=YandexGPT Pro 5`. Это две явные конфигурации, а не
+автоматический routing и не скрытый fallback; пользователь интерфейса ничего не
+выбирает и не вводит. Для обеих нужны серверные
 `NEXTWAVE_LLM_API_KEY` и `NEXTWAVE_YANDEX_FOLDER_ID`. ТЗ также разрешает YandexGPT Pro 5,
 YandexGPT Pro 5.1, Qwen3.6 35B-A3B, Qwen3 235B и GigaChat 2 Lite/Pro/Max, но разрешённый
 список не означает автоматический выбор или готовый адаптер каждого провайдера.

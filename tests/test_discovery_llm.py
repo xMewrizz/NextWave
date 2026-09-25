@@ -66,7 +66,7 @@ class LlmSelectionTests(unittest.TestCase):
 
         self.assertEqual(selection.model, "Qwen/Qwen3-4B")
 
-    def test_runtime_settings_do_not_expose_api_key_in_repr(self) -> None:
+    def test_runtime_settings_do_not_expose_secrets_in_repr(self) -> None:
         settings = load_llm_runtime_settings(
             {
                 "NEXTWAVE_LLM_PROVIDER": "yandex",
@@ -78,6 +78,27 @@ class LlmSelectionTests(unittest.TestCase):
 
         self.assertEqual(settings.selection.model, "YandexGPT Lite 5")
         self.assertNotIn("temporary-secret", repr(settings))
+        self.assertNotIn("folder-1", repr(settings))
+
+    def test_runtime_settings_exclude_secrets_from_comparison(self) -> None:
+        first = load_llm_runtime_settings(
+            {
+                "NEXTWAVE_LLM_PROVIDER": "yandex",
+                "NEXTWAVE_LLM_MODEL": "YandexGPT Lite 5",
+                "NEXTWAVE_LLM_API_KEY": "secret-one",
+                "NEXTWAVE_YANDEX_FOLDER_ID": "folder-one",
+            }
+        )
+        second = load_llm_runtime_settings(
+            {
+                "NEXTWAVE_LLM_PROVIDER": "yandex",
+                "NEXTWAVE_LLM_MODEL": "YandexGPT Lite 5",
+                "NEXTWAVE_LLM_API_KEY": "secret-two",
+                "NEXTWAVE_YANDEX_FOLDER_ID": "folder-two",
+            }
+        )
+
+        self.assertEqual(first, second)
 
     def test_runtime_settings_require_an_explicit_provider_model_and_key(self) -> None:
         for missing in (

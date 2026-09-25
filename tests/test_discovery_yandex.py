@@ -70,10 +70,9 @@ def generator(
 class YandexModelUriTests(unittest.TestCase):
     def test_builds_documented_model_uris(self) -> None:
         cases = (
-            ("YandexGPT Lite 5", "gpt://folder-1/yandexgpt-lite/latest"),
-            ("YandexGPT Pro 5", "gpt://folder-1/yandexgpt/latest"),
-            # 5.1 дословно в URI: тихой подмены нет, неверный сегмент даст громкую 400.
-            ("YandexGPT Pro 5.1", "gpt://folder-1/yandexgpt/5.1"),
+            ("YandexGPT Lite 5", "gpt://folder-1/yandexgpt-5-lite"),
+            ("YandexGPT Pro 5", "gpt://folder-1/yandexgpt-5-pro"),
+            ("YandexGPT Pro 5.1", "gpt://folder-1/yandexgpt-5.1"),
         )
         for model, expected_uri in cases:
             with self.subTest(model=model):
@@ -84,6 +83,14 @@ class YandexModelUriTests(unittest.TestCase):
                 adapter("Технологии в ИИ")
                 self.assertEqual(transport.calls[0][0], YANDEX_COMPLETION_ENDPOINT)
                 self.assertEqual(transport.calls[0][2]["modelUri"], expected_uri)
+
+    def test_never_returns_legacy_slash_uri(self) -> None:
+        from nextwave.discovery.llm import YANDEX_MODEL_URIS
+
+        for model, uri in YANDEX_MODEL_URIS.items():
+            with self.subTest(model=model):
+                self.assertNotEqual(uri, "yandexgpt/5.1")
+                self.assertNotIn("yandexgpt/", uri)
 
     def test_requires_folder_id(self) -> None:
         with self.assertRaisesRegex(ValueError, "folder"):

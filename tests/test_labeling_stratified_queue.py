@@ -508,14 +508,14 @@ class ExportStrataTests(unittest.TestCase):
                 "query": {"cutoff_date": CUTOFF},
             }
             result = {
-                "pipeline_version": "discovery-pipeline-v9",
+                "pipeline_version": "discovery-pipeline-v10",
                 "alias_resolution": {
                     "groups": [group_cross, group_single],
                     "review_suggestions": [],
                 },
                 "candidate_proposals": {"proposals": [], "exclusions": []},
                 "candidate_gate": {
-                    "gate_id": "yandex-yandexgpt-lite-5-candidate-gate-v4",
+                    "gate_id": "yandex-yandexgpt-pro-5-candidate-gate-v4",
                     "input_proposal_ids": [],
                     "decisions": [],
                 },
@@ -550,8 +550,8 @@ class ExportStrataTests(unittest.TestCase):
                 "cutoff_date": CUTOFF,
                 "domain": "Edge",
                 "analysis_status": "complete",
-                "pipeline_version": "discovery-pipeline-v9",
-                "gate_id": "yandex-yandexgpt-lite-5-candidate-gate-v4",
+                "pipeline_version": "discovery-pipeline-v10",
+                "gate_id": "yandex-yandexgpt-pro-5-candidate-gate-v4",
                 "counts": {},
                 "outputs": [
                     {"filename": "plan.json", **digest(plan_bytes)},

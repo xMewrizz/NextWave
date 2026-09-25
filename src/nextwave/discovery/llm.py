@@ -21,11 +21,9 @@ YANDEX_COMPLETION_ENDPOINT = (
 )
 YANDEX_ADAPTER_VERSION = "yandex-completion-v1"
 YANDEX_MODEL_URIS: Mapping[str, str] = {
-    "YandexGPT Lite 5": "yandexgpt-lite/latest",
-    "YandexGPT Pro 5": "yandexgpt/latest",
-    # Pro 5.1 идёт в URI дословно: тихой подмены на latest нет, неверный
-    # сегмент даст громкую 400 — подтвердить по консоли при первом живом вызове.
-    "YandexGPT Pro 5.1": "yandexgpt/5.1",
+    "YandexGPT Lite 5": "yandexgpt-5-lite",
+    "YandexGPT Pro 5": "yandexgpt-5-pro",
+    "YandexGPT Pro 5.1": "yandexgpt-5.1",
 }
 LOCAL_ADAPTER_VERSION = "llama-cpp-qwen3-4b-instruct-2507-q4-v1"
 _SCHEMA_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
@@ -69,11 +67,11 @@ class LlmSelection:
 
 @dataclass(frozen=True, slots=True)
 class LlmRuntimeSettings:
-    """Validated runtime settings whose secret is excluded from repr and comparison."""
+    """Validated runtime settings whose secrets are excluded from repr and comparison."""
 
     selection: LlmSelection
     api_key: str = field(default="", repr=False, compare=False)
-    yandex_folder_id: str = ""
+    yandex_folder_id: str = field(default="", repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.selection.provider is not LlmProvider.HUGGINGFACE and not self.api_key.strip():
@@ -102,6 +100,41 @@ def load_llm_runtime_settings(environment: Mapping[str, str]) -> LlmRuntimeSetti
         raise ValueError(f"unknown LLM provider: {provider_value}") from error
     return LlmRuntimeSettings(
         selection=LlmSelection(provider, model),
+        api_key=api_key,
+        yandex_folder_id=yandex_folder_id,
+    )
+
+
+def load_gate_llm_settings(environment: Mapping[str, str]) -> LlmRuntimeSettings:
+    """Read the explicit Candidate Gate model selection.
+
+    Both ``NEXTWAVE_GATE_LLM_PROVIDER`` and ``NEXTWAVE_GATE_LLM_MODEL`` must be
+    set together, or both must be absent (then the main ``NEXTWAVE_LLM_*`` pair
+    is reused for backward compatibility). Credentials are reused from the
+    server settings and never enter results, reprs or error text.
+    """
+
+    gate_provider = environment.get("NEXTWAVE_GATE_LLM_PROVIDER", "").strip()
+    gate_model = environment.get("NEXTWAVE_GATE_LLM_MODEL", "").strip()
+    if not gate_provider and not gate_model:
+        return load_llm_runtime_settings(environment)
+    if bool(gate_provider) != bool(gate_model):
+        missing = (
+            "NEXTWAVE_GATE_LLM_MODEL"
+            if gate_provider
+            else "NEXTWAVE_GATE_LLM_PROVIDER"
+        )
+        raise ValueError(
+            f"{missing} is required when the other NEXTWAVE_GATE_LLM_* variable is set"
+        )
+    api_key = environment.get("NEXTWAVE_LLM_API_KEY", "").strip()
+    yandex_folder_id = environment.get("NEXTWAVE_YANDEX_FOLDER_ID", "").strip()
+    try:
+        provider = LlmProvider(gate_provider)
+    except ValueError as error:
+        raise ValueError(f"unknown LLM provider: {gate_provider}") from error
+    return LlmRuntimeSettings(
+        selection=LlmSelection(provider, gate_model),
         api_key=api_key,
         yandex_folder_id=yandex_folder_id,
     )

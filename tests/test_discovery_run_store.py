@@ -14,6 +14,8 @@ from nextwave.discovery import (
     build_analysis_scope,
     build_discovery_plan,
 )
+from nextwave.discovery.candidate_gate import QUALIFICATION_GATE_ID
+from nextwave.discovery.pipeline import DISCOVERY_PIPELINE_VERSION
 from nextwave.discovery.run_store import (
     LABELING_CUTOFF_DATE_ISO,
     assert_labeling_cutoff,
@@ -55,9 +57,12 @@ class _StubResult:
         decisions: list[dict[str, Any]],
         *,
         coverage_status: str = "complete",
+        pipeline_version: str = DISCOVERY_PIPELINE_VERSION,
+        gate_id: str = QUALIFICATION_GATE_ID,
     ) -> None:
         self.plan_id = plan_id
-        self.pipeline_version = "discovery-pipeline-v6"
+        self.pipeline_version = pipeline_version
+        self._gate_id = gate_id
         self._decisions = decisions
         self._coverage_status = coverage_status
 
@@ -71,7 +76,7 @@ class _StubResult:
                 "exclusions": [],
             },
             "candidate_gate": {
-                "gate_id": "g1",
+                "gate_id": self._gate_id,
                 "input_proposal_ids": (
                     ["p1"] if self._coverage_status == "complete" else []
                 ),
@@ -209,6 +214,29 @@ class DiscoveryRunStoreTests(unittest.TestCase):
             self.assertFalse(is_labeling_eligible(LABELING_CUTOFF_DATE_ISO, "partial"))
             with self.assertRaisesRegex(ValueError, "coverage is 'partial'"):
                 assert_run_labeling_eligible(loaded)
+
+    def test_labeling_eligible_requires_qualification_gate(self) -> None:
+        cases = (
+            (QUALIFICATION_GATE_ID, True),
+            ("yandex-yandexgpt-lite-5-candidate-gate-v4", False),
+            ("yandex-yandexgpt-pro-5-1-candidate-gate-v4", False),
+        )
+        for gate_id, expected in cases:
+            with self.subTest(gate_id=gate_id):
+                plan = _plan()
+                result = _StubResult(plan.plan_id, [], gate_id=gate_id)
+                with tempfile.TemporaryDirectory() as directory:
+                    run_dir = save_discovery_run(
+                        plan,
+                        result,  # type: ignore[arg-type]
+                        analysis_scope_key="ai-nlp-v1",
+                        domain="Инфраструктура ИИ",
+                        output_root=Path(directory),
+                    )
+                    loaded = load_discovery_run(run_dir)
+                    self.assertEqual(loaded.manifest["gate_id"], gate_id)
+                    self.assertEqual(loaded.result["candidate_gate"]["gate_id"], gate_id)
+                    self.assertEqual(bool(loaded.manifest["labeling_eligible"]), expected)
 
 
 if __name__ == "__main__":

@@ -44,7 +44,7 @@ from .verification import (
     CandidateVerificationResult,
 )
 
-DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v9"
+DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v10"
 
 
 def split_gate_batch(

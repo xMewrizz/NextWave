@@ -22,7 +22,7 @@ from typing import Any
 
 from nextwave.sources import publish_staging
 
-from .candidate_gate import CANDIDATE_GATE_VERSION
+from .candidate_gate import QUALIFICATION_GATE_ID
 from .contracts import DiscoveryPlan
 from .pipeline import DISCOVERY_PIPELINE_VERSION, DiscoveryPipelineResult
 
@@ -345,12 +345,11 @@ def assert_run_labeling_eligible(run: DiscoveryRun) -> None:
             f"run {run.run_id!r} is not eligible for labeling; "
             f"gate id mismatch manifest {manifest_gate!r} vs result {result_gate!r}"
         )
-    expected_suffix = "-" + CANDIDATE_GATE_VERSION
-    if not result_gate.endswith(expected_suffix):
+    if result_gate != QUALIFICATION_GATE_ID:
         raise ValueError(
             f"run {run.run_id!r} is not eligible for labeling; "
             f"candidate gate {result_gate!r} does not match "
-            f"current {CANDIDATE_GATE_VERSION!r}"
+            f"qualification gate {QUALIFICATION_GATE_ID!r}"
         )
 
 
@@ -399,6 +398,7 @@ def save_discovery_run(
     counts = _counts_from_result(result_dict)
     cutoff_iso = str(plan.query.cutoff_date)
     analysis_status = analysis_status_from_result(result_dict)
+    gate_id = (result_dict.get("candidate_gate") or {}).get("gate_id")
 
     manifest_dict: dict[str, Any] = {
         "schema_version": DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION,
@@ -409,9 +409,10 @@ def save_discovery_run(
         "raw_query": plan.scope.raw_query,
         "cutoff_date": cutoff_iso,
         "analysis_status": analysis_status,
-        "labeling_eligible": is_labeling_eligible(cutoff_iso, analysis_status),
+        "labeling_eligible": is_labeling_eligible(cutoff_iso, analysis_status)
+        and gate_id == QUALIFICATION_GATE_ID,
         "pipeline_version": result.pipeline_version or DISCOVERY_PIPELINE_VERSION,
-        "gate_id": (result_dict.get("candidate_gate") or {}).get("gate_id"),
+        "gate_id": gate_id,
         "snapshot_ids": _snapshot_ids_from_result(result_dict),
         "counts": counts,
         "outputs": [
