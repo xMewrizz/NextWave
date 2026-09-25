@@ -127,11 +127,10 @@ class CandidateGateTests(unittest.TestCase):
         scope, documents, batch = fixture("Post-Training Quantization")
 
         def generate(prompt):
-            self.assertIn("Apply two independent checks in this order", prompt)
-            self.assertIn("The direct relation must be stated in a cited title or excerpt", prompt)
-            self.assertIn("merely using AI in an unrelated domain", prompt)
-            self.assertIn("does not become", prompt)
-            self.assertIn("relevant merely because it uses AI", prompt)
+            self.assertIn("Silently apply two checks", prompt)
+            self.assertIn("A cited title or excerpt directly links", prompt)
+            self.assertIn("using AI in an unrelated domain", prompt)
+            self.assertIn("Do not output checklist fields", prompt)
             proposal = json.loads(prompt.split("Input data as JSON:\n", 1)[1])["proposals"][0]
             return json.dumps({
                 "decisions": [
@@ -140,6 +139,55 @@ class CandidateGateTests(unittest.TestCase):
             })
 
         result = gate(generate).evaluate(scope, batch, documents)
+
+        self.assertEqual(result.decisions[0].decision, GateDecision.ACCEPT)
+
+    def test_context_excerpt_is_centered_on_late_candidate_mention(self) -> None:
+        scope = build_analysis_scope(
+            raw_query="Инфраструктура ИИ",
+            normalized_query="AI infrastructure",
+            search_texts=("AI infrastructure",),
+            languages=("en",),
+            granularity=ScopeGranularity.DIRECTION,
+        )
+        excerpt = "Unrelated introduction. " * 60 + (
+            "AIOps-driven orchestration operates AI data-center workloads."
+        )
+        document = SourceDocument(
+            document_id="document-aiops",
+            connector_id="openalex",
+            external_id="W-aiops",
+            snapshot_id="snapshot-ai-001",
+            title="Data centers in the age of AI",
+            url="https://example.org/aiops",
+            canonical_url="https://example.org/aiops",
+            source_type=SourceType.SCIENTIFIC_PUBLICATION,
+            language="en",
+            trust_tier=TrustTier.A,
+            origin_id="doi:10.1234/aiops",
+            excerpt=excerpt,
+        )
+        mention = build_candidate_mention(
+            document,
+            text="AIOps-driven orchestration",
+            kind=CandidateMentionKind.EXCERPT,
+            locator="excerpt[1440:1466]",
+            extractor_id="test-extractor",
+        )
+        batch = build_candidate_proposals(scope, (document,), (mention,))
+
+        def generate(prompt):
+            proposal = json.loads(prompt.split("Input data as JSON:\n", 1)[1])["proposals"][0]
+            context = proposal["documents"][0]["excerpt"]
+            self.assertLessEqual(len(context), 700)
+            self.assertIn("AIOps-driven orchestration", context)
+            return json.dumps({
+                "decisions": [
+                    decision(proposal, "accept", "technical_mechanism")
+                ]
+            })
+
+        result = gate(generate).evaluate(scope, batch, (document,))
 
         self.assertEqual(result.decisions[0].decision, GateDecision.ACCEPT)
 
