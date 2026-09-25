@@ -21,6 +21,7 @@ from .discovery import (
     build_query_resolver_from_environment,
     save_discovery_run,
 )
+from .labeling.enrichment_plan import export_enrichment_plan
 from .labeling.export import export_labeling_bundle
 
 
@@ -144,6 +145,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="привязка запуска к контролируемой области "
         "(Edge, Защита ИИ, Индустриальный ИИ, Инфраструктура ИИ, Роботы, Финтех); "
         "нужна, если в сейфе свободный текст вместо области",
+    )
+    enrichment_plan = commands.add_parser(
+        "labeling-enrichment-plan",
+        help="проверить labeling bundle и выпустить неизменяемый план enrichment",
+    )
+    enrichment_plan.add_argument(
+        "--bundle",
+        type=Path,
+        required=True,
+        help="каталог labeling-экспорта (manifest.json + negative_candidates.jsonl)",
+    )
+    enrichment_plan.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / "labeling-enrichment-plan-v1",
+        help="новый каталог результата",
     )
     return parser
 
@@ -314,6 +331,19 @@ def _run_labeling_export(
     return 0
 
 
+def _run_labeling_enrichment_plan(bundle: Path, output: Path) -> int:
+    try:
+        paths = export_enrichment_plan(bundle_dir=bundle, output_dir=output)
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось построить план enrichment: {error}", file=sys.stderr)
+        return 1
+
+    print("План enrichment успешно построен.")
+    print(f"План: {paths.plan}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     arguments = parser.parse_args(argv)
@@ -339,6 +369,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.output,
             arguments.domain_map,
         )
+    if arguments.command == "labeling-enrichment-plan":
+        return _run_labeling_enrichment_plan(arguments.bundle, arguments.output)
     parser.print_help()
     return 0
 

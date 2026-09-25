@@ -23,6 +23,12 @@ from .contracts import (
     SourceType,
     TrustLevel,
 )
+from .enrichment_plan import (
+    LABELING_ENRICHMENT_PLAN_VERSION,
+    LabelingEnrichmentPlanPaths,
+    build_enrichment_plan,
+    export_enrichment_plan,
+)
 from .export import (
     LABELING_EXPORT_MANIFEST_VERSION,
     LabelingExportPaths,
@@ -53,6 +59,7 @@ from .workbook import (
 __all__ = [
     "GATE_DECISION_SCHEMA_VERSION",
     "LABELING_CUTOFF_DATE",
+    "LABELING_ENRICHMENT_PLAN_VERSION",
     "LABELING_EXPORT_MANIFEST_VERSION",
     "MODEL_DECISION_SCHEMA_VERSION",
     "NEGATIVE_CANDIDATE_SCHEMA_VERSION",
@@ -84,9 +91,12 @@ __all__ = [
     "SearchSourceClass",
     "SourceType",
     "TrustLevel",
+    "LabelingEnrichmentPlanPaths",
     "LabelingExportPaths",
+    "build_enrichment_plan",
     "build_labeling_queue",
     "count_evidence_rows",
+    "export_enrichment_plan",
     "export_labeling_bundle",
     "fill_labeling_workbook",
     "queue_to_jsonl",
