@@ -87,6 +87,11 @@ class CandidateGateTests(unittest.TestCase):
                 {"p1", "p2"},
             )
             self.assertEqual(payload["scope"]["query"], "Технологии в ИИ")
+            self.assertEqual(payload["scope"]["granularity"], "direction")
+            self.assertEqual(
+                payload["scope"]["search_texts"],
+                ["artificial intelligence", "AI"],
+            )
             return json.dumps({
                 "decisions": [
                     decision(
@@ -117,6 +122,26 @@ class CandidateGateTests(unittest.TestCase):
             {GateDecision.ACCEPT, GateDecision.REJECT},
         )
         json.dumps(result.to_dict(), ensure_ascii=False)
+
+    def test_prompt_requires_specificity_and_direct_scope_relation(self) -> None:
+        scope, documents, batch = fixture("Post-Training Quantization")
+
+        def generate(prompt):
+            self.assertIn("Apply two independent checks in this order", prompt)
+            self.assertIn("The direct relation must be stated in a cited title or excerpt", prompt)
+            self.assertIn("merely using AI in an unrelated domain", prompt)
+            self.assertIn("does not become", prompt)
+            self.assertIn("relevant merely because it uses AI", prompt)
+            proposal = json.loads(prompt.split("Input data as JSON:\n", 1)[1])["proposals"][0]
+            return json.dumps({
+                "decisions": [
+                    decision(proposal, "accept", "technical_mechanism")
+                ]
+            })
+
+        result = gate(generate).evaluate(scope, batch, documents)
+
+        self.assertEqual(result.decisions[0].decision, GateDecision.ACCEPT)
 
     def test_missing_and_duplicate_decisions_require_review(self) -> None:
         scope, documents, batch = fixture("Speculative decoding", "Photonic inference")
