@@ -93,11 +93,10 @@ class CandidateSlot:
 
 @dataclass(frozen=True, slots=True)
 class NoiseSlot:
-    """One template noise row awaiting a control example."""
+    """One template noise row awaiting a control example of a fixed type."""
 
     noise_id: str
     planned_noise_type: str
-    domain: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -698,18 +697,17 @@ def _transfer_candidate_duplicates(
     duplicate pool — and its suppression-time ``candidate_duplicate``
     overflow entry is withdrawn as resolved — only when the primary group
     actually received a candidate_id, a source document with a non-blank
-    URL exists (the first document_id carrying one wins), and a
-    ``duplicate`` noise slot covers the duplicate's domain. Otherwise the
-    reason is recorded in dropped while the overflow entry keeps the
-    variant itself from being lost silently; a pool leftover without a
-    free slot is reported by the standard noise overflow.
+    URL exists (the first document_id carrying one wins), and the template
+    holds at least one ``duplicate`` noise slot. Otherwise the reason is
+    recorded in dropped while the overflow entry keeps the variant itself
+    from being lost silently; a pool leftover without a free slot is
+    reported by the standard noise overflow.
     """
 
-    duplicate_domains = {
-        slot.domain
+    has_duplicate_slot = any(
+        slot.planned_noise_type == NoiseType.DUPLICATE.value
         for slot in noise_slots
-        if slot.planned_noise_type == NoiseType.DUPLICATE.value
-    }
+    )
     resolved: set[tuple[str, str]] = set()
     for proposal in duplicates:
         primary_candidate_id = primary_index.get(proposal.primary_group_id)
@@ -746,7 +744,7 @@ def _transfer_candidate_duplicates(
                 )
             )
             continue
-        if proposal.domain not in duplicate_domains:
+        if not has_duplicate_slot:
             continue
         pool.setdefault(NoiseType.DUPLICATE.value, []).append(
             {
@@ -779,6 +777,26 @@ def _fill_noise(
     deficits: list[QueueDeficit],
 ) -> list[QueuedNoise]:
     for items in pool.values():
+        valid: list[dict[str, Any]] = []
+        for item in items:
+            origin = str(item.get("origin_kind") or "")
+            text = item.get("text")
+            if not isinstance(text, str) or not text.strip():
+                dropped.append(QueueDropped(reason="blank_text", detail=origin))
+                continue
+            url = item.get("url")
+            if not isinstance(url, str) or not url.strip():
+                dropped.append(
+                    QueueDropped(
+                        reason="no_url",
+                        detail=f"{origin}:{text.strip()[:60]}",
+                    )
+                )
+                continue
+            item["url"] = url.strip()
+            valid.append(item)
+        items[:] = valid
+    for items in pool.values():
         seen: set[str] = set()
         unique: list[dict[str, Any]] = []
         for item in items:
@@ -793,20 +811,33 @@ def _fill_noise(
     for slot in slots:
         by_type.setdefault(slot.planned_noise_type, []).append(slot)
 
-    def take_matching(
-        items: list[dict[str, Any]], domain: str
-    ) -> dict[str, Any] | None:
-        for index, item in enumerate(items):
-            if item.get("domain") == domain:
-                return items.pop(index)
-        return None
-
+    leftovers: dict[str, list[dict[str, Any]]] = {}
     for noise_type, type_slots in by_type.items():
         items = pool.get(noise_type, [])
+        # Group available objects by their actual discovery domain and deal
+        # them across slots round-robin: stable domain order, deterministic
+        # object order within a domain, exhausted domains donate their turns
+        # to the remaining ones. One object fills at most one slot; the
+        # slot's type quota stays strict while its domain comes from the
+        # chosen object, never from a preassigned row.
+        by_domain: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            by_domain.setdefault(item["domain"], []).append(item)
+        domains = sorted(by_domain, key=lambda name: (name.casefold(), name))
+        taken: dict[str, int] = {name: 0 for name in domains}
+        cursor = 0
         for slot in type_slots:
-            item = take_matching(items, slot.domain)
-            if item is None:
+            chosen: str | None = None
+            for step in range(len(domains)):
+                name = domains[(cursor + step) % len(domains)] if domains else None
+                if name is not None and taken[name] < len(by_domain[name]):
+                    chosen = name
+                    cursor = (cursor + step + 1) % len(domains)
+                    break
+            if chosen is None:
                 continue
+            item = by_domain[chosen][taken[chosen]]
+            taken[chosen] += 1
             document_url = item["url"]
             if not document_url:
                 dropped.append(
@@ -829,6 +860,13 @@ def _fill_noise(
                     origin_kind=item["origin_kind"],
                 )
             )
+        leftovers[noise_type] = [
+            item
+            for name in domains
+            for item in by_domain[name][taken[name]:]
+        ]
+    for noise_type in sorted(set(pool) - set(leftovers)):
+        leftovers[noise_type] = list(pool[noise_type])
     short: dict[str, int] = {}
     for noise_type, type_slots in by_type.items():
         filled = sum(1 for item in queued if item.planned_noise_type == noise_type)
@@ -839,8 +877,8 @@ def _fill_noise(
             deficits.append(
                 QueueDeficit(area=noise_type, need="noise", missing=short[noise_type])
             )
-    for noise_type, items in pool.items():
-        for item in items:
+    for noise_type in sorted(leftovers):
+        for item in leftovers[noise_type]:
             overflow.append(
                 QueueOverflow(
                     kind="noise",

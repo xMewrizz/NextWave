@@ -122,7 +122,6 @@ def export_labeling_bundle(
         NoiseSlot(
             noise_id=row["noise_id"],
             planned_noise_type=row["planned_noise_type"],
-            domain=row["domain"],
         )
         for row in noise_rows
     )

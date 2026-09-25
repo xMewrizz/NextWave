@@ -58,7 +58,11 @@ def read_candidate_slots(template_path: str | Path) -> list[dict[str, Any]]:
 
 
 def read_noise_slots(template_path: str | Path) -> list[dict[str, Any]]:
-    """Read template-owned noise rows: ID, planned type and domain per row."""
+    """Read template-owned noise rows: ID and planned type per row.
+
+    The row carries no domain: the actual domain always comes from the
+    chosen discovery object, never from a preassigned template cell.
+    """
 
     workbook = openpyxl.load_workbook(template_path, read_only=True, data_only=True)
     try:
@@ -71,7 +75,6 @@ def read_noise_slots(template_path: str | Path) -> list[dict[str, Any]]:
                 {
                     "noise_id": str(row[0]),
                     "planned_noise_type": str(row[1]),
-                    "domain": str(row[5]),
                     "row_number": len(slots) + FIRST_DATA_ROW,
                 }
             )
@@ -110,7 +113,7 @@ def fill_labeling_workbook(
     """Fill a copy of the template with queue data; template file untouched.
 
     Only blue (pipeline) cells are written. Grey identifiers, review pools,
-    domains, cutoff dates and all yellow expert cells stay byte-identical,
+    cutoff dates and all yellow expert cells stay byte-identical,
     except decision rows, which arrive pre-filled with evidence links and
     machine search coverage (columns L/M/N/P), plus navigation hyperlinks on ID
     cells, freeze panes and filters. The reviewer deletes unused evidence
@@ -142,6 +145,8 @@ def fill_labeling_workbook(
         _set_cell(noise, row, "C", item.source_query)
         _set_cell(noise, row, "D", item.extracted_text)
         _set_cell(noise, row, "E", item.source_document_url)
+        _set_cell(noise, row, "F", item.domain)
+        _set_cell(noise, row, "G", item.analysis_scope_key)
         _set_cell(noise, row, "I", item.duplicate_of_candidate_id)
 
     evidence = workbook[EVIDENCE_SHEET]

@@ -69,7 +69,7 @@ def sample_queue() -> LabelingQueue:
             source_query="Технологии в ИИ",
             extracted_text="Digital Transformation",
             source_document_url="https://example.org/broad",
-            domain=first_noise["domain"],
+            domain="Edge",
             analysis_scope_key="edge-v1",
             duplicate_of_candidate_id=None,
             origin_kind="exclusion",
@@ -144,6 +144,12 @@ class WorkbookSlotTests(unittest.TestCase):
         self.assertEqual(len(candidates), 100)
         self.assertEqual(candidates[0]["candidate_id"], "team-negative-001")
         self.assertEqual(len(noise), 50)
+        self.assertTrue(
+            all(
+                set(row) == {"noise_id", "planned_noise_type", "row_number"}
+                for row in noise
+            )
+        )
         self.assertEqual(count_evidence_rows(TEMPLATE), 400)
 
 
@@ -168,6 +174,8 @@ class WorkbookFillTests(unittest.TestCase):
         first_noise = next(row for row in noise_rows if row[0] == "noise-001")
         self.assertEqual(first_noise[3], "Digital Transformation")
         self.assertEqual(first_noise[4], "https://example.org/broad")
+        self.assertEqual(first_noise[5], "Edge")
+        self.assertEqual(first_noise[6], "edge-v1")
 
         evidence_rows = load_cells(filled, "Доказательства", range(5, 7), "ABCDEFGHIJKLMN")
         self.assertEqual(evidence_rows[0][1], "team-negative-001")

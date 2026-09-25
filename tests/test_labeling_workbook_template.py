@@ -69,6 +69,18 @@ class LabelingWorkbookTemplateTests(unittest.TestCase):
             },
         )
 
+    def test_noise_domain_cells_are_empty_pipeline_fields(self) -> None:
+        sheet = self.workbook["Шум"]
+        rows = list(sheet.iter_rows(min_row=5, max_row=54, values_only=False))
+
+        self.assertEqual(len(rows), 50)
+        for row in rows:
+            domain_cell, scope_cell = row[5], row[6]
+            self.assertIsNone(domain_cell.value)
+            self.assertIsNone(scope_cell.value)
+            self.assertEqual(domain_cell.fill.fgColor.rgb, "FFDDEBF7")
+            self.assertEqual(scope_cell.fill.fgColor.rgb, "FFDDEBF7")
+
     def test_primary_decision_slots_are_prelinked(self) -> None:
         sheet = self.workbook["Решения"]
         candidate_rows = list(sheet.iter_rows(min_row=5, max_row=104, values_only=True))

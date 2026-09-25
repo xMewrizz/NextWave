@@ -245,10 +245,10 @@ class QueueNoiseTests(unittest.TestCase):
             documents=[document("document-1")],
         )
         slots = (
-            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Финтех"),
-            NoiseSlot("noise-002", NoiseType.IRRELEVANT.value, "Финтех"),
-            NoiseSlot("noise-003", NoiseType.NOT_TECHNOLOGY.value, "Финтех"),
-            NoiseSlot("noise-004", NoiseType.EXTRACTION_ERROR.value, "Финтех"),
+            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value),
+            NoiseSlot("noise-002", NoiseType.IRRELEVANT.value),
+            NoiseSlot("noise-003", NoiseType.NOT_TECHNOLOGY.value),
+            NoiseSlot("noise-004", NoiseType.EXTRACTION_ERROR.value),
         )
 
         queue = build_labeling_queue((run,), noise_slots=slots)
@@ -281,7 +281,7 @@ class QueueNoiseTests(unittest.TestCase):
             ],
             documents=[document("document-1", url="https://example.org/broad")],
         )
-        slots = (NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Финтех"),)
+        slots = (NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value),)
 
         queue = build_labeling_queue((run,), noise_slots=slots)
 
@@ -303,7 +303,7 @@ class QueueNoiseTests(unittest.TestCase):
             ],
             documents=[document("document-1")],
         )
-        slots = (NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Финтех"),)
+        slots = (NoiseSlot("noise-001", NoiseType.DUPLICATE.value),)
 
         queue = build_labeling_queue((run,), noise_slots=slots)
 
@@ -331,7 +331,7 @@ class QueueNoiseTests(unittest.TestCase):
                 document("document-group-right-0", url="https://example.org/right"),
             ],
         )
-        slots = (NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Финтех"),)
+        slots = (NoiseSlot("noise-001", NoiseType.DUPLICATE.value),)
 
         queue = build_labeling_queue((run,), noise_slots=slots)
 
@@ -339,6 +339,54 @@ class QueueNoiseTests(unittest.TestCase):
         self.assertEqual(queue.noise[0].extracted_text, "Right Tech")
         self.assertEqual(queue.noise[0].source_document_url, "https://example.org/right")
         self.assertEqual(queue.noise[0].origin_kind, "alias_suggestion")
+
+    def test_blank_url_suggestion_does_not_block_valid_one(self) -> None:
+        run = make_run(
+            "run-1",
+            groups=[
+                group("group-left", "Left Tech"),
+                group("group-r1", "Right One"),
+                group("group-r2", "Right Two"),
+            ],
+            suggestions=[
+                {
+                    "left_group_id": "group-left",
+                    "right_group_id": "group-r1",
+                    "reason": "shared_origin_acronym",
+                    "shared_origin_ids": ["origin-1"],
+                },
+                {
+                    "left_group_id": "group-left",
+                    "right_group_id": "group-r2",
+                    "reason": "shared_origin_acronym",
+                    "shared_origin_ids": ["origin-2"],
+                },
+            ],
+            documents=[
+                document("document-group-left-0", url="https://example.org/left"),
+                document("document-group-r1-0", url=""),
+                document("document-group-r2-0", url="https://example.org/r2"),
+            ],
+        )
+        slots = (NoiseSlot("noise-001", NoiseType.DUPLICATE.value),)
+
+        queue = build_labeling_queue((run,), noise_slots=slots)
+
+        self.assertEqual(len(queue.noise), 1)
+        self.assertEqual(queue.noise[0].extracted_text, "Right Two")
+        self.assertEqual(
+            queue.noise[0].source_document_url, "https://example.org/r2"
+        )
+        self.assertEqual(queue.deficits, ())
+        self.assertTrue(
+            any(
+                item.reason == "no_url" and "Right One" in item.detail
+                for item in queue.dropped
+            )
+        )
+        self.assertFalse(
+            any("Right Two" in item.key for item in queue.overflow)
+        )
 
 
 def _broad_reject_run(run_id: str, domain: str, name: str, doc_id: str) -> DiscoveryRun:
@@ -360,52 +408,115 @@ def _broad_reject_run(run_id: str, domain: str, name: str, doc_id: str) -> Disco
     )
 
 
-class QueueNoiseDomainTests(unittest.TestCase):
-    def test_missing_first_domain_does_not_block_second(self) -> None:
-        run_infra = _broad_reject_run(
-            "run-infra", "Инфраструктура ИИ", "Infra Broad", "document-infra-1"
-        )
+class QueueNoiseRoundRobinTests(unittest.TestCase):
+    def test_object_fills_unbound_slot_regardless_of_old_row_domain(self) -> None:
+        run = _broad_reject_run("run-1", "Edge", "Edge Broad", "document-edge-1")
         slots = (
-            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Edge"),
-            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value, "Инфраструктура ИИ"),
+            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value),
+            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value),
         )
 
-        queue = build_labeling_queue((run_infra,), noise_slots=slots)
+        queue = build_labeling_queue((run,), noise_slots=slots)
 
-        self.assertEqual([item.noise_id for item in queue.noise], ["noise-002"])
-        self.assertEqual(queue.noise[0].extracted_text, "Infra Broad")
+        self.assertEqual([item.noise_id for item in queue.noise], ["noise-001"])
+        self.assertEqual(queue.noise[0].domain, "Edge")
+        self.assertEqual(queue.noise[0].analysis_scope_key, "edge-v1")
         self.assertEqual(
             [(item.area, item.need, item.missing) for item in queue.deficits],
             [(NoiseType.BROAD_CONCEPT.value, "noise", 1)],
         )
         self.assertEqual(queue.overflow, ())
 
-    def test_sparse_pool_does_not_block_later_matches(self) -> None:
+    def test_domains_alternate_round_robin(self) -> None:
+        run_edge = _broad_reject_run("run-edge", "Edge", "Edge Broad", "document-edge-1")
+        run_fin = _broad_reject_run(
+            "run-fin", "Финтех", "Fin Broad", "document-fin-1"
+        )
+        edge_extra = make_run(
+            "run-edge-2",
+            proposals=[{"proposal_id": "proposal-edge-2", "canonical_name": "Edge Wide"}],
+            decisions=[
+                {
+                    "proposal_id": "proposal-edge-2",
+                    "decision": "reject",
+                    "reason": "generic_area",
+                    "basis_document_ids": ["document-edge-2"],
+                    "explanation": "Too broad.",
+                }
+            ],
+            documents=[document("document-edge-2", url="https://example.org/edge-2")],
+            domain="Edge",
+        )
+        fin_extra = make_run(
+            "run-fin-2",
+            proposals=[{"proposal_id": "proposal-fin-2", "canonical_name": "Fin Wide"}],
+            decisions=[
+                {
+                    "proposal_id": "proposal-fin-2",
+                    "decision": "reject",
+                    "reason": "generic_area",
+                    "basis_document_ids": ["document-fin-2"],
+                    "explanation": "Too broad.",
+                }
+            ],
+            documents=[document("document-fin-2", url="https://example.org/fin-2")],
+            domain="Финтех",
+        )
+        slots = tuple(
+            NoiseSlot(f"noise-{index:03d}", NoiseType.BROAD_CONCEPT.value)
+            for index in range(1, 5)
+        )
+
+        queue = build_labeling_queue(
+            (run_edge, run_fin, edge_extra, fin_extra), noise_slots=slots
+        )
+
+        self.assertEqual(
+            [item.domain for item in queue.noise],
+            ["Edge", "Финтех", "Edge", "Финтех"],
+        )
+        self.assertEqual(queue.deficits, ())
+
+    def test_exhausted_domain_donates_turns_to_remaining(self) -> None:
         run_edge = _broad_reject_run("run-edge", "Edge", "Edge Broad", "document-edge-1")
         run_infra = _broad_reject_run(
             "run-infra", "Инфраструктура ИИ", "Infra Broad", "document-infra-1"
         )
-        slots = (
-            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Edge"),
-            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value, "Роботы"),
-            NoiseSlot("noise-003", NoiseType.BROAD_CONCEPT.value, "Инфраструктура ИИ"),
+        infra_extra = make_run(
+            "run-infra-2",
+            proposals=[{"proposal_id": "proposal-infra-2", "canonical_name": "Infra Wide"}],
+            decisions=[
+                {
+                    "proposal_id": "proposal-infra-2",
+                    "decision": "reject",
+                    "reason": "generic_area",
+                    "basis_document_ids": ["document-infra-2"],
+                    "explanation": "Too broad.",
+                }
+            ],
+            documents=[document("document-infra-2", url="https://example.org/infra-2")],
+            domain="Инфраструктура ИИ",
+        )
+        slots = tuple(
+            NoiseSlot(f"noise-{index:03d}", NoiseType.BROAD_CONCEPT.value)
+            for index in range(1, 4)
         )
 
-        queue = build_labeling_queue((run_edge, run_infra), noise_slots=slots)
+        queue = build_labeling_queue(
+            (run_edge, run_infra, infra_extra), noise_slots=slots
+        )
 
         self.assertEqual(
-            [item.noise_id for item in queue.noise], ["noise-001", "noise-003"]
+            [item.extracted_text for item in queue.noise],
+            ["Edge Broad", "Infra Broad", "Infra Wide"],
         )
-        self.assertEqual(
-            [(item.area, item.need, item.missing) for item in queue.deficits],
-            [(NoiseType.BROAD_CONCEPT.value, "noise", 1)],
-        )
+        self.assertEqual(queue.deficits, ())
 
     def test_single_object_is_used_once(self) -> None:
         run = _broad_reject_run("run-1", "Edge", "Edge Broad", "document-edge-1")
         slots = (
-            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Edge"),
-            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value, "Edge"),
+            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value),
+            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value),
         )
 
         queue = build_labeling_queue((run,), noise_slots=slots)
@@ -417,14 +528,14 @@ class QueueNoiseDomainTests(unittest.TestCase):
         )
         self.assertEqual(queue.overflow, ())
 
-    def test_permuted_runs_keep_noise_jsonl(self) -> None:
+    def test_permuted_runs_keep_noise_jsonl_deficits_and_overflow(self) -> None:
         run_edge = _broad_reject_run("run-edge", "Edge", "Edge Broad", "document-edge-1")
         run_infra = _broad_reject_run(
             "run-infra", "Инфраструктура ИИ", "Infra Broad", "document-infra-1"
         )
         slots = (
-            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Edge"),
-            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value, "Инфраструктура ИИ"),
+            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value),
+            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value),
         )
 
         first = build_labeling_queue((run_edge, run_infra), noise_slots=slots)
@@ -435,6 +546,20 @@ class QueueNoiseDomainTests(unittest.TestCase):
             [item.noise_id for item in second.noise],
         )
         self.assertEqual(queue_to_jsonl(first), queue_to_jsonl(second))
+        self.assertEqual(
+            [(item.area, item.need, item.missing) for item in first.deficits],
+            [(item.area, item.need, item.missing) for item in second.deficits],
+        )
+        self.assertEqual(
+            [
+                (item.kind, item.key, item.run_id, item.reason)
+                for item in first.overflow
+            ],
+            [
+                (item.kind, item.key, item.run_id, item.reason)
+                for item in second.overflow
+            ],
+        )
 
 
 class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
@@ -458,7 +583,7 @@ class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
         queue = build_labeling_queue(
             (run,),
             candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
-            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),),
+            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value),),
         )
 
         self.assertEqual([item.canonical_name for item in queue.candidates], ["Transformer"])
@@ -496,7 +621,7 @@ class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
         queue = build_labeling_queue(
             (run,),
             candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
-            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),),
+            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value),),
         )
 
         self.assertEqual(len(queue.noise), 1)
@@ -510,13 +635,13 @@ class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
             )
         )
 
-    def test_duplicate_without_matching_slot_stays_in_overflow(self) -> None:
+    def test_duplicate_without_any_slot_stays_in_overflow(self) -> None:
         run = self._duplicate_run()
         queue = build_labeling_queue(
             (run,),
             candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
             noise_slots=(
-                NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Финтех"),
+                NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value),
             ),
         )
 
@@ -527,7 +652,7 @@ class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
         )
         self.assertEqual(
             [(item.area, item.need, item.missing) for item in queue.deficits],
-            [(NoiseType.DUPLICATE.value, "noise", 1)],
+            [(NoiseType.BROAD_CONCEPT.value, "noise", 1)],
         )
 
     def test_unqueued_primary_creates_no_duplicate_noise(self) -> None:
@@ -535,7 +660,7 @@ class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
         queue = build_labeling_queue(
             (run,),
             candidate_slots=(),
-            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),),
+            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value),),
         )
 
         self.assertEqual(queue.candidates, ())
@@ -555,7 +680,7 @@ class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
         queue = build_labeling_queue(
             (run,),
             candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
-            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),),
+            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value),),
         )
 
         self.assertEqual(len(queue.candidates), 1)
@@ -597,6 +722,22 @@ class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
         )
         self.assertEqual(queue.noise, ())
 
+    def test_duplicate_from_any_domain_takes_duplicate_slot(self) -> None:
+        run = self._duplicate_run(run_id="run-robo", domain="Роботы")
+        queue = build_labeling_queue(
+            (run,),
+            candidate_slots=(CandidateSlot("team-negative-001", "Роботы"),),
+            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value),),
+        )
+
+        self.assertEqual(len(queue.candidates), 1)
+        self.assertEqual(len(queue.noise), 1)
+        self.assertEqual(queue.noise[0].domain, "Роботы")
+        self.assertEqual(queue.noise[0].analysis_scope_key, "robotics-v1")
+        self.assertEqual(
+            queue.noise[0].duplicate_of_candidate_id, "team-negative-001"
+        )
+
     def test_permuted_runs_keep_duplicate_jsonl(self) -> None:
         run_a = make_run(
             "run-a",
@@ -611,7 +752,7 @@ class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
             domain="Edge",
         )
         slots = (CandidateSlot("team-negative-001", "Edge"),)
-        noise_slots = (NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),)
+        noise_slots = (NoiseSlot("noise-001", NoiseType.DUPLICATE.value),)
 
         first = build_labeling_queue(
             (run_a, run_b), candidate_slots=slots, noise_slots=noise_slots
@@ -664,8 +805,8 @@ class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
             (run,),
             candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
             noise_slots=(
-                NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),
-                NoiseSlot("noise-002", NoiseType.DUPLICATE.value, "Edge"),
+                NoiseSlot("noise-001", NoiseType.DUPLICATE.value),
+                NoiseSlot("noise-002", NoiseType.DUPLICATE.value),
             ),
         )
 
@@ -748,7 +889,7 @@ class QueueJsonlTests(unittest.TestCase):
             documents=[document("document-group-a-0")],
         )
         candidate_slots = (CandidateSlot("team-negative-001", "Финтех"),)
-        noise_slots = (NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Финтех"),)
+        noise_slots = (NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value),)
 
         first = build_labeling_queue(
             (run,), candidate_slots=candidate_slots, noise_slots=noise_slots
