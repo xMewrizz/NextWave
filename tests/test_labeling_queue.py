@@ -437,6 +437,251 @@ class QueueNoiseDomainTests(unittest.TestCase):
         self.assertEqual(queue_to_jsonl(first), queue_to_jsonl(second))
 
 
+class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
+    def _duplicate_run(self, run_id="run-1", domain="Edge", t2_url=None):
+        t2 = t2_url if t2_url is not None else "https://example.org/t2"
+        return make_run(
+            run_id,
+            groups=[
+                group("group-t1", "Transformer"),
+                group("group-t2", "transformers"),
+            ],
+            documents=[
+                document("document-group-t1-0", url="https://example.org/t1"),
+                document("document-group-t2-0", url=t2),
+            ],
+            domain=domain,
+        )
+
+    def test_transformer_variant_becomes_duplicate_noise(self) -> None:
+        run = self._duplicate_run()
+        queue = build_labeling_queue(
+            (run,),
+            candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
+            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),),
+        )
+
+        self.assertEqual([item.canonical_name for item in queue.candidates], ["Transformer"])
+        self.assertEqual(len(queue.noise), 1)
+        noise = queue.noise[0]
+        self.assertEqual(noise.noise_id, "noise-001")
+        self.assertEqual(noise.extracted_text, "transformers")
+        self.assertEqual(
+            noise.source_document_url, "https://example.org/t2"
+        )
+        self.assertEqual(noise.duplicate_of_candidate_id, "team-negative-001")
+        self.assertEqual(noise.origin_kind, "candidate_duplicate")
+        self.assertEqual(noise.domain, "Edge")
+        self.assertEqual(noise.analysis_scope_key, "edge-v1")
+        self.assertFalse(
+            any(item.kind == "candidate_duplicate" for item in queue.overflow)
+        )
+        self.assertEqual(queue.deficits, ())
+
+    def test_second_document_url_is_used_when_first_is_blank(self) -> None:
+        run = make_run(
+            "run-1",
+            groups=[
+                group("group-t1", "Transformer", documents=2),
+                group("group-t2", "transformers", documents=2),
+            ],
+            documents=[
+                document("document-group-t1-0", url="https://example.org/t1"),
+                document("document-group-t1-1", url="https://example.org/t1b"),
+                document("document-group-t2-0", url=""),
+                document("document-group-t2-1", url="https://example.org/t2-second"),
+            ],
+            domain="Edge",
+        )
+        queue = build_labeling_queue(
+            (run,),
+            candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
+            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),),
+        )
+
+        self.assertEqual(len(queue.noise), 1)
+        self.assertEqual(
+            queue.noise[0].source_document_url, "https://example.org/t2-second"
+        )
+        self.assertFalse(
+            any(
+                item.reason == "no_url" and "candidate_duplicate" in item.detail
+                for item in queue.dropped
+            )
+        )
+
+    def test_duplicate_without_matching_slot_stays_in_overflow(self) -> None:
+        run = self._duplicate_run()
+        queue = build_labeling_queue(
+            (run,),
+            candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
+            noise_slots=(
+                NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Финтех"),
+            ),
+        )
+
+        self.assertEqual(len(queue.candidates), 1)
+        self.assertEqual(queue.noise, ())
+        self.assertTrue(
+            any(item.kind == "candidate_duplicate" for item in queue.overflow)
+        )
+        self.assertEqual(
+            [(item.area, item.need, item.missing) for item in queue.deficits],
+            [(NoiseType.DUPLICATE.value, "noise", 1)],
+        )
+
+    def test_unqueued_primary_creates_no_duplicate_noise(self) -> None:
+        run = self._duplicate_run()
+        queue = build_labeling_queue(
+            (run,),
+            candidate_slots=(),
+            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),),
+        )
+
+        self.assertEqual(queue.candidates, ())
+        self.assertEqual(queue.noise, ())
+        self.assertTrue(
+            any(
+                item.reason == "primary_not_queued" and "group-t2" in item.detail
+                for item in queue.dropped
+            )
+        )
+        self.assertTrue(
+            any(item.kind == "candidate_duplicate" for item in queue.overflow)
+        )
+
+    def test_missing_url_creates_no_row_and_records_reason(self) -> None:
+        run = self._duplicate_run(t2_url="")
+        queue = build_labeling_queue(
+            (run,),
+            candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
+            noise_slots=(NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),),
+        )
+
+        self.assertEqual(len(queue.candidates), 1)
+        self.assertEqual(queue.noise, ())
+        self.assertTrue(
+            any(
+                item.reason == "no_url" and "candidate_duplicate" in item.detail
+                for item in queue.dropped
+            )
+        )
+        self.assertTrue(
+            any(item.kind == "candidate_duplicate" for item in queue.overflow)
+        )
+
+    def test_same_names_in_different_domains_do_not_merge(self) -> None:
+        run_edge = make_run(
+            "run-edge",
+            groups=[group("group-e", "Transformer")],
+            documents=[document("document-group-e-0", url="https://example.org/e")],
+            domain="Edge",
+        )
+        run_fin = make_run(
+            "run-fin",
+            groups=[group("group-f", "transformers")],
+            documents=[document("document-group-f-0", url="https://example.org/f")],
+            domain="Финтех",
+        )
+        queue = build_labeling_queue(
+            (run_edge, run_fin),
+            candidate_slots=(
+                CandidateSlot("team-negative-001", "Edge"),
+                CandidateSlot("team-negative-002", "Финтех"),
+            ),
+        )
+
+        self.assertEqual(len(queue.candidates), 2)
+        self.assertFalse(
+            any(item.kind == "candidate_duplicate" for item in queue.overflow)
+        )
+        self.assertEqual(queue.noise, ())
+
+    def test_permuted_runs_keep_duplicate_jsonl(self) -> None:
+        run_a = make_run(
+            "run-a",
+            groups=[group("group-t1", "Transformer")],
+            documents=[document("document-group-t1-0", url="https://example.org/t1")],
+            domain="Edge",
+        )
+        run_b = make_run(
+            "run-b",
+            groups=[group("group-t2", "transformers")],
+            documents=[document("document-group-t2-0", url="https://example.org/t2")],
+            domain="Edge",
+        )
+        slots = (CandidateSlot("team-negative-001", "Edge"),)
+        noise_slots = (NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),)
+
+        first = build_labeling_queue(
+            (run_a, run_b), candidate_slots=slots, noise_slots=noise_slots
+        )
+        second = build_labeling_queue(
+            (run_b, run_a), candidate_slots=slots, noise_slots=noise_slots
+        )
+
+        self.assertEqual(queue_to_jsonl(first), queue_to_jsonl(second))
+        self.assertEqual(first.noise[0].duplicate_of_candidate_id, "team-negative-001")
+        self.assertEqual(
+            [(item.area, item.need, item.missing) for item in first.deficits],
+            [(item.area, item.need, item.missing) for item in second.deficits],
+        )
+        self.assertEqual(
+            [
+                (item.kind, item.key, item.run_id, item.reason)
+                for item in first.overflow
+            ],
+            [
+                (item.kind, item.key, item.run_id, item.reason)
+                for item in second.overflow
+            ],
+        )
+
+    def test_alias_suggestion_path_still_works_alongside(self) -> None:
+        run = make_run(
+            "run-1",
+            groups=[
+                group("group-a", "Transformer", origins=2),
+                group("group-b", "transformers"),
+                group("group-c", "Other Tech"),
+            ],
+            suggestions=[
+                {
+                    "left_group_id": "group-a",
+                    "right_group_id": "group-c",
+                    "reason": "shared_origin_acronym",
+                    "shared_origin_ids": ["origin-1"],
+                }
+            ],
+            documents=[
+                document("document-group-a-0", url="https://example.org/a"),
+                document("document-group-b-0", url="https://example.org/b"),
+                document("document-group-c-0", url="https://example.org/c"),
+            ],
+            domain="Edge",
+        )
+        queue = build_labeling_queue(
+            (run,),
+            candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
+            noise_slots=(
+                NoiseSlot("noise-001", NoiseType.DUPLICATE.value, "Edge"),
+                NoiseSlot("noise-002", NoiseType.DUPLICATE.value, "Edge"),
+            ),
+        )
+
+        self.assertEqual(len(queue.noise), 2)
+        by_text = {item.extracted_text: item for item in queue.noise}
+        self.assertEqual(set(by_text), {"transformers", "Other Tech"})
+        self.assertEqual(by_text["transformers"].origin_kind, "candidate_duplicate")
+        self.assertEqual(
+            by_text["transformers"].duplicate_of_candidate_id, "team-negative-001"
+        )
+        self.assertEqual(by_text["Other Tech"].origin_kind, "alias_suggestion")
+        self.assertFalse(
+            any(item.kind == "candidate_duplicate" for item in queue.overflow)
+        )
+
+
 class QueueEvidenceTests(unittest.TestCase):
     def test_interleaves_directions_respects_cutoff_and_counts_unknowns(self) -> None:
         proposals_documents = []

@@ -166,6 +166,26 @@ class QueueDropped:
 
 
 @dataclass(frozen=True, slots=True)
+class QueueDuplicateProposal:
+    """One queue-level spelling duplicate awaiting manual review.
+
+    A proposal, not a label: the dropped spelling may fill a ``duplicate``
+    noise slot pointing at the queued primary, or stay in dropped/overflow
+    when the link cannot be built honestly.
+    """
+
+    dropped_group_id: str
+    dropped_canonical: str
+    dropped_document_ids: tuple[str, ...]
+    primary_group_id: str
+    run_id: str
+    domain: str
+    source_query: str
+    overflow_key: str = ""
+    reason: str = "equivalent queue identity"
+
+
+@dataclass(frozen=True, slots=True)
 class RunSearchCoverage:
     """Completed source classes searched for one discovery run."""
 
@@ -376,29 +396,49 @@ def _queue_identity_key(name: str) -> str:
 def _suppress_queue_duplicates(
     merged: list[tuple[dict[str, Any], str, str, str]],
     overflow: list[QueueOverflow],
-) -> list[tuple[dict[str, Any], str, str, str]]:
+) -> tuple[list[tuple[dict[str, Any], str, str, str]], list[QueueDuplicateProposal]]:
     """Drop obvious spelling variants before slot filling (queue-level only)."""
 
     seen: set[tuple[str, str]] = set()
+    primary_of: dict[tuple[str, str], str] = {}
     kept: list[tuple[dict[str, Any], str, str, str]] = []
+    duplicates: list[QueueDuplicateProposal] = []
     for item in merged:
         group = item[0]
         identity = _queue_identity_key(str(group.get("canonical_name") or ""))
         scoped_identity = (item[3], identity)
         if identity and scoped_identity in seen:
+            overflow_key = str(group.get("group_id") or group.get("canonical_name"))
             overflow.append(
                 QueueOverflow(
                     kind="candidate_duplicate",
-                    key=str(group.get("group_id") or group.get("canonical_name")),
+                    key=overflow_key,
                     run_id=item[1],
                     reason="equivalent queue identity",
+                )
+            )
+            duplicates.append(
+                QueueDuplicateProposal(
+                    dropped_group_id=str(group.get("group_id") or ""),
+                    dropped_canonical=str(group.get("canonical_name") or "").strip(),
+                    dropped_document_ids=tuple(
+                        str(document_id)
+                        for document_id in (group.get("document_ids") or [])
+                        if isinstance(document_id, str) and document_id.strip()
+                    ),
+                    primary_group_id=primary_of[scoped_identity],
+                    run_id=item[1],
+                    domain=item[3],
+                    source_query=item[2],
+                    overflow_key=overflow_key,
                 )
             )
             continue
         if identity:
             seen.add(scoped_identity)
+            primary_of[scoped_identity] = str(group.get("group_id") or "")
         kept.append(item)
-    return kept
+    return kept, duplicates
 
 
 def _fill_candidates(
@@ -641,6 +681,94 @@ def _noise_pool(
                 }
             )
     return pool
+
+
+def _transfer_candidate_duplicates(
+    pool: dict[str, list[dict[str, Any]]],
+    duplicates: list[QueueDuplicateProposal],
+    primary_index: Mapping[str, str],
+    runs_by_id: Mapping[str, DiscoveryRun],
+    noise_slots: tuple[NoiseSlot, ...],
+    dropped: list[QueueDropped],
+    overflow: list[QueueOverflow],
+) -> None:
+    """Offer queue-level spelling duplicates as ``duplicate`` noise rows.
+
+    Each entry stays a manual-review proposal. A duplicate moves into the
+    duplicate pool — and its suppression-time ``candidate_duplicate``
+    overflow entry is withdrawn as resolved — only when the primary group
+    actually received a candidate_id, a source document with a non-blank
+    URL exists (the first document_id carrying one wins), and a
+    ``duplicate`` noise slot covers the duplicate's domain. Otherwise the
+    reason is recorded in dropped while the overflow entry keeps the
+    variant itself from being lost silently; a pool leftover without a
+    free slot is reported by the standard noise overflow.
+    """
+
+    duplicate_domains = {
+        slot.domain
+        for slot in noise_slots
+        if slot.planned_noise_type == NoiseType.DUPLICATE.value
+    }
+    resolved: set[tuple[str, str]] = set()
+    for proposal in duplicates:
+        primary_candidate_id = primary_index.get(proposal.primary_group_id)
+        if primary_candidate_id is None:
+            dropped.append(
+                QueueDropped(
+                    reason="primary_not_queued",
+                    detail=proposal.dropped_group_id or proposal.dropped_canonical,
+                )
+            )
+            continue
+        text = proposal.dropped_canonical.strip()
+        if not text:
+            dropped.append(
+                QueueDropped(reason="blank_text", detail="candidate_duplicate")
+            )
+            continue
+        run = runs_by_id.get(proposal.run_id)
+        documents = _documents_by_id(run.result) if run is not None else {}
+        url: str | None = None
+        for document_id in proposal.dropped_document_ids:
+            document = documents.get(document_id)
+            if document is None:
+                continue
+            candidate_url = document.get("url")
+            if isinstance(candidate_url, str) and candidate_url.strip():
+                url = candidate_url.strip()
+                break
+        if url is None:
+            dropped.append(
+                QueueDropped(
+                    reason="no_url",
+                    detail=f"candidate_duplicate:{text[:60]}",
+                )
+            )
+            continue
+        if proposal.domain not in duplicate_domains:
+            continue
+        pool.setdefault(NoiseType.DUPLICATE.value, []).append(
+            {
+                "text": text,
+                "url": url,
+                "run_id": proposal.run_id,
+                "domain": proposal.domain,
+                "raw_query": proposal.source_query,
+                "origin_kind": "candidate_duplicate",
+                "duplicate_of": primary_candidate_id,
+            }
+        )
+        resolved.add((proposal.overflow_key, proposal.run_id))
+    if resolved:
+        overflow[:] = [
+            item
+            for item in overflow
+            if not (
+                item.kind == "candidate_duplicate"
+                and (item.key, item.run_id) in resolved
+            )
+        ]
 
 
 def _fill_noise(
@@ -939,9 +1067,18 @@ def build_labeling_queue(
     deficits: list[QueueDeficit] = []
     dropped: list[QueueDropped] = []
     merged = _merged_groups(ordered_runs, domains)
-    merged = _suppress_queue_duplicates(merged, overflow)
+    merged, duplicate_proposals = _suppress_queue_duplicates(merged, overflow)
     queued_candidates = _fill_candidates(merged, candidate_slots, overflow, deficits)
     pool = _noise_pool(ordered_runs, domains, dropped, overflow)
+    _transfer_candidate_duplicates(
+        pool,
+        duplicate_proposals,
+        {item.group_id: item.candidate_id for item in queued_candidates},
+        {run.run_id: run for run in ordered_runs},
+        noise_slots,
+        dropped,
+        overflow,
+    )
     queued_noise = _fill_noise(pool, noise_slots, dropped, overflow, deficits)
     counters = {"unknown_trust": 0, "missing_date": 0, "future_evidence": 0}
     queued_evidence = _fill_evidence(ordered_runs, queued_candidates, counters)
