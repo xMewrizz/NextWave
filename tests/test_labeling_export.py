@@ -49,8 +49,13 @@ def write_run_dir(
     plan = {
         "plan_id": f"plan-{run_id}",
         "scope": {"scope_id": f"scope-{run_id}", "raw_query": "Технологии в ИИ"},
+        "query": {"cutoff_date": CUTOFF},
     }
+    is_complete = analysis_status == "complete"
+    gate_proposals = [] if is_complete else [{"proposal_id": "p1"}]
+    gate_inputs: list = [] if is_complete else []
     result = {
+        "pipeline_version": "discovery-pipeline-v9",
         "alias_resolution": {
             "groups": [
                 {
@@ -65,8 +70,19 @@ def write_run_dir(
             ],
             "review_suggestions": [],
         },
-        "candidate_proposals": {"proposals": [], "exclusions": []},
-        "candidate_gate": {"gate_id": "gate-1", "decisions": []},
+        "candidate_proposals": {"proposals": gate_proposals, "exclusions": []},
+        "candidate_gate": {
+            "gate_id": "yandex-yandexgpt-lite-5-candidate-gate-v4",
+            "input_proposal_ids": gate_inputs,
+            "decisions": [],
+        },
+        "gate_coverage": {
+            "status": analysis_status,
+            "total_proposals": len(gate_proposals),
+            "checked_proposals": len(gate_inputs),
+            "skipped_proposals": 0 if is_complete else 1,
+            "skipped_proposal_ids": [] if is_complete else ["p1"],
+        },
         "text_extraction": {"issues": []},
         "evidence_extraction": {
             "proposals": [
@@ -103,6 +119,8 @@ def write_run_dir(
         "cutoff_date": CUTOFF,
         "domain": domain,
         "analysis_status": analysis_status,
+        "pipeline_version": "discovery-pipeline-v9",
+        "gate_id": "yandex-yandexgpt-lite-5-candidate-gate-v4",
         "counts": {},
         "outputs": [
             {"filename": "plan.json", **digest(plan_bytes)},

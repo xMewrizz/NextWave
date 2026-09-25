@@ -158,6 +158,9 @@ def export_labeling_bundle(
                 "domain": resolve_run_domains((run,), run_domains)[run.run_id],
                 "cutoff_date": run.manifest.get("cutoff_date"),
                 "counts": run.manifest.get("counts"),
+                "pipeline_version": run.result.get("pipeline_version"),
+                "gate_id": (run.result.get("candidate_gate") or {}).get("gate_id"),
+                "analysis_status": run.manifest.get("analysis_status"),
             }
             for run in runs
         ],

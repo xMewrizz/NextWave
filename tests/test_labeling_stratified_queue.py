@@ -505,14 +505,27 @@ class ExportStrataTests(unittest.TestCase):
             plan = {
                 "plan_id": f"plan-{run_id}",
                 "scope": {"scope_id": f"scope-{run_id}", "raw_query": "Технологии в ИИ"},
+                "query": {"cutoff_date": CUTOFF},
             }
             result = {
+                "pipeline_version": "discovery-pipeline-v9",
                 "alias_resolution": {
                     "groups": [group_cross, group_single],
                     "review_suggestions": [],
                 },
                 "candidate_proposals": {"proposals": [], "exclusions": []},
-                "candidate_gate": {"gate_id": "gate-1", "decisions": []},
+                "candidate_gate": {
+                    "gate_id": "yandex-yandexgpt-lite-5-candidate-gate-v4",
+                    "input_proposal_ids": [],
+                    "decisions": [],
+                },
+                "gate_coverage": {
+                    "status": "complete",
+                    "total_proposals": 0,
+                    "checked_proposals": 0,
+                    "skipped_proposals": 0,
+                    "skipped_proposal_ids": [],
+                },
                 "text_extraction": {"issues": []},
                 "evidence_extraction": {"proposals": []},
                 "scientific": {"status": "complete", "documents": []},
@@ -537,6 +550,8 @@ class ExportStrataTests(unittest.TestCase):
                 "cutoff_date": CUTOFF,
                 "domain": "Edge",
                 "analysis_status": "complete",
+                "pipeline_version": "discovery-pipeline-v9",
+                "gate_id": "yandex-yandexgpt-lite-5-candidate-gate-v4",
                 "counts": {},
                 "outputs": [
                     {"filename": "plan.json", **digest(plan_bytes)},
