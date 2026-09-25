@@ -341,6 +341,102 @@ class QueueNoiseTests(unittest.TestCase):
         self.assertEqual(queue.noise[0].origin_kind, "alias_suggestion")
 
 
+def _broad_reject_run(run_id: str, domain: str, name: str, doc_id: str) -> DiscoveryRun:
+    proposal_id = f"proposal-{run_id}"
+    return make_run(
+        run_id,
+        proposals=[{"proposal_id": proposal_id, "canonical_name": name}],
+        decisions=[
+            {
+                "proposal_id": proposal_id,
+                "decision": "reject",
+                "reason": "generic_area",
+                "basis_document_ids": [doc_id],
+                "explanation": "Too broad.",
+            }
+        ],
+        documents=[document(doc_id, url=f"https://example.org/{doc_id}")],
+        domain=domain,
+    )
+
+
+class QueueNoiseDomainTests(unittest.TestCase):
+    def test_missing_first_domain_does_not_block_second(self) -> None:
+        run_infra = _broad_reject_run(
+            "run-infra", "Инфраструктура ИИ", "Infra Broad", "document-infra-1"
+        )
+        slots = (
+            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Edge"),
+            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value, "Инфраструктура ИИ"),
+        )
+
+        queue = build_labeling_queue((run_infra,), noise_slots=slots)
+
+        self.assertEqual([item.noise_id for item in queue.noise], ["noise-002"])
+        self.assertEqual(queue.noise[0].extracted_text, "Infra Broad")
+        self.assertEqual(
+            [(item.area, item.need, item.missing) for item in queue.deficits],
+            [(NoiseType.BROAD_CONCEPT.value, "noise", 1)],
+        )
+        self.assertEqual(queue.overflow, ())
+
+    def test_sparse_pool_does_not_block_later_matches(self) -> None:
+        run_edge = _broad_reject_run("run-edge", "Edge", "Edge Broad", "document-edge-1")
+        run_infra = _broad_reject_run(
+            "run-infra", "Инфраструктура ИИ", "Infra Broad", "document-infra-1"
+        )
+        slots = (
+            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Edge"),
+            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value, "Роботы"),
+            NoiseSlot("noise-003", NoiseType.BROAD_CONCEPT.value, "Инфраструктура ИИ"),
+        )
+
+        queue = build_labeling_queue((run_edge, run_infra), noise_slots=slots)
+
+        self.assertEqual(
+            [item.noise_id for item in queue.noise], ["noise-001", "noise-003"]
+        )
+        self.assertEqual(
+            [(item.area, item.need, item.missing) for item in queue.deficits],
+            [(NoiseType.BROAD_CONCEPT.value, "noise", 1)],
+        )
+
+    def test_single_object_is_used_once(self) -> None:
+        run = _broad_reject_run("run-1", "Edge", "Edge Broad", "document-edge-1")
+        slots = (
+            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Edge"),
+            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value, "Edge"),
+        )
+
+        queue = build_labeling_queue((run,), noise_slots=slots)
+
+        self.assertEqual([item.noise_id for item in queue.noise], ["noise-001"])
+        self.assertEqual(
+            [(item.area, item.need, item.missing) for item in queue.deficits],
+            [(NoiseType.BROAD_CONCEPT.value, "noise", 1)],
+        )
+        self.assertEqual(queue.overflow, ())
+
+    def test_permuted_runs_keep_noise_jsonl(self) -> None:
+        run_edge = _broad_reject_run("run-edge", "Edge", "Edge Broad", "document-edge-1")
+        run_infra = _broad_reject_run(
+            "run-infra", "Инфраструктура ИИ", "Infra Broad", "document-infra-1"
+        )
+        slots = (
+            NoiseSlot("noise-001", NoiseType.BROAD_CONCEPT.value, "Edge"),
+            NoiseSlot("noise-002", NoiseType.BROAD_CONCEPT.value, "Инфраструктура ИИ"),
+        )
+
+        first = build_labeling_queue((run_edge, run_infra), noise_slots=slots)
+        second = build_labeling_queue((run_infra, run_edge), noise_slots=slots)
+
+        self.assertEqual(
+            [item.noise_id for item in first.noise],
+            [item.noise_id for item in second.noise],
+        )
+        self.assertEqual(queue_to_jsonl(first), queue_to_jsonl(second))
+
+
 class QueueEvidenceTests(unittest.TestCase):
     def test_interleaves_directions_respects_cutoff_and_counts_unknowns(self) -> None:
         proposals_documents = []

@@ -678,7 +678,7 @@ def _fill_noise(
         for slot in type_slots:
             item = take_matching(items, slot.domain)
             if item is None:
-                break
+                continue
             document_url = item["url"]
             if not document_url:
                 dropped.append(
