@@ -284,7 +284,10 @@ _TECHNICAL_EVIDENCE_KINDS = {
     EvidenceKind.TECHNICAL_VALIDATION,
     EvidenceKind.PILOT,
 }
-_REQUIRED_SEARCH_CLASSES = set(SearchSourceClass)
+_REQUIRED_SEARCH_CLASSES = {
+    SearchSourceClass.SCIENTIFIC,
+    SearchSourceClass.INDUSTRY,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,9 +348,9 @@ class ModelLabelDecision:
             raise ValueError("reviewed marketing_hype requires a documented publicity wave")
         if self.search_coverage is None:
             raise ValueError("reviewed marketing_hype requires search coverage")
-        if set(self.search_coverage.source_classes) != _REQUIRED_SEARCH_CLASSES:
+        if not _REQUIRED_SEARCH_CLASSES <= set(self.search_coverage.source_classes):
             raise ValueError(
-                "search coverage must include scientific, official and industry sources"
+                "search coverage must include scientific and industry sources"
             )
         technical_origins = {
             item.origin_id

@@ -50,9 +50,45 @@ def make_evidence(
 def complete_coverage() -> SearchCoverage:
     return SearchCoverage(
         queries=("example technology", "example technology pilot"),
-        source_classes=tuple(SearchSourceClass),
+        source_classes=(
+            SearchSourceClass.SCIENTIFIC,
+            SearchSourceClass.INDUSTRY,
+        ),
         searched_at=date(2026, 9, 19),
-        notes="Проверены научные, официальные и отраслевые источники.",
+        notes="Проверены научный и отраслевой контуры.",
+    )
+
+
+def coverage_with(*classes: SearchSourceClass) -> SearchCoverage:
+    return SearchCoverage(
+        queries=("example technology", "example technology pilot"),
+        source_classes=classes,
+        searched_at=date(2026, 9, 19),
+        notes="Проверочное покрытие.",
+    )
+
+
+def hype_evidence() -> tuple:
+    return (
+        make_evidence(1, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-a"),
+        make_evidence(2, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-a"),
+        make_evidence(3, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-b"),
+    )
+
+
+def hype_decision(coverage: SearchCoverage) -> ModelLabelDecision:
+    return ModelLabelDecision(
+        decision_id="decision-hype-001",
+        candidate_id="team-negative-001",
+        review_round=ReviewRound.PRIMARY,
+        status=ReviewStatus.REVIEWED,
+        label=NegativeClass.MARKETING_HYPE,
+        rationale="Публичная волна без технической опоры.",
+        reviewer_id="reviewer-1",
+        annotated_at=date(2026, 9, 19),
+        cutoff_date=LABELING_CUTOFF_DATE,
+        evidence=hype_evidence(),
+        search_coverage=coverage,
     )
 
 
@@ -129,24 +165,40 @@ class LabelingContractTests(unittest.TestCase):
                 search_coverage=complete_coverage(),
             )
 
-    def test_reviewed_hype_accepts_three_items_from_two_origins(self) -> None:
-        evidence = (
-            make_evidence(1, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-a"),
-            make_evidence(2, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-a"),
-            make_evidence(3, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-b"),
-        )
-        decision = ModelLabelDecision(
-            decision_id="decision-hype-001",
-            candidate_id="team-negative-001",
-            review_round=ReviewRound.PRIMARY,
-            status=ReviewStatus.REVIEWED,
-            label=NegativeClass.MARKETING_HYPE,
-            rationale="Публичная волна без технической опоры.",
-            reviewer_id="reviewer-1",
-            annotated_at=date(2026, 9, 19),
-            cutoff_date=LABELING_CUTOFF_DATE,
-            evidence=evidence,
-            search_coverage=complete_coverage(),
+    def test_reviewed_hype_accepts_scientific_and_industry(self) -> None:
+        decision = hype_decision(complete_coverage())
+
+        self.assertEqual(decision.to_dict()["label"], "marketing_hype")
+
+    def test_reviewed_hype_rejects_missing_scientific(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "scientific and industry"
+        ):
+            hype_decision(
+                coverage_with(
+                    SearchSourceClass.INDUSTRY,
+                    SearchSourceClass.OFFICIAL,
+                )
+            )
+
+    def test_reviewed_hype_rejects_missing_industry(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "scientific and industry"
+        ):
+            hype_decision(
+                coverage_with(
+                    SearchSourceClass.SCIENTIFIC,
+                    SearchSourceClass.OFFICIAL,
+                )
+            )
+
+    def test_reviewed_hype_accepts_extra_official_class(self) -> None:
+        decision = hype_decision(
+            coverage_with(
+                SearchSourceClass.SCIENTIFIC,
+                SearchSourceClass.INDUSTRY,
+                SearchSourceClass.OFFICIAL,
+            )
         )
 
         self.assertEqual(decision.to_dict()["label"], "marketing_hype")
