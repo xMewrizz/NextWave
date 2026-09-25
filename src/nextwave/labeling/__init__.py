@@ -29,6 +29,11 @@ from .enrichment_plan import (
     build_enrichment_plan,
     export_enrichment_plan,
 )
+from .enrichment_run import (
+    ENRICHMENT_EXECUTOR_VERSION,
+    LabelingEnrichmentRunPaths,
+    run_enrichment,
+)
 from .export import (
     LABELING_EXPORT_MANIFEST_VERSION,
     LabelingExportPaths,
@@ -67,6 +72,7 @@ __all__ = [
     "QUEUE_SCHEMA_VERSION",
     "RUBRIC_VERSION",
     "CandidateSlot",
+    "ENRICHMENT_EXECUTOR_VERSION",
     "EvidenceDirection",
     "EvidenceKind",
     "GateLabelDecision",
@@ -92,6 +98,7 @@ __all__ = [
     "SourceType",
     "TrustLevel",
     "LabelingEnrichmentPlanPaths",
+    "LabelingEnrichmentRunPaths",
     "LabelingExportPaths",
     "build_enrichment_plan",
     "build_labeling_queue",
@@ -102,4 +109,5 @@ __all__ = [
     "queue_to_jsonl",
     "read_candidate_slots",
     "read_noise_slots",
+    "run_enrichment",
 ]

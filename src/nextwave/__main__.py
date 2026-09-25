@@ -22,6 +22,7 @@ from .discovery import (
     save_discovery_run,
 )
 from .labeling.enrichment_plan import export_enrichment_plan
+from .labeling.enrichment_run import run_enrichment
 from .labeling.export import export_labeling_bundle
 
 
@@ -161,6 +162,34 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data") / "development" / "labeling-enrichment-plan-v1",
         help="новый каталог результата",
+    )
+    enrichment_run = commands.add_parser(
+        "labeling-enrichment-run",
+        help="выполнить план enrichment с возобновляемым work-хранилищем",
+    )
+    enrichment_run.add_argument(
+        "--plan",
+        type=Path,
+        required=True,
+        help="неизменяемый каталог плана (plan.json + manifest.json)",
+    )
+    enrichment_run.add_argument(
+        "--work",
+        type=Path,
+        required=True,
+        help="постоянное рабочее хранилище выполненных запросов",
+    )
+    enrichment_run.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / "labeling-enrichment-result-v1",
+        help="новый каталог результата",
+    )
+    enrichment_run.add_argument(
+        "--env-file",
+        type=Path,
+        default=Path("config") / "hackathon.env",
+        help="файл runtime-настроек; переменные процесса имеют приоритет",
     )
     return parser
 
@@ -344,6 +373,29 @@ def _run_labeling_enrichment_plan(bundle: Path, output: Path) -> int:
     return 0
 
 
+def _run_labeling_enrichment_run(
+    plan: Path, work: Path, output: Path, env_file: Path
+) -> int:
+    try:
+        environment = _runtime_environment(env_file)
+        paths = run_enrichment(
+            plan_dir=plan,
+            work_dir=work,
+            output_dir=output,
+            environment=environment,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось выполнить enrichment: {error}", file=sys.stderr)
+        return 1
+
+    print("Enrichment успешно выполнен.")
+    print(f"Manifest: {paths.manifest}")
+    print(f"Запросы: {paths.request_results}")
+    print(f"Документы: {paths.documents}")
+    print(f"Покрытие: {paths.coverage}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     arguments = parser.parse_args(argv)
@@ -371,6 +423,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if arguments.command == "labeling-enrichment-plan":
         return _run_labeling_enrichment_plan(arguments.bundle, arguments.output)
+    if arguments.command == "labeling-enrichment-run":
+        return _run_labeling_enrichment_run(
+            arguments.plan, arguments.work, arguments.output, arguments.env_file
+        )
     parser.print_help()
     return 0
 
