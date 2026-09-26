@@ -337,6 +337,66 @@ class CommandLineTests(unittest.TestCase):
             self.assertEqual(kwargs["analysis_scope_key"], scope.scope_id)
             self.assertEqual(kwargs["domain"], "Технологии в ИИ")
 
+    @patch("nextwave.__main__.export_enrichment_plan")
+    def test_labeling_enrichment_plan_uses_versioned_default_output(
+        self, export
+    ) -> None:
+        from nextwave.labeling.enrichment_plan import LABELING_ENRICHMENT_PLAN_VERSION
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(["labeling-enrichment-plan", "--bundle", "bundle"])
+
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / LABELING_ENRICHMENT_PLAN_VERSION,
+        )
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data/development/labeling-enrichment-plan-v2"),
+        )
+
+    @patch("nextwave.__main__.run_enrichment")
+    def test_labeling_enrichment_run_uses_versioned_default_output(
+        self, run
+    ) -> None:
+        from nextwave.labeling.enrichment_run import (
+            ENRICHMENT_RESULT_VERSION,
+            LabelingEnrichmentRunPaths,
+        )
+
+        run.return_value = LabelingEnrichmentRunPaths(
+            manifest=Path("out/manifest.json"),
+            request_results=Path("out/request_results.jsonl"),
+            documents=Path("out/documents.jsonl"),
+            coverage=Path("out/coverage.jsonl"),
+        )
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(
+                ["labeling-enrichment-run", "--plan", "plan", "--work", "work"]
+            )
+
+        self.assertEqual(exit_code, 0)
+        _, kwargs = run.call_args
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / ENRICHMENT_RESULT_VERSION,
+        )
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data/development/labeling-enrichment-result-v2"),
+        )
+
+    def test_enrichment_commands_have_no_stale_v1_defaults(self) -> None:
+        from nextwave.__main__ import _build_parser
+
+        help_text = _build_parser().format_help()
+        self.assertNotIn("labeling-enrichment-plan-v1", help_text)
+        self.assertNotIn("labeling-enrichment-result-v1", help_text)
+
 
 if __name__ == "__main__":
     unittest.main()

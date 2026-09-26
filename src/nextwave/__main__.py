@@ -21,8 +21,11 @@ from .discovery import (
     build_query_resolver_from_environment,
     save_discovery_run,
 )
-from .labeling.enrichment_plan import export_enrichment_plan
-from .labeling.enrichment_run import run_enrichment
+from .labeling.enrichment_plan import (
+    LABELING_ENRICHMENT_PLAN_VERSION,
+    export_enrichment_plan,
+)
+from .labeling.enrichment_run import ENRICHMENT_RESULT_VERSION, run_enrichment
 from .labeling.export import export_labeling_bundle
 
 
@@ -160,7 +163,7 @@ def _build_parser() -> argparse.ArgumentParser:
     enrichment_plan.add_argument(
         "--output",
         type=Path,
-        default=Path("data") / "development" / "labeling-enrichment-plan-v1",
+        default=Path("data") / "development" / LABELING_ENRICHMENT_PLAN_VERSION,
         help="новый каталог результата",
     )
     enrichment_run = commands.add_parser(
@@ -182,7 +185,7 @@ def _build_parser() -> argparse.ArgumentParser:
     enrichment_run.add_argument(
         "--output",
         type=Path,
-        default=Path("data") / "development" / "labeling-enrichment-result-v1",
+        default=Path("data") / "development" / ENRICHMENT_RESULT_VERSION,
         help="новый каталог результата",
     )
     enrichment_run.add_argument(
