@@ -138,7 +138,7 @@
 Для отрицательного корпуса поисковыми терминами остаются canonical name и подтверждённые aliases. Для organizer positives обязателен отдельный reviewed-файл:
 
 ```powershell
-python -m nextwave labeling-enrichment-plan --bundle data/processed/organizer-positive-2026-09-15-v1 --search-terms data/development/positive-search-terms.json --output data/development/labeling-enrichment-plan-positive-v2
+python -m nextwave labeling-enrichment-plan --bundle data/processed/organizer-positive-2026-09-15-v1 --search-terms config/positive-search-terms-2026-09-15-v1.json --output data/development/labeling-enrichment-plan-positive-v2
 ```
 
 Файл `--search-terms` имеет версию `labeling-enrichment-search-terms-v1`, содержит SHA-256 точного `positive_candidates.jsonl` и строки `{candidate_id, terms}`. Один кандидат получает от 1 до 3 уникальных NFKC-нормализованных терминов, каждый не длиннее 80 символов и 10 содержательных слов. Термины служат только retrieval-запросами: `canonical_name`, identity, target и group кандидата не меняются. Неизвестный/повторный ID, чужой SHA, пустой или слишком длинный термин останавливают сборку до сети. Неполный список ID создаёт формальный pilot-plan только для указанного подмножества; это позволяет проверить реальную выдачу до дорогого полного запуска.
@@ -146,6 +146,8 @@ python -m nextwave labeling-enrichment-plan --bundle data/processed/organizer-po
 Команда выпускает неизменяемый детерминированный `plan.json` с `manifest.json` атомарно. В manifest входят checksum organizer bundle и reviewed search-terms файла. Для каждого выбранного кандидата создаются `openalex/primary` и `mediacloud/primary` с окнами `[2024-09-15, 2026-09-15]`. OpenAlex выполняет два запроса на термин, отдельно `["en"]` и `["ru"]`: канал `text`, `per_page=20`, одна страница, до 3 попыток, timeout 20с. Media Cloud выполняет один bilingual-запрос `["en", "ru"]`: коллекции `34412234,34412118`, `page_size=40`, одна страница, до 3 попыток, timeout 60с, пауза 30с. Параметры входят в `search_id` и `request_id`; общих OR-выдач нет.
 
 Перед полным organizer-run обязателен пилот на 10 разнородных кандидатах. Оцениваются не только `coverage=complete`, но и `requests_with_documents`, `candidates_with_documents`, число документов по каждому коннектору и parse issues. Успешный ответ с нулём документов остаётся корректным coverage-фактом, но не подтверждает качество retrieval. Полный запуск разрешён только после явной оценки пилота.
+
+Контроль 26.09.2026: пилот на 10 кандидатах дал 505 строк документов, все 10 получили OpenAlex и Media Cloud. Полный план на 100 кандидатах завершил 300/300 запросов без failures и создал 4 786 строк: OpenAlex — 2 725 строк и 100/100 кандидатов, Media Cloud — 2 061 строк и 89/100 кандидатов. 15 OpenAlex-записей без заголовка отклонены парсером. Media Cloud в этом контуре отдаёт заголовок и URL без текста статьи, поэтому его строки нельзя напрямую считать evidence. Retrieval-корпус требует relevance ranking и отбора top-K перед извлечением EvidenceClaim.
 
 План версии v2; планы и work v1 несовместимы. GDELT в labeling enrichment не участвует. Правило `all_planned_requests_successful` относится к техническому покрытию: ошибка, `429`, timeout или пропуск дают `partial/unknown`. Broad discovery не подменяет кандидатское покрытие.
 
