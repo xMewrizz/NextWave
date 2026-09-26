@@ -28,7 +28,7 @@ from .contracts import (
 )
 from .export import LABELING_EXPORT_MANIFEST_VERSION
 
-LABELING_ENRICHMENT_PLAN_VERSION = "labeling-enrichment-plan-v1"
+LABELING_ENRICHMENT_PLAN_VERSION = "labeling-enrichment-plan-v2"
 ENRICHMENT_PLAN_FILENAME = "plan.json"
 ENRICHMENT_MANIFEST_FILENAME = "manifest.json"
 NEGATIVE_CANDIDATES_FILENAME = "negative_candidates.jsonl"
@@ -47,7 +47,7 @@ OPENALEX_RETRIEVAL_POLICY: dict[str, Any] = {
 }
 MEDIACLOUD_COLLECTION_IDS: tuple[int, ...] = (34412234, 34412118)
 MEDIACLOUD_RETRIEVAL_POLICY: dict[str, Any] = {
-    "page_size": 20,
+    "page_size": 40,
     "max_pages_per_request": 1,
     "max_attempts": 3,
     "timeout_seconds": 60,
@@ -130,7 +130,7 @@ def _request_id(
     connector: str,
     role: str,
     search_text: str,
-    language: str,
+    languages: list[str],
     window: tuple[str, str],
     retrieval_policy: Mapping[str, Any],
     collection_ids: tuple[int, ...] = (),
@@ -141,7 +141,7 @@ def _request_id(
         connector,
         role,
         search_text,
-        language,
+        ",".join(languages),
         window[0],
         window[1],
         _canonical_policy(retrieval_policy),
@@ -227,8 +227,9 @@ def _candidate_searches(
         connector: str,
         role: str,
         retrieval_policy: Mapping[str, Any],
+        language_groups: tuple[tuple[str, ...], ...],
         collection_ids: tuple[int, ...] = (),
-    ) -> list[dict[str, str]]:
+    ) -> list[dict[str, Any]]:
         return [
             {
                 "request_id": _request_id(
@@ -236,25 +237,31 @@ def _candidate_searches(
                     connector,
                     role,
                     term,
-                    language,
+                    list(languages),
                     full_window,
                     retrieval_policy,
                     collection_ids,
                 ),
                 "search_text": term,
-                "language": language,
+                "languages": list(languages),
             }
             for term in terms
-            for language in LANGUAGES
+            for languages in language_groups
         ]
 
     scientific_policy = dict(OPENALEX_RETRIEVAL_POLICY)
     scientific_coverage = dict(policy)
-    scientific_requests = requests("openalex", "primary", OPENALEX_RETRIEVAL_POLICY)
+    scientific_requests = requests(
+        "openalex", "primary", OPENALEX_RETRIEVAL_POLICY, (("en",), ("ru",))
+    )
     industry_policy = dict(MEDIACLOUD_RETRIEVAL_POLICY)
     industry_coverage = {**policy, "fallback": None}
     industry_requests = requests(
-        "mediacloud", "primary", MEDIACLOUD_RETRIEVAL_POLICY, MEDIACLOUD_COLLECTION_IDS
+        "mediacloud",
+        "primary",
+        MEDIACLOUD_RETRIEVAL_POLICY,
+        (("en", "ru"),),
+        MEDIACLOUD_COLLECTION_IDS,
     )
     return [
         {

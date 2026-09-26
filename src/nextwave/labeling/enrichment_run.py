@@ -57,11 +57,11 @@ from .enrichment_plan import (
     _windows,
 )
 
-ENRICHMENT_EXECUTOR_VERSION = "labeling-enrichment-executor-v1"
-ENRICHMENT_RESULT_VERSION = "labeling-enrichment-result-v1"
-ENRICHMENT_WORK_VERSION = "labeling-enrichment-work-v1"
-ENRICHMENT_REQUEST_VERSION = "labeling-enrichment-request-v1"
-ENRICHMENT_CACHE_VERSION = "labeling-enrichment-cache-v1"
+ENRICHMENT_EXECUTOR_VERSION = "labeling-enrichment-executor-v2"
+ENRICHMENT_RESULT_VERSION = "labeling-enrichment-result-v2"
+ENRICHMENT_WORK_VERSION = "labeling-enrichment-work-v2"
+ENRICHMENT_REQUEST_VERSION = "labeling-enrichment-request-v2"
+ENRICHMENT_CACHE_VERSION = "labeling-enrichment-cache-v2"
 
 PLAN_FILENAME = "plan.json"
 RUN_MANIFEST_FILENAME = "manifest.json"
@@ -137,7 +137,7 @@ def _request_spec(
         "candidate_id": candidate.get("candidate_id"),
         "search_id": search.get("search_id"),
         "search_text": request.get("search_text"),
-        "language": request.get("language"),
+        "languages": request.get("languages"),
         "connector": search.get("connector"),
         "role": search.get("role"),
         "planned_window": {"from": window.get("from"), "until": window.get("until")},
@@ -242,17 +242,48 @@ def _validate_search_task(
     for request in requests:
         if not isinstance(request, dict):
             raise ValueError(f"candidate {candidate_id!r} holds a non-object request")
-        for field in ("request_id", "search_text", "language"):
+        for field in ("request_id", "search_text"):
             value = request.get(field)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(
                     f"candidate {candidate_id!r} request field {field!r} "
                     "must be a non-blank string"
                 )
-        if request["language"] not in search["languages"]:
+        if "language" in request:
             raise ValueError(
-                f"candidate {candidate_id!r} request language "
-                f"{request['language']!r} is not in the search languages"
+                f"candidate {candidate_id!r} request {request['request_id']!r} "
+                "uses the retired singular field 'language'; "
+                "v2 requires 'languages'"
+            )
+        languages = request.get("languages")
+        if (
+            not isinstance(languages, list)
+            or not languages
+            or any(not isinstance(item, str) or not item.strip() for item in languages)
+        ):
+            raise ValueError(
+                f"candidate {candidate_id!r} request languages "
+                "must be a non-empty list of non-blank strings"
+            )
+        if len(set(languages)) != len(languages):
+            raise ValueError(
+                f"candidate {candidate_id!r} request languages must be unique"
+            )
+        if any(item not in LANGUAGES for item in languages):
+            raise ValueError(
+                f"candidate {candidate_id!r} request languages "
+                f"{languages!r} use an unsupported language"
+            )
+        if connector == "openalex":
+            if languages != ["en"] and languages != ["ru"]:
+                raise ValueError(
+                    f"candidate {candidate_id!r} openalex request must carry "
+                    'exactly ["en"] or ["ru"]'
+                )
+        elif languages != ["en", "ru"]:
+            raise ValueError(
+                f"candidate {candidate_id!r} mediacloud request must carry "
+                'exactly ["en", "ru"] in order'
             )
         if _SAFE_ID.fullmatch(request["request_id"]) is None:
             raise ValueError(
@@ -276,11 +307,11 @@ def _validate_search_task(
             "does not match the scheduler recomputation"
         )
     actual_ids = [
-        (item["request_id"], item["search_text"], item["language"])
+        (item["request_id"], item["search_text"], tuple(item["languages"]))
         for item in requests
     ]
     recomputed_ids = [
-        (item["request_id"], item["search_text"], item["language"])
+        (item["request_id"], item["search_text"], tuple(item["languages"]))
         for item in expected["requests"]
     ]
     if actual_ids != recomputed_ids:
@@ -309,7 +340,7 @@ def _validate_search_task(
                     page_size=search["retrieval_policy"]["page_size"],
                     page_index=1,
                     attempt=1,
-                    languages=(request["language"],),
+                    languages=tuple(request["languages"]),
                 )
         except (ValueError, TypeError) as error:
             raise ValueError(
@@ -672,7 +703,7 @@ def _check_completed_cache(
         "connector",
         "role",
         "search_text",
-        "language",
+        "languages",
     ):
         if result.get(field) != spec.get(field):
             raise ValueError(
@@ -849,7 +880,7 @@ def _build_query(
         published_from=date.fromisoformat(str(window.get("from"))),
         published_until=date.fromisoformat(str(window.get("until"))),
         cutoff_date=date.fromisoformat("2026-09-15"),
-        languages=(request["language"],),
+        languages=tuple(request["languages"]),
     )
 
 
@@ -923,7 +954,7 @@ def _execute_request(
                     page_size=policy.get("page_size", 20),
                     page_index=1,
                     attempt=attempt,
-                    languages=(request["language"],),
+                    languages=tuple(request["languages"]),
                 )
             runs.append(run)
             if run.status is ConnectorStatus.SUCCESS:
@@ -1139,7 +1170,7 @@ def run_enrichment(
                             "connector": search["connector"],
                             "role": search.get("role"),
                             "search_text": request["search_text"],
-                            "language": request["language"],
+                            "languages": list(request["languages"]),
                             "spec_digest": spec_digest,
                             "snapshot_id": "snapshot",
                             "status": "success",
@@ -1222,7 +1253,7 @@ def run_enrichment(
                         "connector": search["connector"],
                         "role": search.get("role"),
                         "search_text": request["search_text"],
-                        "language": request["language"],
+                        "languages": list(request["languages"]),
                         "status": status,
                         "reused": reused,
                         "attempts": len(attempts or []),

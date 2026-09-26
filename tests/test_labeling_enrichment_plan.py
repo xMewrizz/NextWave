@@ -142,7 +142,7 @@ class EnrichmentPlanTests(unittest.TestCase):
             self.assertIn(("scientific", "openalex"), classes)
             self.assertIn(("industry", "mediacloud"), classes)
 
-    def test_requests_are_per_term_per_language_with_stable_ids(self) -> None:
+    def test_request_counts_follow_connector_formula(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             bundle = write_bundle(
@@ -156,47 +156,77 @@ class EnrichmentPlanTests(unittest.TestCase):
             )
             export_enrichment_plan(bundle_dir=bundle, output_dir=root / "plan")
             entry = load_plan(root / "plan")["candidates"][0]
+            scientific = next(
+                s for s in entry["searches"] if s["connector"] == "openalex"
+            )
+            industry = next(
+                s for s in entry["searches"] if s["connector"] == "mediacloud"
+            )
 
+            # N terms -> N x 2 openalex requests, N mediacloud requests.
+            self.assertEqual(
+                [(r["search_text"], r["languages"]) for r in scientific["requests"]],
+                [
+                    ("Tech One", ["en"]),
+                    ("Tech One", ["ru"]),
+                    ("Second", ["en"]),
+                    ("Second", ["ru"]),
+                    ("Third", ["en"]),
+                    ("Third", ["ru"]),
+                ],
+            )
+            self.assertEqual(
+                [(r["search_text"], r["languages"]) for r in industry["requests"]],
+                [
+                    ("Tech One", ["en", "ru"]),
+                    ("Second", ["en", "ru"]),
+                    ("Third", ["en", "ru"]),
+                ],
+            )
             for search in entry["searches"]:
                 self.assertEqual(
-                    [(r["search_text"], r["language"]) for r in search["requests"]],
-                    [
-                        ("Tech One", "en"),
-                        ("Tech One", "ru"),
-                        ("Second", "en"),
-                        ("Second", "ru"),
-                        ("Third", "en"),
-                        ("Third", "ru"),
-                    ],
+                    len({r["request_id"] for r in search["requests"]}),
+                    len(search["requests"]),
                 )
-                self.assertEqual(len({r["request_id"] for r in search["requests"]}), 6)
                 self.assertTrue(
                     all(
                         r["request_id"].startswith("request-")
                         for r in search["requests"]
                     )
                 )
+                self.assertFalse(any("language" in r for r in search["requests"]))
             export_enrichment_plan(bundle_dir=bundle, output_dir=root / "plan-2")
             again = load_plan(root / "plan-2")["candidates"][0]
             self.assertEqual(entry["searches"], again["searches"])
 
-    def test_language_changes_request_id(self) -> None:
+    def test_languages_change_request_id(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             bundle = write_bundle(root, "bundle", [candidate_row(1)])
             export_enrichment_plan(bundle_dir=bundle, output_dir=root / "plan")
             entry = load_plan(root / "plan")["candidates"][0]
 
-            for search in entry["searches"]:
-                by_text: dict[str, set[str]] = {}
-                for request in search["requests"]:
-                    by_text.setdefault(request["search_text"], set()).add(
-                        request["request_id"]
-                    )
-                self.assertTrue(
-                    all(len(ids) == 2 for ids in by_text.values()),
-                    "en and ru requests must have distinct ids",
+            scientific = next(
+                s for s in entry["searches"] if s["connector"] == "openalex"
+            )
+            by_text: dict[str, set[str]] = {}
+            for request in scientific["requests"]:
+                by_text.setdefault(request["search_text"], set()).add(
+                    request["request_id"]
                 )
+            self.assertTrue(
+                all(len(ids) == 2 for ids in by_text.values()),
+                "en and ru requests must have distinct ids",
+            )
+            industry = next(
+                s for s in entry["searches"] if s["connector"] == "mediacloud"
+            )
+            self.assertTrue(
+                all(
+                    request["languages"] == ["en", "ru"]
+                    for request in industry["requests"]
+                )
+            )
 
     def test_totals_match_request_elements(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -222,9 +252,9 @@ class EnrichmentPlanTests(unittest.TestCase):
 
             self.assertEqual(plan["totals"]["openalex_primary_requests"], count("openalex"))
             self.assertEqual(plan["totals"]["mediacloud_primary_requests"], count("mediacloud"))
-            # (canonical + aliases) x (en + ru) per task.
+            # OpenAlex: (canonical + aliases) x (en + ru); Media Cloud: one per term.
             self.assertEqual(plan["totals"]["openalex_primary_requests"], (2 + 1) * 2)
-            self.assertEqual(plan["totals"]["mediacloud_primary_requests"], (2 + 1) * 2)
+            self.assertEqual(plan["totals"]["mediacloud_primary_requests"], 2 + 1)
 
     def test_retrieval_policies_and_completion_rule(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -254,7 +284,7 @@ class EnrichmentPlanTests(unittest.TestCase):
             self.assertEqual(
                 industry["retrieval_policy"],
                 {
-                    "page_size": 20,
+                    "page_size": 40,
                     "max_pages_per_request": 1,
                     "max_attempts": 3,
                     "timeout_seconds": 60,
@@ -587,11 +617,11 @@ class RequestIdentityTests(unittest.TestCase):
 
         self.assertNotEqual(
             enrichment_plan_module._request_id(
-                "team-negative-001", "openalex", "primary", "Tech", "en",
+                "team-negative-001", "openalex", "primary", "Tech", ["en"],
                 self.WINDOW, base, (),
             ),
             enrichment_plan_module._request_id(
-                "team-negative-001", "openalex", "primary", "Tech", "en",
+                "team-negative-001", "openalex", "primary", "Tech", ["en"],
                 self.WINDOW, changed, (),
             ),
         )
@@ -602,11 +632,11 @@ class RequestIdentityTests(unittest.TestCase):
 
         self.assertNotEqual(
             enrichment_plan_module._request_id(
-                "team-negative-001", "mediacloud", "primary", "Tech", "en",
+                "team-negative-001", "mediacloud", "primary", "Tech", ["en", "ru"],
                 self.WINDOW, base, MEDIACLOUD_COLLECTION_IDS,
             ),
             enrichment_plan_module._request_id(
-                "team-negative-001", "mediacloud", "primary", "Tech", "en",
+                "team-negative-001", "mediacloud", "primary", "Tech", ["en", "ru"],
                 self.WINDOW, changed, MEDIACLOUD_COLLECTION_IDS,
             ),
         )
@@ -614,24 +644,34 @@ class RequestIdentityTests(unittest.TestCase):
     def test_mediacloud_collections_change_request_id(self) -> None:
         self.assertNotEqual(
             enrichment_plan_module._request_id(
-                "team-negative-001", "mediacloud", "primary", "Tech", "en",
+                "team-negative-001", "mediacloud", "primary", "Tech", ["en", "ru"],
                 self.WINDOW, MEDIACLOUD_RETRIEVAL_POLICY, MEDIACLOUD_COLLECTION_IDS,
             ),
             enrichment_plan_module._request_id(
-                "team-negative-001", "mediacloud", "primary", "Tech", "en",
+                "team-negative-001", "mediacloud", "primary", "Tech", ["en", "ru"],
                 self.WINDOW, MEDIACLOUD_RETRIEVAL_POLICY, (34412234,),
             ),
         )
 
-    def test_language_changes_request_id(self) -> None:
+    def test_languages_change_request_id(self) -> None:
         self.assertNotEqual(
             enrichment_plan_module._request_id(
-                "team-negative-001", "openalex", "primary", "Tech", "en",
+                "team-negative-001", "openalex", "primary", "Tech", ["en"],
                 self.WINDOW, OPENALEX_RETRIEVAL_POLICY, (),
             ),
             enrichment_plan_module._request_id(
-                "team-negative-001", "openalex", "primary", "Tech", "ru",
+                "team-negative-001", "openalex", "primary", "Tech", ["ru"],
                 self.WINDOW, OPENALEX_RETRIEVAL_POLICY, (),
+            ),
+        )
+        self.assertNotEqual(
+            enrichment_plan_module._request_id(
+                "team-negative-001", "mediacloud", "primary", "Tech", ["en", "ru"],
+                self.WINDOW, MEDIACLOUD_RETRIEVAL_POLICY, MEDIACLOUD_COLLECTION_IDS,
+            ),
+            enrichment_plan_module._request_id(
+                "team-negative-001", "mediacloud", "primary", "Tech", ["ru", "en"],
+                self.WINDOW, MEDIACLOUD_RETRIEVAL_POLICY, MEDIACLOUD_COLLECTION_IDS,
             ),
         )
 
@@ -660,11 +700,11 @@ class RequestIdentityTests(unittest.TestCase):
     def test_ids_are_deterministic(self) -> None:
         self.assertEqual(
             enrichment_plan_module._request_id(
-                "team-negative-001", "mediacloud", "primary", "Tech", "ru",
+                "team-negative-001", "mediacloud", "primary", "Tech", ["en", "ru"],
                 self.WINDOW, MEDIACLOUD_RETRIEVAL_POLICY, MEDIACLOUD_COLLECTION_IDS,
             ),
             enrichment_plan_module._request_id(
-                "team-negative-001", "mediacloud", "primary", "Tech", "ru",
+                "team-negative-001", "mediacloud", "primary", "Tech", ["en", "ru"],
                 self.WINDOW, MEDIACLOUD_RETRIEVAL_POLICY, MEDIACLOUD_COLLECTION_IDS,
             ),
         )
@@ -684,7 +724,7 @@ class RequestIdentityTests(unittest.TestCase):
         )
 
 
-def probe_query(search_text: str, language: str, index: int):
+def probe_query(search_text: str, languages: list[str], index: int):
     return SourceQuery(
         query_id=f"probe-{index:04d}",
         analysis_scope_id="scope-probe",
@@ -695,7 +735,7 @@ def probe_query(search_text: str, language: str, index: int):
         published_from=date(2024, 9, 15),
         published_until=date(2026, 9, 15),
         cutoff_date=date(2026, 9, 15),
-        languages=(language,),
+        languages=tuple(languages),
     )
 
 
@@ -718,7 +758,7 @@ class ExecutabilityTests(unittest.TestCase):
                 for search in entry["searches"]:
                     for request in search["requests"]:
                         query = probe_query(
-                            request["search_text"], request["language"], built
+                            request["search_text"], request["languages"], built
                         )
                         if search["connector"] == "openalex":
                             built_request = build_openalex_request(
@@ -737,17 +777,18 @@ class ExecutabilityTests(unittest.TestCase):
                                 search_text=request["search_text"],
                                 collection_ids=tuple(search["collection_ids"]),
                                 page_size=search["retrieval_policy"]["page_size"],
-                                languages=(request["language"],),
+                                languages=tuple(request["languages"]),
                             )
                             params = {
                                 p.name: p.value for p in built_request.parameters
                             }
-                            self.assertEqual(params["page_size"], "20")
+                            self.assertEqual(params["page_size"], "40")
                             self.assertEqual(params["cs"], "34412234,34412118")
                         built += 1
 
-            # 2 candidates x (1 canonical + 1 alias) x 2 languages x 2 connectors.
-            self.assertEqual(built, 2 * 2 * 2 * 2)
+            # OpenAlex: 2 candidates x (1 canonical + 1 alias) x 2 languages;
+            # Media Cloud: 2 candidates x (1 canonical + 1 alias) x 1 bilingual.
+            self.assertEqual(built, 2 * 2 * 2 + 2 * 2)
 
 
 if __name__ == "__main__":

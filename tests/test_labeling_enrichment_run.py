@@ -394,16 +394,21 @@ class EnrichmentRunTests(unittest.TestCase):
                 openalex_transport=oa_transport, mediacloud_transport=mc_transport,
             )
 
-            for connector_transport in (oa_transport, mc_transport):
+            expected = {
+                "openalex": {"retry-once": 3, "timeout-once": 3, "bad-request": 2},
+                "mediacloud": {"retry-once": 2, "timeout-once": 2, "bad-request": 1},
+            }
+            for connector_transport, connector in (
+                (oa_transport, "openalex"),
+                (mc_transport, "mediacloud"),
+            ):
                 counts = {
                     marker: sum(
                         1 for call in connector_transport.calls if marker in call[0]
                     )
                     for marker in ("retry-once", "timeout-once", "bad-request")
                 }
-                self.assertEqual(counts["retry-once"], 3)
-                self.assertEqual(counts["timeout-once"], 3)
-                self.assertEqual(counts["bad-request"], 2)
+                self.assertEqual(counts, expected[connector])
             results = {
                 row["search_text"]: row
                 for row in read_jsonl(root / "out-1" / "request_results.jsonl")
@@ -416,7 +421,9 @@ class EnrichmentRunTests(unittest.TestCase):
     def test_single_mediacloud_connector_keeps_global_interval(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            plan = build_plan_output(root, "run", [candidate_row(1, aliases=[])])
+            plan = build_plan_output(
+                root, "run", [candidate_row(1, aliases=["Second"])]
+            )
             transport = FakeTransport()
             sleeper = FakeSleeper()
             run_with_fakes(
@@ -742,7 +749,7 @@ class StrictValidationTests(unittest.TestCase):
                         ]
                     }
                 ),
-                "not in the search languages",
+                "retired singular field",
             ),
         ]
         for name, mutate_search, pattern in cases:
@@ -985,12 +992,18 @@ class StrictValidationTests(unittest.TestCase):
                 self.assertEqual(row["returned_records"], 2)
                 self.assertEqual(row["returned_documents"], 1)
                 self.assertEqual(row["parse_issue_count"], 1)
-            coverage = read_jsonl(root / "out-1" / "coverage.jsonl")
-            for row in coverage:
+            coverage = {
+                row["connector"]: row
+                for row in read_jsonl(root / "out-1" / "coverage.jsonl")
+            }
+            for row in coverage.values():
                 self.assertEqual(row["status"], "complete")
-                self.assertEqual(row["returned_records"], 4)
-                self.assertEqual(row["returned_documents"], 2)
-                self.assertEqual(row["parse_issue_count"], 2)
+            self.assertEqual(coverage["openalex"]["returned_records"], 4)
+            self.assertEqual(coverage["openalex"]["returned_documents"], 2)
+            self.assertEqual(coverage["openalex"]["parse_issue_count"], 2)
+            self.assertEqual(coverage["mediacloud"]["returned_records"], 2)
+            self.assertEqual(coverage["mediacloud"]["returned_documents"], 1)
+            self.assertEqual(coverage["mediacloud"]["parse_issue_count"], 1)
 
     def test_contract_error_has_no_assertion(self) -> None:
         from nextwave.labeling.enrichment_run import _execute_request
@@ -1012,7 +1025,7 @@ class StrictValidationTests(unittest.TestCase):
                 request={
                     "request_id": "request-0123456789abcdef",
                     "search_text": "y" * 300,
-                    "language": "en",
+                    "languages": ["en"],
                 },
                 window={"from": "2024-09-15", "until": "2026-09-15"},
                 openalex_connector=OpenAlexConnector(transport=transport),
@@ -1043,7 +1056,7 @@ class StrictValidationTests(unittest.TestCase):
                 plan, root / "work", root / "out-1", transport, sleeper=sleeper
             )
 
-            self.assertEqual(sleeper.calls.count(45.0), 4)
+            self.assertEqual(sleeper.calls.count(45.0), 3)
             results = read_jsonl(root / "out-1" / "request_results.jsonl")
             self.assertTrue(all(row["status"] == "success" for row in results))
 
@@ -1060,7 +1073,7 @@ class StrictValidationTests(unittest.TestCase):
             )
 
             self.assertNotIn(45.0, sleeper.calls)
-            self.assertEqual(sleeper.calls.count(5.0), 4)
+            self.assertEqual(sleeper.calls.count(5.0), 3)
             results = read_jsonl(root / "out-1" / "request_results.jsonl")
             self.assertTrue(all(row["status"] == "success" for row in results))
 
@@ -1216,7 +1229,7 @@ class StrictValidationTests(unittest.TestCase):
             )
 
             self.assertEqual(
-                sum(1 for call in transport.calls if "retry-after-3600" in call[0]), 4
+                sum(1 for call in transport.calls if "retry-after-3600" in call[0]), 3
             )
             self.assertTrue(all(delay < 120.0 for delay in sleeper.calls))
             self.assertNotIn(3600.0, sleeper.calls)
@@ -1230,6 +1243,143 @@ class StrictValidationTests(unittest.TestCase):
                 self.assertTrue(row["error"]["retry_deferred"])
             coverage = read_jsonl(root / "out-1" / "coverage.jsonl")
             self.assertTrue(all(row["status"] == "unknown" for row in coverage))
+
+    def test_v1_plan_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(root, "run", [candidate_row(1)])
+            for name in ("plan.json", "manifest.json"):
+                path = plan / name
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload["schema_version"] = "labeling-enrichment-plan-v1"
+                path.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+                    + "\n",
+                    encoding="utf-8",
+                )
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                run_with_fakes(plan, root / "work", root / "out-1", FakeTransport())
+            self.assertFalse((root / "work").exists())
+            self.assertFalse((root / "out-1").exists())
+
+    def test_v2_plan_accepted_without_singular_language(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(root, "run", [candidate_row(1)])
+            transport = FakeTransport()
+            run_with_fakes(plan, root / "work", root / "out-1", transport)
+
+            rows = read_jsonl(root / "out-1" / "request_results.jsonl")
+            self.assertTrue(all(isinstance(row["languages"], list) for row in rows))
+            self.assertTrue(all("language" not in row for row in rows))
+
+    def test_bad_languages_shapes_are_rejected(self) -> None:
+        cases = [
+            ("empty", []),
+            ("duplicate", ["en", "en"]),
+            ("unknown", ["xx"]),
+            ("wrong_order", ["ru", "en"]),
+        ]
+        for name, languages in cases:
+            with self.subTest(shape=name):
+                with tempfile.TemporaryDirectory() as directory:
+                    root = Path(directory)
+
+                    def mutate(plan_data, _languages=languages) -> None:
+                        entry = plan_data["candidates"][0]
+                        target = next(
+                            s
+                            for s in entry["searches"]
+                            if s["connector"] == "mediacloud"
+                        )
+                        target["requests"][0]["languages"] = _languages
+
+                    plan_dir = build_tampered_plan(
+                        root, "run", [candidate_row(1)], mutate
+                    )
+                    with self.assertRaises(ValueError):
+                        run_with_fakes(
+                            plan_dir, root / "work", root / "out-1", FakeTransport()
+                        )
+                    self.assertFalse((root / "work").exists())
+                    self.assertFalse((root / "out-1").exists())
+
+    def test_split_bilingual_request_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def mutate(plan_data) -> None:
+                entry = plan_data["candidates"][0]
+                target = next(
+                    s for s in entry["searches"] if s["connector"] == "mediacloud"
+                )
+                first = target["requests"][0]
+                target["requests"] = [
+                    dict(
+                        first,
+                        request_id=first["request_id"] + "-en",
+                        languages=["en"],
+                    ),
+                    dict(
+                        first,
+                        request_id=first["request_id"] + "-ru",
+                        languages=["ru"],
+                    ),
+                ]
+
+            plan_dir = build_tampered_plan(root, "run", [candidate_row(1)], mutate)
+            with self.assertRaises(ValueError):
+                run_with_fakes(plan_dir, root / "work", root / "out-1", FakeTransport())
+            self.assertFalse((root / "work").exists())
+            self.assertFalse((root / "out-1").exists())
+
+    def test_languages_substitution_in_cache_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(root, "run", [candidate_row(1)])
+            transport = FakeTransport()
+            run_with_fakes(plan, root / "work", root / "out-1", transport)
+            plan_data = json.loads((plan / "plan.json").read_text(encoding="utf-8"))
+            request_id = plan_data["candidates"][0]["searches"][0]["requests"][0][
+                "request_id"
+            ]
+            completed = root / "work" / "completed" / request_id
+            result_path = completed / "result.json"
+            result = json.loads(result_path.read_text(encoding="utf-8"))
+            result["languages"] = ["ru"]
+            result_bytes = (
+                json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+            ).encode("utf-8")
+            result_path.write_bytes(result_bytes)
+            cache_path = completed / "cache_manifest.json"
+            cache = json.loads(cache_path.read_text(encoding="utf-8"))
+            cache["result"] = {
+                "size_bytes": len(result_bytes),
+                "sha256": hashlib.sha256(result_bytes).hexdigest(),
+            }
+            cache_path.write_text(
+                json.dumps(cache, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "mismatch"):
+                run_with_fakes(plan, root / "work", root / "out-2", transport)
+            self.assertFalse((root / "out-2").exists())
+
+    def test_mediacloud_planned_count_is_per_term(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(
+                root, "run", [candidate_row(1, aliases=["Second", "Third"])]
+            )
+            transport = FakeTransport()
+            run_with_fakes(plan, root / "work", root / "out-1", transport)
+            coverage = {
+                row["connector"]: row
+                for row in read_jsonl(root / "out-1" / "coverage.jsonl")
+            }
+
+            self.assertEqual(coverage["openalex"]["planned_requests"], 6)
+            self.assertEqual(coverage["mediacloud"]["planned_requests"], 3)
 
 
 if __name__ == "__main__":
