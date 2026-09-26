@@ -26,6 +26,10 @@ from .labeling.enrichment_plan import (
     export_enrichment_plan,
 )
 from .labeling.enrichment_run import ENRICHMENT_RESULT_VERSION, run_enrichment
+from .labeling.evidence_input_plan import (
+    LABELING_EVIDENCE_INPUT_PLAN_VERSION,
+    export_evidence_input_plan,
+)
 from .labeling.export import export_labeling_bundle
 from .labeling.media_fetch_run import (
     LABELING_MEDIA_FETCH_RESULT_VERSION,
@@ -255,6 +259,40 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=Path("data") / "development" / LABELING_MEDIA_FETCH_RESULT_VERSION,
+        help="новый каталог результата",
+    )
+    evidence_input_plan = commands.add_parser(
+        "labeling-evidence-input-plan",
+        help="переоценить media-тексты и собрать единый вход Evidence LLM",
+    )
+    evidence_input_plan.add_argument(
+        "--plan",
+        type=Path,
+        required=True,
+        help="неизменяемый каталог плана enrichment (plan.json + manifest.json)",
+    )
+    evidence_input_plan.add_argument(
+        "--result",
+        type=Path,
+        required=True,
+        help="неизменяемый каталог результата enrichment",
+    )
+    evidence_input_plan.add_argument(
+        "--relevance",
+        type=Path,
+        required=True,
+        help="каталог relevance-плана (shortlist + очередь + manifest.json)",
+    )
+    evidence_input_plan.add_argument(
+        "--media",
+        type=Path,
+        required=True,
+        help="каталог результата загрузки media-страниц",
+    )
+    evidence_input_plan.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / LABELING_EVIDENCE_INPUT_PLAN_VERSION,
         help="новый каталог результата",
     )
     return parser
@@ -510,6 +548,29 @@ def _run_labeling_media_fetch_run(
     return 0
 
 
+def _run_labeling_evidence_input_plan(
+    plan: Path, result: Path, relevance: Path, media: Path, output: Path
+) -> int:
+    try:
+        paths = export_evidence_input_plan(
+            plan_dir=plan,
+            result_dir=result,
+            relevance_dir=relevance,
+            media_dir=media,
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось построить evidence-вход: {error}", file=sys.stderr)
+        return 1
+
+    print("Evidence-вход успешно построен.")
+    print(f"Переоценка: {paths.media_reranked}")
+    print(f"Документы: {paths.evidence_input_documents}")
+    print(f"Покрытие: {paths.coverage}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     arguments = parser.parse_args(argv)
@@ -550,6 +611,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "labeling-media-fetch-run":
         return _run_labeling_media_fetch_run(
             arguments.relevance, arguments.result, arguments.work, arguments.output
+        )
+    if arguments.command == "labeling-evidence-input-plan":
+        return _run_labeling_evidence_input_plan(
+            arguments.plan,
+            arguments.result,
+            arguments.relevance,
+            arguments.media,
+            arguments.output,
         )
     parser.print_help()
     return 0
