@@ -44,6 +44,10 @@ class FakeTransport:
             return HttpResponse(500, {}, b'{"error": true}')
         if "bad-request" in url:
             return HttpResponse(400, {}, b'{"error": true}')
+        if "syntax-fallback" in url:
+            self._hits["syntax-fallback"] = self._hits.get("syntax-fallback", 0) + 1
+            if self._hits["syntax-fallback"] == 1:
+                return HttpResponse(400, {}, b'{"error": true}')
         if "corrupt-body" in url:
             return HttpResponse(
                 200, {"Content-Type": "application/json"}, b"not json{["
@@ -397,7 +401,7 @@ class EnrichmentRunTests(unittest.TestCase):
 
             expected = {
                 "openalex": {"retry-once": 3, "timeout-once": 3, "bad-request": 2},
-                "mediacloud": {"retry-once": 2, "timeout-once": 2, "bad-request": 1},
+                "mediacloud": {"retry-once": 2, "timeout-once": 2, "bad-request": 2},
             }
             for connector_transport, connector in (
                 (oa_transport, "openalex"),
@@ -418,6 +422,39 @@ class EnrichmentRunTests(unittest.TestCase):
             self.assertEqual(results["timeout-once"]["status"], "success")
             self.assertEqual(results["bad-request"]["status"], "failed")
             self.assertEqual(results["bad-request"]["error"]["code"], "http_400")
+
+    def test_mediacloud_http_400_retries_with_safe_query_syntax(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            unsafe = "syntax-fallback «engineering intelligence»: + ИИ"
+            plan = build_plan_output(
+                root,
+                "run",
+                [candidate_row(1, canonical_name=unsafe, aliases=[])],
+            )
+            oa_transport, mc_transport = FakeTransport(), FakeTransport()
+
+            run_with_fakes(
+                plan,
+                root / "work",
+                root / "out-1",
+                None,
+                openalex_transport=oa_transport,
+                mediacloud_transport=mc_transport,
+            )
+
+            calls = [url for url, _, _ in mc_transport.calls]
+            self.assertEqual(len(calls), 2)
+            self.assertNotEqual(calls[0], calls[1])
+            self.assertIn("%C2%AB", calls[0])
+            self.assertNotIn("%C2%AB", calls[1])
+            result = next(
+                row
+                for row in read_jsonl(root / "out-1" / "request_results.jsonl")
+                if row["connector"] == "mediacloud"
+            )
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(result["attempts"], 2)
 
     def test_single_mediacloud_connector_keeps_global_interval(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

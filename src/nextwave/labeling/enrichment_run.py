@@ -934,6 +934,7 @@ def _execute_request(
         writer = SnapshotWriter(staging, "snapshot")
         runs: list[ConnectorRun] = []
         deferred: dict[str, Any] = {}
+        media_safe_syntax = False
         for attempt in range(1, max_attempts + 1):
             if connector_id == "openalex":
                 run = openalex_connector.run_page(
@@ -955,10 +956,19 @@ def _execute_request(
                     page_index=1,
                     attempt=attempt,
                     languages=tuple(request["languages"]),
+                    safe_syntax=media_safe_syntax,
                 )
             runs.append(run)
             if run.status is ConnectorStatus.SUCCESS:
                 break
+            if (
+                connector_id == "mediacloud"
+                and not media_safe_syntax
+                and run.http_status == 400
+                and attempt < max_attempts
+            ):
+                media_safe_syntax = True
+                continue
             if run.error is None or not run.error.retryable:
                 break
             if attempt >= max_attempts:

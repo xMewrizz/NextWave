@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
@@ -30,6 +31,8 @@ MEDIACLOUD_STORY_LIST_ENDPOINT = (
 MEDIACLOUD_COUNT_OVER_TIME_ENDPOINT = (
     "https://search.mediacloud.org/api/search/count-over-time"
 )
+
+_CONTENT_TERM = re.compile(r"[^\W_]+(?:-[^\W_]+)*", re.UNICODE)
 MEDIACLOUD_PLATFORM = "onlinenews-mediacloud"
 
 
@@ -63,13 +66,19 @@ def _search_expression(
     query: SourceQuery,
     search_text: str,
     languages: tuple[str, ...] | None = None,
+    *,
+    safe_syntax: bool = False,
 ) -> str:
     if search_text not in query.search_texts:
         raise ValueError("search_text must be one of SourceQuery.search_texts")
     normalized = search_text.strip()
     if not normalized or '"' in normalized or "\\" in normalized:
         raise ValueError("Media Cloud search_text must be a plain non-blank phrase")
-    words = normalized.split()
+    words = (
+        _CONTENT_TERM.findall(normalized)
+        if safe_syntax
+        else normalized.split()
+    )
     if len(words) <= 2:
         # Short phrases occur verbatim in news; proven live ("fintech solutions").
         subject = f'"{normalized}"'
@@ -114,6 +123,7 @@ def build_mediacloud_story_request(
     page_index: int = 1,
     attempt: int = 1,
     languages: tuple[str, ...] | None = None,
+    safe_syntax: bool = False,
 ) -> ConnectorRequest:
     """Build one deterministic page request against selected news collections."""
 
@@ -125,7 +135,15 @@ def build_mediacloud_story_request(
         QueryParameter("end", query.published_until.isoformat()),
         QueryParameter("page_size", str(page_size)),
         QueryParameter("platform", MEDIACLOUD_PLATFORM),
-        QueryParameter("q", _search_expression(query, search_text, languages)),
+        QueryParameter(
+            "q",
+            _search_expression(
+                query,
+                search_text,
+                languages,
+                safe_syntax=safe_syntax,
+            ),
+        ),
         QueryParameter("sort_order", "desc"),
         QueryParameter("start", query.published_from.isoformat()),
     ]
@@ -266,6 +284,7 @@ class MediaCloudConnector:
         page_index: int = 1,
         attempt: int = 1,
         languages: tuple[str, ...] | None = None,
+        safe_syntax: bool = False,
     ) -> ConnectorRun:
         request = build_mediacloud_story_request(
             query,
@@ -276,6 +295,7 @@ class MediaCloudConnector:
             page_index=page_index,
             attempt=attempt,
             languages=languages,
+            safe_syntax=safe_syntax,
         )
         return self._run_request(request, writer)
 
