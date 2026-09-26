@@ -294,5 +294,55 @@ class CandidateVerificationTests(unittest.TestCase):
         self.assertEqual(pauses, [5.0])
 
 
+class HeaderCapturingTransport:
+    def __init__(self, *responses):
+        self._responses = iter(responses)
+        self.calls: list[tuple[str, dict]] = []
+
+    def get(self, url, *, headers, timeout_seconds):
+        self.calls.append((url, dict(headers)))
+        return next(self._responses)
+
+
+class CandidateVerificationApiKeyTests(unittest.TestCase):
+    def test_forwards_api_key_as_bearer_header(self):
+        discovery_plan = plan()
+        transport = HeaderCapturingTransport(response("Speculative decoding works"))
+        with tempfile.TemporaryDirectory() as directory:
+            CandidateVerificationExecutor(
+                Path(directory),
+                transport=transport,
+                api_key="openalex-free-key-1",
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(
+                discovery_plan,
+                aliases(discovery_plan.scope.scope_id, "Speculative decoding"),
+            )
+
+        self.assertTrue(transport.calls)
+        for url, headers in transport.calls:
+            self.assertEqual(headers["Authorization"], "Bearer openalex-free-key-1")
+            self.assertNotIn("openalex-free-key-1", url)
+
+    def test_anonymous_verification_sends_no_authorization(self):
+        discovery_plan = plan()
+        transport = HeaderCapturingTransport(response("Speculative decoding works"))
+        with tempfile.TemporaryDirectory() as directory:
+            CandidateVerificationExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(
+                discovery_plan,
+                aliases(discovery_plan.scope.scope_id, "Speculative decoding"),
+            )
+
+        self.assertTrue(transport.calls)
+        for _, headers in transport.calls:
+            self.assertNotIn("Authorization", headers)
+
+
 if __name__ == "__main__":
     unittest.main()

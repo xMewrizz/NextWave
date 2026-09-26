@@ -37,6 +37,7 @@ from nextwave.sources import (
     SourceQuery,
     build_mediacloud_story_request,
     build_openalex_request,
+    normalize_openalex_api_key,
     parse_mediacloud_response,
     parse_openalex_response,
     publish_staging,
@@ -1077,6 +1078,9 @@ def run_enrichment(
     if not api_key:
         raise ValueError("NEXTWAVE_MEDIACLOUD_API_KEY is required to run enrichment")
     contact_email = (environment.get("NEXTWAVE_OPENALEX_MAILTO") or "").strip() or None
+    openalex_api_key = normalize_openalex_api_key(
+        environment.get("NEXTWAVE_OPENALEX_API_KEY")
+    )
 
     scientific_tasks = [
         search
@@ -1095,6 +1099,7 @@ def run_enrichment(
     openalex_connector = OpenAlexConnector(
         transport=openalex_transport,
         contact_email=contact_email,
+        api_key=openalex_api_key,
         timeout_seconds=float(openalex_policy.get("timeout_seconds", 20)),
         clock=now,
     )

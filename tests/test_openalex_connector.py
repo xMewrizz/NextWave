@@ -12,6 +12,7 @@ from nextwave.sources import (
     HttpResponse,
     OpenAlexConnector,
     RetrievalChannel,
+    SnapshotManifest,
     SnapshotWriter,
     SourceQuery,
     build_openalex_request,
@@ -365,6 +366,108 @@ class OpenAlexConnectorTests(unittest.TestCase):
         self.assertIsNotNone(run.artifact)
         self.assertIsNone(run.returned_records)
         self.assertEqual(run.error.code, "invalid_response")
+
+
+class OpenAlexApiKeyTests(unittest.TestCase):
+    SECRET = "openalex-free-key-1"
+
+    def _run(self, response, **kwargs):
+        transport = FakeTransport(response)
+        connector = OpenAlexConnector(
+            transport=transport, clock=fixed_clock(), **kwargs
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run = connector.run_page(
+                make_query(),
+                SnapshotWriter(Path(temp_dir), "snapshot-ai-001"),
+                channel=RetrievalChannel.TEXT,
+                search_text="artificial intelligence",
+            )
+        return transport, run
+
+    @staticmethod
+    def _ok_response():
+        return HttpResponse(
+            200, {"Content-Type": "application/json"}, b'{"results":[]}'
+        )
+
+    def test_anonymous_connector_sends_no_authorization(self) -> None:
+        transport, _ = self._run(self._ok_response())
+
+        _, headers, _ = transport.calls[0]
+        self.assertNotIn("Authorization", headers)
+
+    def test_api_key_sends_exact_bearer_header(self) -> None:
+        transport, _ = self._run(self._ok_response(), api_key=self.SECRET)
+
+        _, headers, _ = transport.calls[0]
+        self.assertEqual(headers["Authorization"], f"Bearer {self.SECRET}")
+
+    def test_blank_api_key_keeps_anonymous_behavior(self) -> None:
+        for blank in (None, "", "   "):
+            transport, _ = self._run(self._ok_response(), api_key=blank)
+
+            _, headers, _ = transport.calls[0]
+            self.assertNotIn("Authorization", headers)
+
+    def test_api_key_is_stripped_before_use(self) -> None:
+        transport, _ = self._run(
+            self._ok_response(), api_key=f"  {self.SECRET}  "
+        )
+
+        _, headers, _ = transport.calls[0]
+        self.assertEqual(headers["Authorization"], f"Bearer {self.SECRET}")
+
+    def test_api_key_never_leaks_into_url_artifacts_or_errors(self) -> None:
+        transport, run = self._run(
+            self._ok_response(),
+            api_key=self.SECRET,
+            contact_email="team@example.com",
+        )
+
+        url, _, _ = transport.calls[0]
+        self.assertIn("mailto=team%40example.com", url)
+        self.assertNotIn(self.SECRET, url)
+        self.assertNotIn(self.SECRET, json.dumps(run.request.to_dict()))
+        self.assertNotIn(self.SECRET, json.dumps(run.to_dict()))
+
+        manifest = SnapshotManifest(
+            snapshot_id="snapshot-ai-001",
+            snapshot_version="openalex-discovery-v1",
+            analysis_id="analysis-ai-001",
+            created_at=NOW,
+            query=make_query(),
+            runs=(run,),
+        )
+        self.assertNotIn(self.SECRET, json.dumps(manifest.to_dict()))
+
+        _, failed = self._run(
+            HttpResponse(500, {"Content-Type": "application/json"}, b"{}"),
+            api_key=self.SECRET,
+        )
+        self.assertNotIn(self.SECRET, failed.error.message)
+
+    def test_transport_exception_with_key_stays_out_of_error_and_manifest(self) -> None:
+        transport, run = self._run(
+            RuntimeError(f"Authorization: Bearer {self.SECRET}"),
+            api_key=self.SECRET,
+        )
+
+        self.assertIs(run.status, ConnectorStatus.FAILED)
+        self.assertEqual(run.error.code, "network_error")
+        self.assertEqual(run.error.message, "RuntimeError: OpenAlex request failed")
+        self.assertNotIn(self.SECRET, run.error.message)
+        self.assertNotIn(self.SECRET, json.dumps(run.to_dict()))
+
+        manifest = SnapshotManifest(
+            snapshot_id="snapshot-ai-001",
+            snapshot_version="openalex-discovery-v1",
+            analysis_id="analysis-ai-001",
+            created_at=NOW,
+            query=make_query(),
+            runs=(run,),
+        )
+        self.assertNotIn(self.SECRET, json.dumps(manifest.to_dict()))
 
 
 if __name__ == "__main__":

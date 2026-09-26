@@ -25,6 +25,7 @@ from nextwave.sources import (
     SnapshotStatus,
     SnapshotWriter,
     SourceQuery,
+    normalize_openalex_api_key,
     parse_openalex_response,
 )
 
@@ -188,6 +189,7 @@ class OpenAlexDiscoveryExecutor:
         *,
         transport: HttpTransport | None = None,
         contact_email: str | None = None,
+        api_key: str | None = None,
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] | None = None,
         sleeper: Callable[[float], None] | None = None,
@@ -195,6 +197,7 @@ class OpenAlexDiscoveryExecutor:
         self._snapshot_root = snapshot_root
         self._transport = transport
         self._contact_email = contact_email
+        self._api_key = normalize_openalex_api_key(api_key)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._monotonic = monotonic or time.monotonic
         self._sleeper = sleeper
@@ -267,6 +270,7 @@ class OpenAlexDiscoveryExecutor:
         connector = OpenAlexConnector(
             transport=self._transport,
             contact_email=self._contact_email,
+            api_key=self._api_key,
             timeout_seconds=budget.request_timeout_seconds,
             clock=self._clock,
         )

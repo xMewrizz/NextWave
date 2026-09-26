@@ -45,6 +45,19 @@ OPENALEX_SELECT_FIELDS = (
 )
 
 
+def normalize_openalex_api_key(value: str | None) -> str | None:
+    """Normalize an optional OpenAlex API key without logging or storing blanks.
+
+    ``None`` or a blank string means anonymous access; a non-blank value is
+    stripped and kept only in a private field, never in URLs or artifacts.
+    """
+
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def _request_digest(
     query: SourceQuery,
     channel: RetrievalChannel,
@@ -155,6 +168,7 @@ class OpenAlexConnector:
         *,
         transport: HttpTransport | None = None,
         contact_email: str | None = None,
+        api_key: str | None = None,
         timeout_seconds: float = 20.0,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -162,6 +176,7 @@ class OpenAlexConnector:
             raise ValueError("timeout_seconds must be positive")
         self._transport = transport or UrllibHttpTransport()
         self._contact_email = contact_email
+        self._api_key = normalize_openalex_api_key(api_key)
         self._timeout_seconds = timeout_seconds
         self._clock = clock or (lambda: datetime.now(UTC))
 
@@ -190,6 +205,8 @@ class OpenAlexConnector:
             "Accept": "application/json",
             "User-Agent": "NextWave/0.1",
         }
+        if self._api_key is not None:
+            headers["Authorization"] = f"Bearer {self._api_key}"
 
         try:
             response = self._transport.get(
@@ -210,7 +227,7 @@ class OpenAlexConnector:
                 artifact=None,
                 error=ConnectorError(
                     code="network_error",
-                    message=f"{type(error).__name__}: {error}",
+                    message=f"{type(error).__name__}: OpenAlex request failed",
                     retryable=True,
                 ),
             )

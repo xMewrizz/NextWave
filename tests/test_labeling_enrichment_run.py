@@ -219,12 +219,13 @@ def run_with_fakes(
     sleeper=None,
     openalex_transport=None,
     mediacloud_transport=None,
+    env: dict[str, str] | None = None,
 ):
     return run_enrichment(
         plan_dir=plan,
         work_dir=work,
         output_dir=output,
-        environment=environment(),
+        environment=env if env is not None else environment(),
         openalex_transport=openalex_transport or transport,
         mediacloud_transport=mediacloud_transport or transport,
         clock=clock or FakeClock(),
@@ -677,6 +678,143 @@ class EnrichmentRunTests(unittest.TestCase):
             blob = scan_bytes(root / "out-1") + stdout.getvalue().encode()
             for secret in (FAKE_KEY, FAKE_FOLDER):
                 self.assertNotIn(secret.encode(), blob)
+
+
+class FailAllOpenAlexTransport(FakeTransport):
+    """Fail every OpenAlex call; Media Cloud behaves like the fake default."""
+
+    def get(self, url: str, *, headers, timeout_seconds: float) -> HttpResponse:
+        if "openalex" in url:
+            self.calls.append((url, dict(headers), timeout_seconds))
+            return HttpResponse(500, {}, b'{"error": true}')
+        return super().get(url, headers=headers, timeout_seconds=timeout_seconds)
+
+
+def completed_spec_map(work: Path) -> dict[str, str]:
+    mapping = {}
+    for result_path in sorted((work / "completed").rglob("result.json")):
+        payload = json.loads(result_path.read_text(encoding="utf-8"))
+        mapping[payload["request_id"]] = payload["spec_digest"]
+    return mapping
+
+
+def openalex_calls(transport: FakeTransport) -> list[tuple]:
+    return [call for call in transport.calls if "openalex" in call[0]]
+
+
+def mediacloud_calls(transport: FakeTransport) -> list[tuple]:
+    return [call for call in transport.calls if "openalex" not in call[0]]
+
+
+class OpenAlexApiKeyEnrichmentTests(unittest.TestCase):
+    SECRET = "openalex-free-key-1"
+
+    def test_key_sends_bearer_and_keeps_request_ids_and_digests(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(root, "run", [candidate_row(1)])
+            anonymous_transport = FakeTransport()
+            run_with_fakes(plan, root / "work-anon", root / "out-anon", anonymous_transport)
+            keyed_env = environment() | {"NEXTWAVE_OPENALEX_API_KEY": f"  {self.SECRET}  "}
+            keyed_transport = FakeTransport()
+            run_with_fakes(
+                plan, root / "work-key", root / "out-key", keyed_transport, env=keyed_env
+            )
+
+            keyed_openalex = openalex_calls(keyed_transport)
+            self.assertTrue(keyed_openalex)
+            for _, headers, _ in keyed_openalex:
+                self.assertEqual(headers["Authorization"], f"Bearer {self.SECRET}")
+            for url, _, _ in keyed_transport.calls:
+                self.assertNotIn(self.SECRET, url)
+            for _, headers, _ in openalex_calls(anonymous_transport):
+                self.assertNotIn("Authorization", headers)
+
+            self.assertEqual(
+                completed_spec_map(root / "work-key"),
+                completed_spec_map(root / "work-anon"),
+            )
+            anon_results = read_jsonl(root / "out-anon" / "request_results.jsonl")
+            keyed_results = read_jsonl(root / "out-key" / "request_results.jsonl")
+            self.assertEqual(
+                [row["request_id"] for row in keyed_results],
+                [row["request_id"] for row in anon_results],
+            )
+
+    def test_resume_reuses_completed_and_retries_only_failed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(root, "run", [candidate_row(1)])
+            failing = FailAllOpenAlexTransport()
+            run_with_fakes(
+                plan,
+                root / "work",
+                root / "out-1",
+                openalex_transport=failing,
+                mediacloud_transport=FakeTransport(),
+            )
+            first = read_jsonl(root / "out-1" / "request_results.jsonl")
+            failed_openalex = {
+                row["request_id"]
+                for row in first
+                if row["connector"] == "openalex" and row["status"] == "failed"
+            }
+            self.assertTrue(failed_openalex)
+            self.assertTrue(
+                all(
+                    row["status"] == "success"
+                    for row in first
+                    if row["connector"] == "mediacloud"
+                )
+            )
+
+            keyed_env = environment() | {"NEXTWAVE_OPENALEX_API_KEY": self.SECRET}
+            second_transport = FakeTransport()
+            run_with_fakes(
+                plan, root / "work", root / "out-2", second_transport, env=keyed_env
+            )
+
+            self.assertEqual(mediacloud_calls(second_transport), [])
+            self.assertEqual(len(openalex_calls(second_transport)), len(failed_openalex))
+            for _, headers, _ in openalex_calls(second_transport):
+                self.assertEqual(headers["Authorization"], f"Bearer {self.SECRET}")
+
+            second = read_jsonl(root / "out-2" / "request_results.jsonl")
+            for row in second:
+                if row["connector"] == "mediacloud":
+                    self.assertTrue(row["reused"])
+                else:
+                    self.assertFalse(row["reused"])
+            coverage = read_jsonl(root / "out-2" / "coverage.jsonl")
+            self.assertTrue(all(row["status"] == "complete" for row in coverage))
+
+    def test_blank_key_keeps_anonymous_behavior(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(root, "run", [candidate_row(1)])
+            transport = FakeTransport()
+            blank_env = environment() | {"NEXTWAVE_OPENALEX_API_KEY": "   "}
+            run_with_fakes(plan, root / "work", root / "out-1", transport, env=blank_env)
+
+            for _, headers, _ in openalex_calls(transport):
+                self.assertNotIn("Authorization", headers)
+
+    def test_mediacloud_unaffected_by_openalex_key(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(root, "run", [candidate_row(1)])
+            transport = FakeTransport()
+            keyed_env = environment() | {"NEXTWAVE_OPENALEX_API_KEY": self.SECRET}
+            run_with_fakes(plan, root / "work", root / "out-1", transport, env=keyed_env)
+
+            media = mediacloud_calls(transport)
+            self.assertTrue(media)
+            for url, headers, _ in media:
+                self.assertEqual(headers["Authorization"], f"Token {FAKE_KEY}")
+                self.assertNotIn("Bearer", headers["Authorization"])
+                self.assertNotIn(self.SECRET, url)
+            blob = scan_bytes(root / "out-1")
+            self.assertNotIn(self.SECRET.encode(), blob)
 
 
 def build_tampered_plan(root: Path, name: str, rows: list[dict], mutate) -> Path:

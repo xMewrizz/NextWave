@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 from urllib.parse import urlencode
 
-from nextwave.sources import HttpTransport, UrllibHttpTransport
+from nextwave.sources import HttpTransport, UrllibHttpTransport, normalize_openalex_api_key
 
 from .contracts import (
     AnalysisScope,
@@ -166,12 +166,14 @@ class OpenAlexTaxonomySource:
         *,
         transport: HttpTransport | None = None,
         contact_email: str | None = None,
+        api_key: str | None = None,
         timeout_seconds: float = 20.0,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         self._transport = transport or UrllibHttpTransport()
         self._contact_email = contact_email
+        self._api_key = normalize_openalex_api_key(api_key)
         self._timeout_seconds = timeout_seconds
 
     def search(
@@ -200,11 +202,18 @@ class OpenAlexTaxonomySource:
         parameters = urlencode(raw_parameters)
         url = f"{OPENALEX_API_ROOT}/{entity_path}?{parameters}"
         headers = {"Accept": "application/json", "User-Agent": "NextWave/0.1"}
-        response = self._transport.get(
-            url,
-            headers=headers,
-            timeout_seconds=self._timeout_seconds,
-        )
+        if self._api_key is not None:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        try:
+            response = self._transport.get(
+                url,
+                headers=headers,
+                timeout_seconds=self._timeout_seconds,
+            )
+        except Exception as error:
+            raise RuntimeError(
+                f"{type(error).__name__}: OpenAlex taxonomy request failed"
+            ) from None
         if not 200 <= response.status_code <= 299:
             raise RuntimeError(f"OpenAlex taxonomy lookup returned HTTP {response.status_code}")
         return parse_openalex_taxonomy_response(response.body, level)
@@ -413,5 +422,9 @@ def build_query_resolver_from_environment(
     )
     return QueryResolver(
         interpreter,
-        OpenAlexTaxonomySource(transport=taxonomy_transport),
+        OpenAlexTaxonomySource(
+            transport=taxonomy_transport,
+            contact_email=environment.get("NEXTWAVE_OPENALEX_MAILTO") or None,
+            api_key=normalize_openalex_api_key(environment.get("NEXTWAVE_OPENALEX_API_KEY")),
+        ),
     )

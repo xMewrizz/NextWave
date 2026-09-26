@@ -84,6 +84,7 @@ from .openalex import (
     OPENALEX_WORKS_ENDPOINT,
     OpenAlexConnector,
     build_openalex_request,
+    normalize_openalex_api_key,
     openalex_request_url,
 )
 from .openalex_parser import (
@@ -159,6 +160,7 @@ __all__ = [
     "SourceQuery",
     "UrllibHttpTransport",
     "build_openalex_request",
+    "normalize_openalex_api_key",
     "build_crossref_request",
     "build_gdelt_request",
     "build_gdelt_timeline_request",

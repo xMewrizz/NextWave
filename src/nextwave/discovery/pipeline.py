@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from nextwave.contracts import SourceDocument
+from nextwave.sources import normalize_openalex_api_key
 
 from .alias_resolution import AliasResolutionResult, resolve_candidate_aliases
 from .candidate_gate import (
@@ -301,10 +302,14 @@ def build_discovery_pipeline_from_environment(
 
     from .media_executor import parse_mediacloud_collection_ids
 
+    openalex_api_key = normalize_openalex_api_key(
+        environment.get("NEXTWAVE_OPENALEX_API_KEY")
+    )
     return DiscoveryPipeline(
         OpenAlexDiscoveryExecutor(
             snapshot_root,
             contact_email=environment.get("NEXTWAVE_OPENALEX_MAILTO") or None,
+            api_key=openalex_api_key,
         ),
         MediaDiscoveryExecutor(
             snapshot_root,
@@ -316,6 +321,7 @@ def build_discovery_pipeline_from_environment(
         CandidateVerificationExecutor(
             snapshot_root,
             contact_email=environment.get("NEXTWAVE_OPENALEX_MAILTO") or None,
+            api_key=openalex_api_key,
         ),
         build_evidence_extractor_from_environment(environment),
     )

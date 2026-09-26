@@ -24,6 +24,7 @@ from nextwave.discovery import (
     StructuredCandidateMentionExtractor,
     StructuredEvidenceExtractor,
     build_analysis_scope,
+    build_discovery_pipeline_from_environment,
     build_discovery_plan,
     split_gate_batch,
 )
@@ -444,6 +445,42 @@ class DiscoveryProgressTests(unittest.TestCase):
             ],
         )
         self.assertIn("3 documents", events[0])
+
+
+class DiscoveryPipelineBuilderTests(unittest.TestCase):
+    @staticmethod
+    def _environment(**overrides):
+        env = {
+            "NEXTWAVE_LLM_PROVIDER": "yandex",
+            "NEXTWAVE_LLM_MODEL": "YandexGPT Lite 5",
+            "NEXTWAVE_LLM_API_KEY": "temporary-secret",
+            "NEXTWAVE_YANDEX_FOLDER_ID": "folder-1",
+            "NEXTWAVE_OPENALEX_MAILTO": "team@example.com",
+            "NEXTWAVE_MEDIACLOUD_API_KEY": "temporary-mc-key",
+        }
+        env.update(overrides)
+        return env
+
+    def test_builder_passes_openalex_key_to_scientific_and_verification(self) -> None:
+        pipeline = build_discovery_pipeline_from_environment(
+            self._environment(NEXTWAVE_OPENALEX_API_KEY="  openalex-free-key-1  ")
+        )
+
+        self.assertEqual(
+            pipeline._scientific_executor._api_key, "openalex-free-key-1"
+        )
+        self.assertEqual(
+            pipeline._verification_executor._api_key, "openalex-free-key-1"
+        )
+        self.assertEqual(
+            pipeline._scientific_executor._contact_email, "team@example.com"
+        )
+
+    def test_builder_without_key_keeps_anonymous_executors(self) -> None:
+        pipeline = build_discovery_pipeline_from_environment(self._environment())
+
+        self.assertIsNone(pipeline._scientific_executor._api_key)
+        self.assertIsNone(pipeline._verification_executor._api_key)
 
 
 if __name__ == "__main__":

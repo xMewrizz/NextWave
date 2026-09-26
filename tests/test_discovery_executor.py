@@ -378,5 +378,44 @@ class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
         self.assertIs(result.usage.stop_reason, DiscoveryStopReason.ELAPSED_BUDGET)
 
 
+class OpenAlexDiscoveryExecutorApiKeyTests(unittest.TestCase):
+    def test_forwards_api_key_as_bearer_on_every_call(self) -> None:
+        transport = SequenceTransport(
+            [response(work("W1", doi="10.1234/one")), response(), response(), response()]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                api_key="  openalex-free-key-1  ",
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(plan())
+
+        self.assertTrue(transport.calls)
+        for url, headers, _ in transport.calls:
+            self.assertEqual(headers["Authorization"], "Bearer openalex-free-key-1")
+            self.assertNotIn("openalex-free-key-1", url)
+
+    def test_blank_api_key_keeps_anonymous_behavior(self) -> None:
+        transport = SequenceTransport(
+            [response(work("W1", doi="10.1234/one")), response(), response(), response()]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                api_key="   ",
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(plan())
+
+        self.assertTrue(transport.calls)
+        for _, headers, _ in transport.calls:
+            self.assertNotIn("Authorization", headers)
+
+
 if __name__ == "__main__":
     unittest.main()
