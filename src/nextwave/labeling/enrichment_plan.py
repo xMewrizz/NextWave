@@ -1,6 +1,6 @@
 """Deterministic offline plan for candidate evidence enrichment.
 
-The command only validates one labeling-export bundle and emits an
+The command validates one supported candidate bundle and emits an
 immutable per-candidate search plan with executable per-term requests for
 the OpenAlex and Media Cloud connectors. No network calls happen here and
 no search is executed: a future executor will report a successful response
@@ -21,6 +21,14 @@ from pathlib import Path
 from typing import Any
 
 from ..datasets.artifacts import publish_artifact_bundle
+from ..datasets.contracts import (
+    MANIFEST_SCHEMA_VERSION as ORGANIZER_MANIFEST_VERSION,
+)
+from ..datasets.contracts import (
+    POSITIVE_SCHEMA_VERSION,
+    IdentityStatus,
+    PositiveCandidateRecord,
+)
 from .contracts import (
     LABELING_CUTOFF_DATE,
     NEGATIVE_CANDIDATE_SCHEMA_VERSION,
@@ -32,10 +40,12 @@ LABELING_ENRICHMENT_PLAN_VERSION = "labeling-enrichment-plan-v2"
 ENRICHMENT_PLAN_FILENAME = "plan.json"
 ENRICHMENT_MANIFEST_FILENAME = "manifest.json"
 NEGATIVE_CANDIDATES_FILENAME = "negative_candidates.jsonl"
+POSITIVE_CANDIDATES_FILENAME = "positive_candidates.jsonl"
 
 _HISTORY_DAYS = 730
 _RECENT_DAYS = 365
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
+_CANDIDATE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\Z")
 
 LANGUAGES: tuple[str, ...] = ("en", "ru")
 OPENALEX_RETRIEVAL_POLICY: dict[str, Any] = {
@@ -62,6 +72,41 @@ class LabelingEnrichmentPlanPaths:
 
     plan: Path
     manifest: Path
+
+
+@dataclass(frozen=True, slots=True)
+class _EnrichmentCandidateRecord:
+    """Leak-safe candidate identity shared by positive and negative bundles."""
+
+    candidate_id: str
+    canonical_name: str
+    aliases: tuple[str, ...]
+    group_id: str
+    source_query: str
+    domain: str
+    analysis_scope_key: str
+    cutoff_date: date
+
+    def __post_init__(self) -> None:
+        if _CANDIDATE_ID.fullmatch(self.candidate_id) is None:
+            raise ValueError("candidate_id must be a safe stable identifier")
+        if _CANDIDATE_ID.fullmatch(self.group_id) is None:
+            raise ValueError("group_id must be a safe stable identifier")
+        for field, value in (
+            ("canonical_name", self.canonical_name),
+            ("source_query", self.source_query),
+            ("domain", self.domain),
+            ("analysis_scope_key", self.analysis_scope_key),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field} must be a non-blank string")
+        normalized_aliases = [alias.strip().casefold() for alias in self.aliases]
+        if any(not alias for alias in normalized_aliases):
+            raise ValueError("aliases must not contain blank values")
+        if len(set(normalized_aliases)) != len(normalized_aliases):
+            raise ValueError("aliases must be unique")
+        if self.canonical_name.strip().casefold() in normalized_aliases:
+            raise ValueError("aliases must not repeat canonical_name")
 
 
 def _clean_term(value: str) -> str:
@@ -92,7 +137,9 @@ def _stable_id(*parts: str) -> str:
     return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
-def _bundle_id(records: list[NegativeCandidateRecord]) -> str:
+def _bundle_id(
+    records: list[NegativeCandidateRecord | _EnrichmentCandidateRecord],
+) -> str:
     """Semantic bundle identity: version, cutoff and canonical candidates."""
 
     lines = [
@@ -368,6 +415,228 @@ def _parse_candidate(payload: Any, lineno: int) -> NegativeCandidateRecord:
         raise ValueError(f"negative candidate line {lineno} is invalid: {error}") from error
 
 
+def _parse_positive_candidate(payload: Any, lineno: int) -> _EnrichmentCandidateRecord:
+    """Map the leak-safe organizer candidate projection to the shared search shape."""
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"positive candidate line {lineno} must be a JSON object")
+    if payload.get("schema_version") != POSITIVE_SCHEMA_VERSION:
+        raise ValueError(
+            f"positive candidate line {lineno} schema "
+            f"{payload.get('schema_version')!r} does not match "
+            f"{POSITIVE_SCHEMA_VERSION!r}"
+        )
+    aliases = payload.get("aliases")
+    if not isinstance(aliases, list) or any(not isinstance(item, str) for item in aliases):
+        raise ValueError(f"positive candidate line {lineno} aliases must be a list of strings")
+    candidate_id = payload.get("record_id")
+    canonical_name = payload.get("canonical_name")
+    group_id = payload.get("group_id")
+    domain = payload.get("domain")
+    analysis_scope_key = payload.get("analysis_scope_key")
+    cutoff_raw = payload.get("cutoff_date")
+    for field, value in (
+        ("record_id", candidate_id),
+        ("canonical_name", canonical_name),
+        ("group_id", group_id),
+        ("domain", domain),
+        ("analysis_scope_key", analysis_scope_key),
+        ("cutoff_date", cutoff_raw),
+    ):
+        if not isinstance(value, str):
+            raise ValueError(
+                f"positive candidate line {lineno} field {field!r} must be a string"
+            )
+    if (
+        payload.get("label") != "weak_signal"
+        or payload.get("target") != 1
+        or payload.get("label_origin") != "organizer_confirmed"
+    ):
+        raise ValueError(
+            f"positive candidate line {lineno} does not hold the organizer positive label"
+        )
+    try:
+        cutoff_date = date.fromisoformat(cutoff_raw)
+    except ValueError as error:
+        raise ValueError(
+            f"positive candidate line {lineno} cutoff_date is not a date"
+        ) from error
+    try:
+        positive = PositiveCandidateRecord(
+            record_id=candidate_id,
+            source_row=payload.get("source_row"),
+            canonical_name=canonical_name,
+            domain=domain,
+            analysis_scope_key=analysis_scope_key,
+            aliases=tuple(aliases),
+            group_id=group_id,
+            identity_status=IdentityStatus(payload.get("identity_status")),
+            cutoff_date=cutoff_date,
+        )
+        return _EnrichmentCandidateRecord(
+            candidate_id=positive.record_id,
+            canonical_name=positive.canonical_name,
+            aliases=positive.aliases,
+            group_id=positive.group_id,
+            source_query=positive.canonical_name,
+            domain=positive.domain,
+            analysis_scope_key=positive.analysis_scope_key,
+            cutoff_date=positive.cutoff_date,
+        )
+    except (ValueError, TypeError) as error:
+        raise ValueError(f"positive candidate line {lineno} is invalid: {error}") from error
+
+
+def _render_plan(
+    records: list[NegativeCandidateRecord | _EnrichmentCandidateRecord],
+    *,
+    manifest_path: Path,
+    candidates_bytes: bytes,
+    candidates_input_key: str,
+) -> tuple[bytes, dict[str, Any]]:
+    bundle_id = _bundle_id(records)
+    windows = _windows()
+    full_window = (windows["history_from"], windows["cutoff_date"])
+    recent_window = (windows["recent_window_from"], windows["cutoff_date"])
+    entries: list[dict[str, Any]] = []
+    for record in sorted(records, key=lambda item: item.candidate_id):
+        terms = _search_terms(record.canonical_name, record.aliases)
+        searches = _candidate_searches(record.candidate_id, terms, full_window, recent_window)
+        entries.append(
+            {
+                "candidate_id": record.candidate_id,
+                "canonical_name": record.canonical_name,
+                "aliases": list(record.aliases),
+                "domain": record.domain,
+                "analysis_scope_key": record.analysis_scope_key,
+                "cutoff_date": record.cutoff_date.isoformat(),
+                "origin": {
+                    "bundle_id": bundle_id,
+                    "group_id": record.group_id,
+                    "source_query": record.source_query,
+                },
+                "search_terms": terms,
+                "searches": searches,
+            }
+        )
+
+    totals = {
+        "candidates": len(entries),
+        "openalex_primary_requests": sum(
+            len(search["requests"])
+            for entry in entries
+            for search in entry["searches"]
+            if search["connector"] == "openalex"
+        ),
+        "mediacloud_primary_requests": sum(
+            len(search["requests"])
+            for entry in entries
+            for search in entry["searches"]
+            if search["connector"] == "mediacloud"
+        ),
+    }
+    plan = {
+        "schema_version": LABELING_ENRICHMENT_PLAN_VERSION,
+        "cutoff_date": windows["cutoff_date"],
+        "history_from": windows["history_from"],
+        "recent_window_from": windows["recent_window_from"],
+        "windows": {"previous": windows["previous"], "recent": windows["recent"]},
+        "bundle": {"bundle_id": bundle_id, "candidate_count": len(entries)},
+        "totals": totals,
+        "candidates": entries,
+    }
+    plan_bytes = (
+        json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    return plan_bytes, {
+        "bundle_id": bundle_id,
+        "candidate_count": len(entries),
+        "inputs": {
+            "manifest": _digest(manifest_path.read_bytes()),
+            candidates_input_key: _digest(candidates_bytes),
+        },
+        "plan_digest": _digest(plan_bytes),
+    }
+
+
+def _build_positive_enrichment_plan(
+    bundle: Path, manifest_path: Path, manifest: dict[str, Any]
+) -> tuple[bytes, dict[str, Any]]:
+    if manifest.get("cutoff_date") != LABELING_CUTOFF_DATE.isoformat():
+        raise ValueError(
+            f"organizer bundle cutoff {manifest.get('cutoff_date')!r} "
+            f"does not match {LABELING_CUTOFF_DATE.isoformat()!r}"
+        )
+    if manifest.get("validation_errors") != []:
+        raise ValueError("organizer bundle must not contain validation errors")
+    input_count = manifest.get("input_record_count")
+    accepted = manifest.get("accepted_record_count")
+    rejected = manifest.get("rejected_record_count")
+    if (
+        not _is_plain_int(input_count)
+        or not _is_plain_int(accepted)
+        or not _is_plain_int(rejected)
+        or accepted <= 0
+        or rejected != 0
+        or input_count != accepted + rejected
+    ):
+        raise ValueError("organizer bundle must contain accepted records and no rejections")
+    outputs = manifest.get("outputs")
+    if not isinstance(outputs, list):
+        raise ValueError("organizer bundle manifest outputs must be a list")
+    digest = next(
+        (
+            item
+            for item in outputs
+            if isinstance(item, dict)
+            and item.get("filename") == POSITIVE_CANDIDATES_FILENAME
+        ),
+        None,
+    )
+    if not isinstance(digest, dict):
+        raise ValueError("organizer bundle has no positive_candidates.jsonl digest")
+    size_bytes = digest.get("size_bytes")
+    sha256 = digest.get("sha256")
+    if not _is_plain_int(size_bytes) or size_bytes < 0:
+        raise ValueError("organizer bundle size_bytes must be a non-negative int")
+    if not isinstance(sha256, str) or _SHA256_HEX.fullmatch(sha256) is None:
+        raise ValueError("organizer bundle sha256 must be 64 lowercase hex characters")
+    candidates_path = bundle / POSITIVE_CANDIDATES_FILENAME
+    if not candidates_path.is_file():
+        raise FileNotFoundError(f"organizer bundle is incomplete: {bundle}")
+    candidates_bytes = candidates_path.read_bytes()
+    if len(candidates_bytes) != size_bytes:
+        raise ValueError("positive_candidates.jsonl size mismatch with manifest")
+    if hashlib.sha256(candidates_bytes).hexdigest() != sha256:
+        raise ValueError("positive_candidates.jsonl checksum mismatch with manifest")
+
+    records: list[_EnrichmentCandidateRecord] = []
+    for lineno, line in enumerate(candidates_bytes.decode("utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"positive candidate line {lineno} is not valid JSON") from error
+        records.append(_parse_positive_candidate(payload, lineno))
+    if len(records) != accepted:
+        raise ValueError(
+            f"positive candidate rows {len(records)} do not match accepted total {accepted}"
+        )
+    candidate_ids = [record.candidate_id for record in records]
+    group_ids = [record.group_id for record in records]
+    if len(set(candidate_ids)) != len(candidate_ids):
+        raise ValueError("duplicate candidate_id in positive candidates")
+    if len(set(group_ids)) != len(group_ids):
+        raise ValueError("duplicate group_id in positive candidates")
+    return _render_plan(
+        records,
+        manifest_path=manifest_path,
+        candidates_bytes=candidates_bytes,
+        candidates_input_key="positive_candidates",
+    )
+
+
 def build_enrichment_plan(bundle_dir: str | Path) -> tuple[bytes, dict[str, Any]]:
     """Validate the bundle and render deterministic ``plan.json`` bytes.
 
@@ -377,15 +646,21 @@ def build_enrichment_plan(bundle_dir: str | Path) -> tuple[bytes, dict[str, Any]
 
     bundle = Path(bundle_dir)
     manifest_path = bundle / "manifest.json"
-    candidates_path = bundle / NEGATIVE_CANDIDATES_FILENAME
-    if not manifest_path.is_file() or not candidates_path.is_file():
-        raise FileNotFoundError(f"labeling bundle is incomplete: {bundle}")
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"candidate bundle is incomplete: {bundle}")
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        initial_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
-        raise ValueError(f"labeling bundle manifest is not valid JSON: {error}") from error
-    if not isinstance(manifest, dict):
-        raise ValueError("labeling bundle manifest must be a JSON object")
+        raise ValueError(f"candidate bundle manifest is not valid JSON: {error}") from error
+    if not isinstance(initial_manifest, dict):
+        raise ValueError("candidate bundle manifest must be a JSON object")
+    if initial_manifest.get("schema_version") == ORGANIZER_MANIFEST_VERSION:
+        return _build_positive_enrichment_plan(bundle, manifest_path, initial_manifest)
+
+    candidates_path = bundle / NEGATIVE_CANDIDATES_FILENAME
+    if not candidates_path.is_file():
+        raise FileNotFoundError(f"labeling bundle is incomplete: {bundle}")
+    manifest = initial_manifest
     if manifest.get("schema_version") != LABELING_EXPORT_MANIFEST_VERSION:
         raise ValueError(
             "labeling bundle manifest "
@@ -456,70 +731,12 @@ def build_enrichment_plan(bundle_dir: str | Path) -> tuple[bytes, dict[str, Any]
             f"do not match filled_candidates {dict(filled)!r}"
         )
 
-    bundle_id = _bundle_id(records)
-    windows = _windows()
-    full_window = (windows["history_from"], windows["cutoff_date"])
-    recent_window = (windows["recent_window_from"], windows["cutoff_date"])
-    entries: list[dict[str, Any]] = []
-    for record in sorted(records, key=lambda item: item.candidate_id):
-        terms = _search_terms(record.canonical_name, record.aliases)
-        searches = _candidate_searches(record.candidate_id, terms, full_window, recent_window)
-        entries.append(
-            {
-                "candidate_id": record.candidate_id,
-                "canonical_name": record.canonical_name,
-                "aliases": list(record.aliases),
-                "domain": record.domain,
-                "analysis_scope_key": record.analysis_scope_key,
-                "cutoff_date": record.cutoff_date.isoformat(),
-                "origin": {
-                    "bundle_id": bundle_id,
-                    "group_id": record.group_id,
-                    "source_query": record.source_query,
-                },
-                "search_terms": terms,
-                "searches": searches,
-            }
-        )
-
-    totals = {
-        "candidates": len(entries),
-        "openalex_primary_requests": sum(
-            len(search["requests"])
-            for entry in entries
-            for search in entry["searches"]
-            if search["connector"] == "openalex"
-        ),
-        "mediacloud_primary_requests": sum(
-            len(search["requests"])
-            for entry in entries
-            for search in entry["searches"]
-            if search["connector"] == "mediacloud"
-        ),
-    }
-    plan = {
-        "schema_version": LABELING_ENRICHMENT_PLAN_VERSION,
-        "cutoff_date": windows["cutoff_date"],
-        "history_from": windows["history_from"],
-        "recent_window_from": windows["recent_window_from"],
-        "windows": {"previous": windows["previous"], "recent": windows["recent"]},
-        "bundle": {"bundle_id": bundle_id, "candidate_count": len(entries)},
-        "totals": totals,
-        "candidates": entries,
-    }
-    plan_bytes = (
-        json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    ).encode("utf-8")
-    manifest_digest = _digest(manifest_path.read_bytes())
-    return plan_bytes, {
-        "bundle_id": bundle_id,
-        "candidate_count": len(entries),
-        "inputs": {
-            "manifest": manifest_digest,
-            "negative_candidates": _digest(candidates_bytes),
-        },
-        "plan_digest": _digest(plan_bytes),
-    }
+    return _render_plan(
+        records,
+        manifest_path=manifest_path,
+        candidates_bytes=candidates_bytes,
+        candidates_input_key="negative_candidates",
+    )
 
 
 def export_enrichment_plan(

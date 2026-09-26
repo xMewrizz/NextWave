@@ -152,13 +152,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     enrichment_plan = commands.add_parser(
         "labeling-enrichment-plan",
-        help="проверить labeling bundle и выпустить неизменяемый план enrichment",
+        help="проверить candidate bundle и выпустить неизменяемый план enrichment",
     )
     enrichment_plan.add_argument(
         "--bundle",
         type=Path,
         required=True,
-        help="каталог labeling-экспорта (manifest.json + negative_candidates.jsonl)",
+        help="каталог labeling-экспорта или organizer positive dataset",
     )
     enrichment_plan.add_argument(
         "--output",

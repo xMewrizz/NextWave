@@ -54,6 +54,7 @@ from .enrichment_plan import (
     OPENALEX_RETRIEVAL_POLICY,
     _bundle_id,
     _candidate_searches,
+    _EnrichmentCandidateRecord,
     _search_terms,
     _windows,
 )
@@ -422,8 +423,6 @@ def load_validated_plan(plan_dir: str | Path) -> tuple[dict[str, Any], bytes, di
     if len(set(candidate_ids)) != len(candidate_ids):
         raise ValueError("duplicate candidate_id in enrichment plan")
 
-    from .contracts import NegativeCandidateRecord
-
     records = []
     for entry in candidates:
         try:
@@ -437,7 +436,7 @@ def load_validated_plan(plan_dir: str | Path) -> tuple[dict[str, Any], bytes, di
             origin = {}
         try:
             records.append(
-                NegativeCandidateRecord(
+                _EnrichmentCandidateRecord(
                     candidate_id=entry.get("candidate_id", ""),
                     canonical_name=entry.get("canonical_name", ""),
                     aliases=tuple(entry.get("aliases") or ()),

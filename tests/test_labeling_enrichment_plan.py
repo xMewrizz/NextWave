@@ -20,6 +20,7 @@ from nextwave.labeling.enrichment_plan import (
     OPENALEX_RETRIEVAL_POLICY,
     export_enrichment_plan,
 )
+from nextwave.labeling.enrichment_run import load_validated_plan
 from nextwave.sources import (
     QueryPurpose,
     RetrievalChannel,
@@ -88,6 +89,65 @@ def write_bundle(
     return bundle
 
 
+def positive_candidate_row(number: int, **overrides) -> dict:
+    payload = {
+        "schema_version": "organizer-positive-v1",
+        "record_id": f"organizer-{number:03d}",
+        "source_row": number + 2,
+        "canonical_name": f"Organizer Tech {number}",
+        "domain": "Edge",
+        "analysis_scope_key": "edge-v1",
+        "aliases": [],
+        "group_id": f"organizer-{number:03d}",
+        "identity_status": "pending_review",
+        "label": "weak_signal",
+        "target": 1,
+        "label_origin": "organizer_confirmed",
+        "cutoff_date": CUTOFF,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def write_positive_bundle(
+    root: Path,
+    name: str,
+    rows: list[dict],
+    *,
+    tamper_checksum: bool = False,
+) -> Path:
+    body = "".join(
+        json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n"
+        for row in rows
+    ).encode("utf-8")
+    manifest = {
+        "schema_version": "organizer-manifest-v1",
+        "dataset_version": "organizer-positive-2026-09-15-v1",
+        "cutoff_date": CUTOFF,
+        "input_record_count": len(rows),
+        "accepted_record_count": len(rows),
+        "rejected_record_count": 0,
+        "validation_errors": [],
+        "outputs": [
+            {
+                "filename": "positive_candidates.jsonl",
+                "size_bytes": len(body),
+                "sha256": "0" * 64
+                if tamper_checksum
+                else hashlib.sha256(body).hexdigest(),
+            }
+        ],
+    }
+    bundle = root / name
+    bundle.mkdir(parents=True)
+    (bundle / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (bundle / "positive_candidates.jsonl").write_bytes(body)
+    return bundle
+
+
 def load_plan(output: Path) -> dict:
     return json.loads((output / "plan.json").read_text(encoding="utf-8"))
 
@@ -103,6 +163,80 @@ def walk_keys(payload):
 
 
 class EnrichmentPlanTests(unittest.TestCase):
+    def test_organizer_positive_bundle_uses_the_same_executable_plan(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = write_positive_bundle(
+                root,
+                "positive",
+                [
+                    positive_candidate_row(
+                        1,
+                        canonical_name="Фотонный ускоритель",
+                        aliases=["Photonic accelerator"],
+                    )
+                ],
+            )
+
+            export_enrichment_plan(bundle_dir=bundle, output_dir=root / "plan")
+            plan, _, _ = load_validated_plan(root / "plan")
+            manifest = json.loads(
+                (root / "plan" / "manifest.json").read_text(encoding="utf-8")
+            )
+
+            candidate = plan["candidates"][0]
+            self.assertEqual(candidate["candidate_id"], "organizer-001")
+            self.assertEqual(candidate["origin"]["source_query"], "Фотонный ускоритель")
+            self.assertEqual(
+                candidate["search_terms"],
+                ["Фотонный ускоритель", "Photonic accelerator"],
+            )
+            self.assertEqual(plan["totals"]["openalex_primary_requests"], 4)
+            self.assertEqual(plan["totals"]["mediacloud_primary_requests"], 2)
+            self.assertIn("positive_candidates", manifest["inputs"])
+            self.assertNotIn("negative_candidates", manifest["inputs"])
+            keys = set(walk_keys(plan))
+            self.assertTrue({"target", "label", "label_origin", "source_row"}.isdisjoint(keys))
+
+    def test_positive_bundle_checksum_mismatch_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = write_positive_bundle(
+                root,
+                "positive",
+                [positive_candidate_row(1)],
+                tamper_checksum=True,
+            )
+
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                export_enrichment_plan(bundle_dir=bundle, output_dir=root / "plan")
+
+    def test_positive_bundle_label_tampering_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = write_positive_bundle(
+                root,
+                "positive",
+                [positive_candidate_row(1, target=0)],
+            )
+
+            with self.assertRaisesRegex(ValueError, "organizer positive label"):
+                export_enrichment_plan(bundle_dir=bundle, output_dir=root / "plan")
+
+    def test_permuted_positive_rows_give_identical_plan_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows = [positive_candidate_row(1), positive_candidate_row(2)]
+            first = write_positive_bundle(root, "positive-a", rows)
+            second = write_positive_bundle(root, "positive-b", list(reversed(rows)))
+            export_enrichment_plan(bundle_dir=first, output_dir=root / "plan-a")
+            export_enrichment_plan(bundle_dir=second, output_dir=root / "plan-b")
+
+            self.assertEqual(
+                (root / "plan-a" / "plan.json").read_bytes(),
+                (root / "plan-b" / "plan.json").read_bytes(),
+            )
+
     def test_valid_bundle_plans_all_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
