@@ -30,6 +30,10 @@ from .labeling.evidence_input_plan import (
     LABELING_EVIDENCE_INPUT_PLAN_VERSION,
     export_evidence_input_plan,
 )
+from .labeling.evidence_llm_plan import (
+    LABELING_EVIDENCE_LLM_PLAN_VERSION,
+    export_evidence_llm_plan,
+)
 from .labeling.export import export_labeling_bundle
 from .labeling.media_fetch_run import (
     LABELING_MEDIA_FETCH_RESULT_VERSION,
@@ -293,6 +297,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=Path("data") / "development" / LABELING_EVIDENCE_INPUT_PLAN_VERSION,
+        help="новый каталог результата",
+    )
+    evidence_llm_plan = commands.add_parser(
+        "labeling-evidence-llm-plan",
+        help="собрать детерминированные задания Evidence LLM без вызова модели",
+    )
+    evidence_llm_plan.add_argument(
+        "--input",
+        type=Path,
+        required=True,
+        help="каталог evidence input plan (documents + coverage + manifest.json)",
+    )
+    evidence_llm_plan.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / LABELING_EVIDENCE_LLM_PLAN_VERSION,
         help="новый каталог результата",
     )
     return parser
@@ -571,6 +591,23 @@ def _run_labeling_evidence_input_plan(
     return 0
 
 
+def _run_labeling_evidence_llm_plan(input_dir: Path, output: Path) -> int:
+    try:
+        paths = export_evidence_llm_plan(
+            input_dir=input_dir,
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось построить план Evidence LLM: {error}", file=sys.stderr)
+        return 1
+
+    print("План Evidence LLM успешно построен.")
+    print(f"Задания: {paths.tasks}")
+    print(f"Покрытие: {paths.coverage}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     arguments = parser.parse_args(argv)
@@ -618,6 +655,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.result,
             arguments.relevance,
             arguments.media,
+            arguments.output,
+        )
+    if arguments.command == "labeling-evidence-llm-plan":
+        return _run_labeling_evidence_llm_plan(
+            arguments.input,
             arguments.output,
         )
     parser.print_help()

@@ -436,6 +436,38 @@ class CommandLineTests(unittest.TestCase):
         help_text = _build_parser().format_help()
         self.assertNotIn("labeling-evidence-input-plan-v1", help_text)
 
+    @patch("nextwave.__main__.export_evidence_llm_plan")
+    def test_evidence_llm_plan_uses_versioned_default_output(
+        self, export
+    ) -> None:
+        from nextwave.labeling.evidence_llm_plan import (
+            LABELING_EVIDENCE_LLM_PLAN_VERSION,
+            LabelingEvidenceLlmPlanPaths,
+        )
+
+        export.return_value = LabelingEvidenceLlmPlanPaths(
+            manifest=Path("out/manifest.json"),
+            tasks=Path("out/tasks.jsonl"),
+            coverage=Path("out/coverage.jsonl"),
+        )
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main([
+                "labeling-evidence-llm-plan",
+                "--input", "input",
+            ])
+
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / LABELING_EVIDENCE_LLM_PLAN_VERSION,
+        )
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data/development/labeling-evidence-llm-plan-v1"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
