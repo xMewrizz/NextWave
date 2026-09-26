@@ -63,6 +63,7 @@ class NewsDocumentEnrichment:
     fetched_bytes: int
     excerpt_source: str | None
     excerpt_truncated: bool
+    http_status: int | None = None
     enricher_version: str = NEWS_CONTENT_ENRICHER_VERSION
 
     @property
@@ -209,6 +210,7 @@ class NewsDocumentEnricher:
                 NewsEnrichmentIssueCode.HTTP_ERROR,
                 f"news page returned HTTP {response.status_code}",
                 response=response,
+                http_status=response.status_code,
             )
         if len(response.body) > MAX_NEWS_PAGE_BYTES:
             return self._title_only(
@@ -216,6 +218,7 @@ class NewsDocumentEnricher:
                 NewsEnrichmentIssueCode.RESPONSE_TOO_LARGE,
                 f"news page exceeds {MAX_NEWS_PAGE_BYTES} bytes",
                 response=response,
+                http_status=response.status_code,
             )
         content_type = _header(response.headers, "content-type")
         if content_type and not _is_html_content_type(content_type):
@@ -224,6 +227,7 @@ class NewsDocumentEnricher:
                 NewsEnrichmentIssueCode.UNSUPPORTED_CONTENT_TYPE,
                 f"unsupported news page content type: {content_type}",
                 response=response,
+                http_status=response.status_code,
             )
 
         page_text = extract_news_page_text(response.body, content_type=content_type)
@@ -235,6 +239,7 @@ class NewsDocumentEnricher:
                 "news page did not contain a usable article excerpt",
                 response=response,
                 content_sha256=content_sha256,
+                http_status=response.status_code,
             )
         return NewsDocumentEnrichment(
             document=replace(document, excerpt=page_text.text),
@@ -245,6 +250,7 @@ class NewsDocumentEnricher:
             fetched_bytes=len(response.body),
             excerpt_source=page_text.source,
             excerpt_truncated=page_text.truncated,
+            http_status=response.status_code,
         )
 
     def enrich_many(
@@ -277,6 +283,7 @@ class NewsDocumentEnricher:
         *,
         response: HttpResponse | None = None,
         content_sha256: str | None = None,
+        http_status: int | None = None,
     ) -> NewsDocumentEnrichment:
         body = response.body if response is not None else b""
         return NewsDocumentEnrichment(
@@ -288,6 +295,7 @@ class NewsDocumentEnricher:
             fetched_bytes=len(body),
             excerpt_source=None,
             excerpt_truncated=False,
+            http_status=http_status,
         )
 
 

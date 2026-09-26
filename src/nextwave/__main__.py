@@ -27,6 +27,10 @@ from .labeling.enrichment_plan import (
 )
 from .labeling.enrichment_run import ENRICHMENT_RESULT_VERSION, run_enrichment
 from .labeling.export import export_labeling_bundle
+from .labeling.media_fetch_run import (
+    LABELING_MEDIA_FETCH_RESULT_VERSION,
+    run_media_fetch,
+)
 from .labeling.relevance_plan import (
     LABELING_RELEVANCE_PLAN_VERSION,
     export_relevance_plan,
@@ -223,6 +227,34 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=Path("data") / "development" / LABELING_RELEVANCE_PLAN_VERSION,
+        help="новый каталог результата",
+    )
+    media_fetch_run = commands.add_parser(
+        "labeling-media-fetch-run",
+        help="загрузить страницы media-очереди с возобновляемым work-хранилищем",
+    )
+    media_fetch_run.add_argument(
+        "--relevance",
+        type=Path,
+        required=True,
+        help="каталог relevance-плана (media_fetch_queue.jsonl + manifest.json)",
+    )
+    media_fetch_run.add_argument(
+        "--result",
+        type=Path,
+        required=True,
+        help="неизменяемый каталог результата enrichment",
+    )
+    media_fetch_run.add_argument(
+        "--work",
+        type=Path,
+        required=True,
+        help="постоянное рабочее хранилище загруженных страниц",
+    )
+    media_fetch_run.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / LABELING_MEDIA_FETCH_RESULT_VERSION,
         help="новый каталог результата",
     )
     return parser
@@ -456,6 +488,28 @@ def _run_labeling_relevance_plan(plan: Path, result: Path, output: Path) -> int:
     return 0
 
 
+def _run_labeling_media_fetch_run(
+    relevance: Path, result: Path, work: Path, output: Path
+) -> int:
+    try:
+        paths = run_media_fetch(
+            relevance_dir=relevance,
+            result_dir=result,
+            work_dir=work,
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось загрузить media-страницы: {error}", file=sys.stderr)
+        return 1
+
+    print("Media-страницы успешно загружены.")
+    print(f"Страницы: {paths.page_results}")
+    print(f"Документы: {paths.enriched_documents}")
+    print(f"Покрытие: {paths.coverage}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     arguments = parser.parse_args(argv)
@@ -492,6 +546,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "labeling-relevance-plan":
         return _run_labeling_relevance_plan(
             arguments.plan, arguments.result, arguments.output
+        )
+    if arguments.command == "labeling-media-fetch-run":
+        return _run_labeling_media_fetch_run(
+            arguments.relevance, arguments.result, arguments.work, arguments.output
         )
     parser.print_help()
     return 0

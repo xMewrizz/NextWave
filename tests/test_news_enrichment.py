@@ -185,6 +185,36 @@ class NewsDocumentEnricherTests(unittest.TestCase):
         )
         self.assertEqual(len(transport.calls), 10)
 
+    def test_http_status_follows_response_or_absence_of_request(self) -> None:
+        paragraph = (
+            b"<article><p>This article contains enough concrete technical content "
+            b"to become an excerpt for candidate discovery and later review.</p></article>"
+        )
+        service, _ = enricher(
+            HttpResponse(200, {"content-type": "text/html"}, paragraph)
+        )
+        self.assertEqual(service.enrich(news_document()).http_status, 200)
+
+        missing, _ = enricher(HttpResponse(404, {}, b"missing"))
+        failed = missing.enrich(news_document())
+        self.assertEqual(failed.http_status, 404)
+        self.assertEqual(failed.to_dict()["http_status"], 404)
+
+        blocked_transport = FakeTransport(HttpResponse(200, {}, b"unused"))
+        blocked = NewsDocumentEnricher(
+            transport=blocked_transport,
+            resolve_host=lambda _: ("127.0.0.1",),
+        )
+        self.assertIsNone(
+            blocked.enrich(news_document(url="http://localhost/story")).http_status
+        )
+
+        existing, _ = enricher(HttpResponse(200, {}, b"unused"))
+        self.assertIsNone(
+            existing.enrich(news_document(excerpt="Provider supplied description"))
+            .http_status
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

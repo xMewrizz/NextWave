@@ -39,6 +39,14 @@ from .export import (
     LabelingExportPaths,
     export_labeling_bundle,
 )
+from .media_fetch_run import (
+    LABELING_MEDIA_FETCH_CACHE_VERSION,
+    LABELING_MEDIA_FETCH_EXECUTOR_VERSION,
+    LABELING_MEDIA_FETCH_RESULT_VERSION,
+    LABELING_MEDIA_FETCH_WORK_VERSION,
+    LabelingMediaFetchRunPaths,
+    run_media_fetch,
+)
 from .queue import (
     QUEUE_SCHEMA_VERSION,
     CandidateSlot,
@@ -72,6 +80,10 @@ __all__ = [
     "LABELING_CUTOFF_DATE",
     "LABELING_ENRICHMENT_PLAN_VERSION",
     "LABELING_EXPORT_MANIFEST_VERSION",
+    "LABELING_MEDIA_FETCH_CACHE_VERSION",
+    "LABELING_MEDIA_FETCH_EXECUTOR_VERSION",
+    "LABELING_MEDIA_FETCH_RESULT_VERSION",
+    "LABELING_MEDIA_FETCH_WORK_VERSION",
     "LABELING_RELEVANCE_PLAN_VERSION",
     "MODEL_DECISION_SCHEMA_VERSION",
     "NEGATIVE_CANDIDATE_SCHEMA_VERSION",
@@ -107,6 +119,7 @@ __all__ = [
     "LabelingEnrichmentPlanPaths",
     "LabelingEnrichmentRunPaths",
     "LabelingExportPaths",
+    "LabelingMediaFetchRunPaths",
     "LabelingRelevancePlanPaths",
     "build_enrichment_plan",
     "build_labeling_queue",
@@ -120,4 +133,5 @@ __all__ = [
     "read_candidate_slots",
     "read_noise_slots",
     "run_enrichment",
+    "run_media_fetch",
 ]
