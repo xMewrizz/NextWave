@@ -166,6 +166,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("data") / "development" / LABELING_ENRICHMENT_PLAN_VERSION,
         help="новый каталог результата",
     )
+    enrichment_plan.add_argument(
+        "--search-terms",
+        type=Path,
+        help="проверенный JSON с короткими поисковыми терминами для organizer positives",
+    )
     enrichment_run = commands.add_parser(
         "labeling-enrichment-run",
         help="выполнить план enrichment с возобновляемым work-хранилищем",
@@ -363,9 +368,15 @@ def _run_labeling_export(
     return 0
 
 
-def _run_labeling_enrichment_plan(bundle: Path, output: Path) -> int:
+def _run_labeling_enrichment_plan(
+    bundle: Path, output: Path, search_terms: Path | None
+) -> int:
     try:
-        paths = export_enrichment_plan(bundle_dir=bundle, output_dir=output)
+        paths = export_enrichment_plan(
+            bundle_dir=bundle,
+            output_dir=output,
+            search_terms_file=search_terms,
+        )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"Не удалось построить план enrichment: {error}", file=sys.stderr)
         return 1
@@ -425,7 +436,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.domain_map,
         )
     if arguments.command == "labeling-enrichment-plan":
-        return _run_labeling_enrichment_plan(arguments.bundle, arguments.output)
+        return _run_labeling_enrichment_plan(
+            arguments.bundle, arguments.output, arguments.search_terms
+        )
     if arguments.command == "labeling-enrichment-run":
         return _run_labeling_enrichment_run(
             arguments.plan, arguments.work, arguments.output, arguments.env_file

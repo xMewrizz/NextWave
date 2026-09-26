@@ -145,7 +145,43 @@ def write_positive_bundle(
         encoding="utf-8",
     )
     (bundle / "positive_candidates.jsonl").write_bytes(body)
+    search_terms = {
+        "schema_version": "labeling-enrichment-search-terms-v1",
+        "positive_candidates_sha256": hashlib.sha256(body).hexdigest(),
+        "candidates": [
+            {
+                "candidate_id": row["record_id"],
+                "terms": [row["canonical_name"], *row.get("aliases", [])],
+            }
+            for row in rows
+        ],
+    }
+    (bundle / "search_terms.json").write_text(
+        json.dumps(search_terms, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     return bundle
+
+
+def write_search_terms(
+    path: Path,
+    *,
+    candidates_body: bytes,
+    entries: list[dict],
+    sha256: str | None = None,
+) -> Path:
+    payload = {
+        "schema_version": "labeling-enrichment-search-terms-v1",
+        "positive_candidates_sha256": (
+            sha256 if sha256 is not None else hashlib.sha256(candidates_body).hexdigest()
+        ),
+        "candidates": entries,
+    }
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 def load_plan(output: Path) -> dict:
@@ -160,6 +196,124 @@ def walk_keys(payload):
     elif isinstance(payload, list):
         for value in payload:
             yield from walk_keys(value)
+
+
+class PositiveSearchTermsTests(unittest.TestCase):
+    def test_overlay_selects_pilot_subset_without_changing_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows = [
+                positive_candidate_row(
+                    1, canonical_name="Long expert description for technology one"
+                ),
+                positive_candidate_row(
+                    2, canonical_name="Long expert description for technology two"
+                ),
+            ]
+            bundle = write_positive_bundle(root, "bundle", rows)
+            body = (bundle / "positive_candidates.jsonl").read_bytes()
+            overlay = write_search_terms(
+                root / "pilot.json",
+                candidates_body=body,
+                entries=[
+                    {
+                        "candidate_id": "organizer-002",
+                        "terms": ["short retrieval phrase"],
+                    }
+                ],
+            )
+
+            export_enrichment_plan(
+                bundle_dir=bundle,
+                output_dir=root / "plan",
+                search_terms_file=overlay,
+            )
+            plan, _, _ = load_validated_plan(root / "plan")
+
+            self.assertEqual(plan["bundle"]["candidate_count"], 1)
+            self.assertEqual(plan["candidates"][0]["candidate_id"], "organizer-002")
+            self.assertEqual(
+                plan["candidates"][0]["canonical_name"],
+                "Long expert description for technology two",
+            )
+            self.assertEqual(
+                plan["candidates"][0]["search_terms"], ["short retrieval phrase"]
+            )
+            self.assertEqual(plan["totals"]["openalex_primary_requests"], 2)
+            self.assertEqual(plan["totals"]["mediacloud_primary_requests"], 1)
+            manifest = json.loads(
+                (root / "plan" / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertIn("search_terms", manifest["inputs"])
+
+    def test_missing_reviewed_terms_rejects_positive_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = write_positive_bundle(
+                root, "bundle", [positive_candidate_row(1)]
+            )
+            (bundle / "search_terms.json").unlink()
+
+            with self.assertRaisesRegex(ValueError, "requires a reviewed"):
+                export_enrichment_plan(
+                    bundle_dir=bundle, output_dir=root / "plan"
+                )
+            self.assertFalse((root / "plan").exists())
+
+    def test_overlay_is_bound_to_positive_candidate_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = write_positive_bundle(
+                root, "bundle", [positive_candidate_row(1)]
+            )
+            overlay = json.loads(
+                (bundle / "search_terms.json").read_text(encoding="utf-8")
+            )
+            overlay["positive_candidates_sha256"] = "0" * 64
+            (bundle / "search_terms.json").write_text(
+                json.dumps(overlay), encoding="utf-8"
+            )
+
+            with self.assertRaisesRegex(ValueError, "do not match"):
+                export_enrichment_plan(
+                    bundle_dir=bundle, output_dir=root / "plan"
+                )
+
+    def test_unknown_candidate_and_long_term_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bundle = write_positive_bundle(
+                root, "bundle", [positive_candidate_row(1)]
+            )
+            body = (bundle / "positive_candidates.jsonl").read_bytes()
+            unknown = write_search_terms(
+                root / "unknown.json",
+                candidates_body=body,
+                entries=[{"candidate_id": "organizer-999", "terms": ["short term"]}],
+            )
+            with self.assertRaisesRegex(ValueError, "unknown candidate_id"):
+                export_enrichment_plan(
+                    bundle_dir=bundle,
+                    output_dir=root / "plan-a",
+                    search_terms_file=unknown,
+                )
+
+            too_long = write_search_terms(
+                root / "long.json",
+                candidates_body=body,
+                entries=[
+                    {
+                        "candidate_id": "organizer-001",
+                        "terms": ["word " * 20],
+                    }
+                ],
+            )
+            with self.assertRaisesRegex(ValueError, "1 to 10 words"):
+                export_enrichment_plan(
+                    bundle_dir=bundle,
+                    output_dir=root / "plan-b",
+                    search_terms_file=too_long,
+                )
 
 
 class EnrichmentPlanTests(unittest.TestCase):

@@ -41,6 +41,8 @@ ENRICHMENT_PLAN_FILENAME = "plan.json"
 ENRICHMENT_MANIFEST_FILENAME = "manifest.json"
 NEGATIVE_CANDIDATES_FILENAME = "negative_candidates.jsonl"
 POSITIVE_CANDIDATES_FILENAME = "positive_candidates.jsonl"
+ENRICHMENT_SEARCH_TERMS_FILENAME = "search_terms.json"
+ENRICHMENT_SEARCH_TERMS_VERSION = "labeling-enrichment-search-terms-v1"
 
 _HISTORY_DAYS = 730
 _RECENT_DAYS = 365
@@ -131,6 +133,72 @@ def _search_terms(canonical_name: str, aliases: tuple[str, ...]) -> list[str]:
     if not terms:
         raise ValueError("candidate has no usable search terms")
     return terms
+
+
+def _load_positive_search_terms(
+    path: Path,
+    *,
+    positive_candidates_sha256: str,
+) -> tuple[dict[str, tuple[str, ...]], dict[str, Any]]:
+    """Load a reviewed retrieval overlay without changing candidate identity."""
+
+    try:
+        raw = path.read_bytes()
+    except OSError as error:
+        raise ValueError(f"cannot read positive search terms: {path}") from error
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("positive search terms must be valid UTF-8 JSON") from error
+    if not isinstance(payload, dict):
+        raise ValueError("positive search terms must be a JSON object")
+    if payload.get("schema_version") != ENRICHMENT_SEARCH_TERMS_VERSION:
+        raise ValueError(
+            "positive search terms schema "
+            f"{payload.get('schema_version')!r} does not match "
+            f"{ENRICHMENT_SEARCH_TERMS_VERSION!r}"
+        )
+    if payload.get("positive_candidates_sha256") != positive_candidates_sha256:
+        raise ValueError("positive search terms do not match positive_candidates.jsonl")
+    entries = payload.get("candidates")
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("positive search terms candidates must be a non-empty list")
+
+    result: dict[str, tuple[str, ...]] = {}
+    for index, entry in enumerate(entries, start=1):
+        if not isinstance(entry, dict):
+            raise ValueError(f"positive search terms entry {index} must be an object")
+        candidate_id = entry.get("candidate_id")
+        if not isinstance(candidate_id, str) or _CANDIDATE_ID.fullmatch(candidate_id) is None:
+            raise ValueError(
+                f"positive search terms entry {index} candidate_id is invalid"
+            )
+        if candidate_id in result:
+            raise ValueError(f"duplicate positive search terms for {candidate_id}")
+        terms = entry.get("terms")
+        if not isinstance(terms, list) or not 1 <= len(terms) <= 3:
+            raise ValueError(
+                f"positive search terms for {candidate_id} must contain 1 to 3 terms"
+            )
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for term in terms:
+            value = _clean_term(term) if isinstance(term, str) else ""
+            content_words = re.findall(r"[^\W_]+(?:-[^\W_]+)*", value, re.UNICODE)
+            if not value or len(value) > 80 or not 1 <= len(content_words) <= 10:
+                raise ValueError(
+                    f"positive search term for {candidate_id} must be 1 to 10 words "
+                    "and at most 80 characters"
+                )
+            key = value.casefold()
+            if key in seen:
+                raise ValueError(
+                    f"positive search terms for {candidate_id} must be unique"
+                )
+            seen.add(key)
+            cleaned.append(value)
+        result[candidate_id] = tuple(cleaned)
+    return result, _digest(raw)
 
 
 def _stable_id(*parts: str) -> str:
@@ -493,6 +561,8 @@ def _render_plan(
     manifest_path: Path,
     candidates_bytes: bytes,
     candidates_input_key: str,
+    search_term_overrides: Mapping[str, tuple[str, ...]] | None = None,
+    extra_inputs: Mapping[str, dict[str, Any]] | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     bundle_id = _bundle_id(records)
     windows = _windows()
@@ -500,7 +570,11 @@ def _render_plan(
     recent_window = (windows["recent_window_from"], windows["cutoff_date"])
     entries: list[dict[str, Any]] = []
     for record in sorted(records, key=lambda item: item.candidate_id):
-        terms = _search_terms(record.canonical_name, record.aliases)
+        terms = (
+            list(search_term_overrides[record.candidate_id])
+            if search_term_overrides is not None
+            else _search_terms(record.canonical_name, record.aliases)
+        )
         searches = _candidate_searches(record.candidate_id, terms, full_window, recent_window)
         entries.append(
             {
@@ -554,13 +628,17 @@ def _render_plan(
         "inputs": {
             "manifest": _digest(manifest_path.read_bytes()),
             candidates_input_key: _digest(candidates_bytes),
+            **dict(extra_inputs or {}),
         },
         "plan_digest": _digest(plan_bytes),
     }
 
 
 def _build_positive_enrichment_plan(
-    bundle: Path, manifest_path: Path, manifest: dict[str, Any]
+    bundle: Path,
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    search_terms_file: str | Path | None,
 ) -> tuple[bytes, dict[str, Any]]:
     if manifest.get("cutoff_date") != LABELING_CUTOFF_DATE.isoformat():
         raise ValueError(
@@ -629,15 +707,44 @@ def _build_positive_enrichment_plan(
         raise ValueError("duplicate candidate_id in positive candidates")
     if len(set(group_ids)) != len(group_ids):
         raise ValueError("duplicate group_id in positive candidates")
+
+    terms_path = (
+        Path(search_terms_file)
+        if search_terms_file is not None
+        else bundle / ENRICHMENT_SEARCH_TERMS_FILENAME
+    )
+    if not terms_path.is_file():
+        raise ValueError(
+            "organizer positive enrichment requires a reviewed --search-terms file"
+        )
+    term_overrides, terms_digest = _load_positive_search_terms(
+        terms_path,
+        positive_candidates_sha256=hashlib.sha256(candidates_bytes).hexdigest(),
+    )
+    records_by_id = {record.candidate_id: record for record in records}
+    unknown_ids = sorted(set(term_overrides) - set(records_by_id))
+    if unknown_ids:
+        raise ValueError(
+            f"positive search terms contain unknown candidate_id {unknown_ids[0]!r}"
+        )
+    selected_records = [
+        records_by_id[candidate_id] for candidate_id in sorted(term_overrides)
+    ]
     return _render_plan(
-        records,
+        selected_records,
         manifest_path=manifest_path,
         candidates_bytes=candidates_bytes,
         candidates_input_key="positive_candidates",
+        search_term_overrides=term_overrides,
+        extra_inputs={"search_terms": terms_digest},
     )
 
 
-def build_enrichment_plan(bundle_dir: str | Path) -> tuple[bytes, dict[str, Any]]:
+def build_enrichment_plan(
+    bundle_dir: str | Path,
+    *,
+    search_terms_file: str | Path | None = None,
+) -> tuple[bytes, dict[str, Any]]:
     """Validate the bundle and render deterministic ``plan.json`` bytes.
 
     Raises before touching the output directory, so failures never leave
@@ -655,8 +762,12 @@ def build_enrichment_plan(bundle_dir: str | Path) -> tuple[bytes, dict[str, Any]
     if not isinstance(initial_manifest, dict):
         raise ValueError("candidate bundle manifest must be a JSON object")
     if initial_manifest.get("schema_version") == ORGANIZER_MANIFEST_VERSION:
-        return _build_positive_enrichment_plan(bundle, manifest_path, initial_manifest)
+        return _build_positive_enrichment_plan(
+            bundle, manifest_path, initial_manifest, search_terms_file
+        )
 
+    if search_terms_file is not None:
+        raise ValueError("--search-terms is supported only for organizer positives")
     candidates_path = bundle / NEGATIVE_CANDIDATES_FILENAME
     if not candidates_path.is_file():
         raise FileNotFoundError(f"labeling bundle is incomplete: {bundle}")
@@ -743,10 +854,13 @@ def export_enrichment_plan(
     *,
     bundle_dir: str | Path,
     output_dir: str | Path,
+    search_terms_file: str | Path | None = None,
 ) -> LabelingEnrichmentPlanPaths:
     """Validate the bundle and atomically publish plan.json with its manifest."""
 
-    plan_bytes, provenance = build_enrichment_plan(bundle_dir)
+    plan_bytes, provenance = build_enrichment_plan(
+        bundle_dir, search_terms_file=search_terms_file
+    )
     manifest_bytes = (
         json.dumps(
             {

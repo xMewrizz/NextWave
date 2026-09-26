@@ -54,8 +54,8 @@ from .enrichment_plan import (
     OPENALEX_RETRIEVAL_POLICY,
     _bundle_id,
     _candidate_searches,
+    _clean_term,
     _EnrichmentCandidateRecord,
-    _search_terms,
     _windows,
 )
 
@@ -486,7 +486,25 @@ def load_validated_plan(plan_dir: str | Path) -> tuple[dict[str, Any], bytes, di
                 f"candidate {entry.get('candidate_id')!r} must hold exactly one "
                 "openalex and one mediacloud search"
             )
-        terms = _search_terms(record.canonical_name, record.aliases)
+        raw_terms = entry.get("search_terms")
+        if (
+            not isinstance(raw_terms, list)
+            or not raw_terms
+            or any(not isinstance(term, str) for term in raw_terms)
+        ):
+            raise ValueError(
+                f"candidate {record.candidate_id!r} search_terms must be "
+                "a non-empty list of strings"
+            )
+        terms = [_clean_term(term) for term in raw_terms]
+        if (
+            any(not term for term in terms)
+            or terms != raw_terms
+            or len({term.casefold() for term in terms}) != len(terms)
+        ):
+            raise ValueError(
+                f"candidate {record.candidate_id!r} search_terms are not normalized"
+            )
         for search in searches:
             _validate_search_task(
                 entry, search, record.candidate_id, terms, full_window, recent_window
