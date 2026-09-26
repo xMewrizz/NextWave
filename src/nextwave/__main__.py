@@ -27,6 +27,10 @@ from .labeling.enrichment_plan import (
 )
 from .labeling.enrichment_run import ENRICHMENT_RESULT_VERSION, run_enrichment
 from .labeling.export import export_labeling_bundle
+from .labeling.relevance_plan import (
+    LABELING_RELEVANCE_PLAN_VERSION,
+    export_relevance_plan,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -198,6 +202,28 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("config") / "hackathon.env",
         help="файл runtime-настроек; переменные процесса имеют приоритет",
+    )
+    relevance_plan = commands.add_parser(
+        "labeling-relevance-plan",
+        help="офлайн-ранжирование документов enrichment без API и LLM",
+    )
+    relevance_plan.add_argument(
+        "--plan",
+        type=Path,
+        required=True,
+        help="неизменяемый каталог плана enrichment (plan.json + manifest.json)",
+    )
+    relevance_plan.add_argument(
+        "--result",
+        type=Path,
+        required=True,
+        help="неизменяемый каталог результата enrichment",
+    )
+    relevance_plan.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / LABELING_RELEVANCE_PLAN_VERSION,
+        help="новый каталог результата",
     )
     return parser
 
@@ -410,6 +436,26 @@ def _run_labeling_enrichment_run(
     return 0
 
 
+def _run_labeling_relevance_plan(plan: Path, result: Path, output: Path) -> int:
+    try:
+        paths = export_relevance_plan(
+            plan_dir=plan,
+            result_dir=result,
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось построить relevance-план: {error}", file=sys.stderr)
+        return 1
+
+    print("Relevance-план успешно построен.")
+    print(f"Ранжировка: {paths.ranked_documents}")
+    print(f"Shortlist: {paths.scientific_shortlist}")
+    print(f"Очередь: {paths.media_fetch_queue}")
+    print(f"Покрытие: {paths.coverage}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     arguments = parser.parse_args(argv)
@@ -442,6 +488,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "labeling-enrichment-run":
         return _run_labeling_enrichment_run(
             arguments.plan, arguments.work, arguments.output, arguments.env_file
+        )
+    if arguments.command == "labeling-relevance-plan":
+        return _run_labeling_relevance_plan(
+            arguments.plan, arguments.result, arguments.output
         )
     parser.print_help()
     return 0

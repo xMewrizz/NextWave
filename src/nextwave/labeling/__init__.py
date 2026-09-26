@@ -54,6 +54,12 @@ from .queue import (
     build_labeling_queue,
     queue_to_jsonl,
 )
+from .relevance_plan import (
+    LABELING_RELEVANCE_PLAN_VERSION,
+    LabelingRelevancePlanPaths,
+    build_relevance_plan,
+    export_relevance_plan,
+)
 from .workbook import (
     count_evidence_rows,
     fill_labeling_workbook,
@@ -66,6 +72,7 @@ __all__ = [
     "LABELING_CUTOFF_DATE",
     "LABELING_ENRICHMENT_PLAN_VERSION",
     "LABELING_EXPORT_MANIFEST_VERSION",
+    "LABELING_RELEVANCE_PLAN_VERSION",
     "MODEL_DECISION_SCHEMA_VERSION",
     "NEGATIVE_CANDIDATE_SCHEMA_VERSION",
     "NOISE_CONTROL_SCHEMA_VERSION",
@@ -100,11 +107,14 @@ __all__ = [
     "LabelingEnrichmentPlanPaths",
     "LabelingEnrichmentRunPaths",
     "LabelingExportPaths",
+    "LabelingRelevancePlanPaths",
     "build_enrichment_plan",
     "build_labeling_queue",
+    "build_relevance_plan",
     "count_evidence_rows",
     "export_enrichment_plan",
     "export_labeling_bundle",
+    "export_relevance_plan",
     "fill_labeling_workbook",
     "queue_to_jsonl",
     "read_candidate_slots",

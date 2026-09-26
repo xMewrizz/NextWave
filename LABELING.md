@@ -159,6 +159,10 @@ Resume: один `request_id` — одна атомарная единица; у
 
 Coverage считается отдельно на кандидата и источник по запланированным request ID: `complete` — все успешны (пустой ответ тоже успех), `partial` — часть успешна, `unknown` — ни одного проверяемого успеха. Ошибка, пропуск и повреждённый ответ — не ноль и не complete; broad discovery не подставляется, выводов «в интернете ничего нет» план не делает. Секреты (API key, folder ID, заголовки авторизации) не попадают в `repr`, исключения, manifests, snapshots, JSONL и вывод CLI.
 
+## Retrieval ranking (offline, не evidence)
+
+Команда `python -m nextwave labeling-relevance-plan --plan <план> --result <результат> --output <каталог>` полностью офлайн ранжирует связи кандидат–документ из enrichment result по проверенным `search_terms` плана (версия `labeling-relevance-plan-v1`). Это retrieval ranking, а не evidence и не модельная оценка кандидата: найденный документ не является EvidenceClaim, `target` и экспертные метки не читаются и не используются. Иерархия score одного термина: 100 — фраза в title, 80 — все токены в title, 70 — фраза в excerpt, 60 — все токены в title+excerpt, иначе `round(40 * matched/все)`; классы `strong ≥ 60`, `weak 20–59`, `none < 20`. Выход: `ranked_documents.jsonl` (все уникальные связи), `scientific_shortlist.jsonl` (OpenAlex с excerpt, только strong/weak, ≤4 на кандидата), `media_fetch_queue.jsonl` (Media Cloud, ≤4 URL на кандидата, `none` допустим как добор для загрузки текста), `coverage.jsonl` и `manifest.json`. Публикация атомарная, повтор в существующий каталог — ошибка.
+
 Итоговая метка хранится на листе `Решения`. Поле `review_pool=unclassified` не предлагает класс. `planned_noise_type` задаёт состав отдельного контроля Gate, но его подтверждает проверяющий. Каталог `data/development` с рабочими экспортами не передаётся в Git.
 
 ## Готовность V1-04
