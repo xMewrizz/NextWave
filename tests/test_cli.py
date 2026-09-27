@@ -431,7 +431,7 @@ class CommandLineTests(unittest.TestCase):
         )
         self.assertEqual(
             kwargs["output_dir"],
-            Path("data/development/labeling-evidence-input-plan-v3"),
+            Path("data/development/labeling-evidence-input-plan-v4"),
         )
         help_text = _build_parser().format_help()
         self.assertNotIn("labeling-evidence-input-plan-v1", help_text)

@@ -91,7 +91,7 @@ def build_input(
     (input_dir / "evidence_input_documents.jsonl").write_bytes(documents_bytes)
     (input_dir / "coverage.jsonl").write_bytes(coverage_bytes)
     manifest = {
-        "schema_version": "labeling-evidence-input-plan-v3",
+        "schema_version": "labeling-evidence-input-plan-v4",
         "bundle_id": BUNDLE,
         "cutoff_date": "2026-09-15",
         "totals": {
@@ -259,7 +259,7 @@ class TaskAssemblyTests(unittest.TestCase):
 
         self.assertEqual(len(tasks), 2)
         self.assertNotEqual(len(tasks), 5)
-        self.assertEqual(manifest["schema_version"], "labeling-evidence-llm-plan-v3")
+        self.assertEqual(manifest["schema_version"], "labeling-evidence-llm-plan-v4")
         self.assertEqual(manifest["claim_policy"]["max_claims_per_document"], 1)
         self.assertEqual(manifest["totals"]["planned_tasks"], 2)
         self.assertEqual(manifest["totals"]["input_documents"], 5)

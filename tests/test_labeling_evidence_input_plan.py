@@ -954,7 +954,7 @@ class EvidenceChainTests(unittest.TestCase):
         ):
             self.assertNotIn(token, text)
         self.assertEqual(
-            LABELING_EVIDENCE_INPUT_PLAN_VERSION, "labeling-evidence-input-plan-v3"
+            LABELING_EVIDENCE_INPUT_PLAN_VERSION, "labeling-evidence-input-plan-v4"
         )
 
 
@@ -1191,9 +1191,17 @@ class ScientificEvidencePolicyTests(unittest.TestCase):
     def test_weak_below_30_is_rejected(self) -> None:
         admitted, _, _ = _scientific_eligible(
             {"relevance_class": "weak", "score": 27, "matched_tokens": ["alpha", "beta"]},
-            {"title": "alpha beta", "excerpt": "alpha beta"},
+            {"title": "alpha study", "excerpt": "alpha beta"},
         )
         self.assertFalse(admitted)
+
+    def test_weak_below_30_with_two_title_tokens_is_eligible(self) -> None:
+        admitted, title_matches, _ = _scientific_eligible(
+            {"relevance_class": "weak", "score": 20, "matched_tokens": ["kv", "cache"]},
+            {"title": "Asynchronous KV cache prefetching", "excerpt": "Abstract"},
+        )
+        self.assertTrue(admitted)
+        self.assertEqual(title_matches, 2)
 
     def test_weak_title_cooccurrence_is_eligible(self) -> None:
         admitted, title_matches, _ = _scientific_eligible(
@@ -1511,14 +1519,14 @@ class EvidencePolicyCTests(unittest.TestCase):
             manifest = json.loads((paths.manifest).read_text(encoding="utf-8"))
 
         self.assertEqual(
-            manifest["schema_version"], "labeling-evidence-input-plan-v3"
+            manifest["schema_version"], "labeling-evidence-input-plan-v4"
         )
         self.assertEqual(
             manifest["selection_policy"],
             {
                 "strong_allowed": True,
                 "scientific_source": "all ranked OpenAlex documents, before top-4",
-                "scientific_weak_min_score": 30,
+                "scientific_weak_excerpt_min_score": 30,
                 "scientific_weak_min_matched_tokens": 2,
                 "scientific_weak_max_excerpt_window_tokens": 32,
                 "scientific_weak_title_matches": 2,

@@ -28,7 +28,7 @@ from .evidence_input_plan import (
     _normalize_text,
 )
 
-LABELING_EVIDENCE_LLM_PLAN_VERSION = "labeling-evidence-llm-plan-v3"
+LABELING_EVIDENCE_LLM_PLAN_VERSION = "labeling-evidence-llm-plan-v4"
 
 CUTOFF_ISO = LABELING_CUTOFF_DATE.isoformat()
 MAX_PASSAGE_CHARS = 3000

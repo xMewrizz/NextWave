@@ -33,7 +33,7 @@ from .relevance_plan import (
     time_window,
 )
 
-LABELING_EVIDENCE_INPUT_PLAN_VERSION = "labeling-evidence-input-plan-v3"
+LABELING_EVIDENCE_INPUT_PLAN_VERSION = "labeling-evidence-input-plan-v4"
 
 CUTOFF_ISO = LABELING_CUTOFF_DATE.isoformat()
 MEDIA_WINDOW_TOKENS = 32
@@ -790,13 +790,11 @@ def _media_eligible(row: Mapping[str, Any]) -> bool:
 def _scientific_eligible(
     row: Mapping[str, Any], source: Mapping[str, Any]
 ) -> tuple[bool, int, int | None]:
-    """Admit strong science and locally coherent score-30+ weak matches.
+    """Admit strong science and weak matches focused in title or excerpt.
 
-    Weak retrieval hits must match at least two reviewed-term tokens. Those
-    tokens must either co-occur in the title or fit in a 32-token excerpt
-    window. This rejects broad articles that mention generic term fragments
-    far apart while retaining focused papers whose title or abstract names
-    the candidate concept.
+    Weak hits must match at least two reviewed-term tokens. Two title matches
+    are enough despite a long query; otherwise score must be at least 30 and
+    all matched tokens must fit in a 32-token excerpt window.
     """
 
     matched = row.get("matched_tokens")
@@ -814,12 +812,12 @@ def _scientific_eligible(
         row.get("relevance_class") == "weak"
         and isinstance(score, int)
         and not isinstance(score, bool)
-        and score >= SCIENTIFIC_WEAK_MIN_SCORE
         and len(matched_set) >= SCIENTIFIC_WEAK_MIN_MATCHED_TOKENS
         and (
             title_matches >= SCIENTIFIC_WEAK_MIN_MATCHED_TOKENS
             or (
-                excerpt_window is not None
+                score >= SCIENTIFIC_WEAK_MIN_SCORE
+                and excerpt_window is not None
                 and excerpt_window <= SCIENTIFIC_WEAK_MAX_EXCERPT_WINDOW_TOKENS
             )
         )
@@ -1358,7 +1356,7 @@ def _assemble(
         "selection_policy": {
             "strong_allowed": True,
             "scientific_source": "all ranked OpenAlex documents, before top-4",
-            "scientific_weak_min_score": SCIENTIFIC_WEAK_MIN_SCORE,
+            "scientific_weak_excerpt_min_score": SCIENTIFIC_WEAK_MIN_SCORE,
             "scientific_weak_min_matched_tokens": SCIENTIFIC_WEAK_MIN_MATCHED_TOKENS,
             "scientific_weak_max_excerpt_window_tokens": (
                 SCIENTIFIC_WEAK_MAX_EXCERPT_WINDOW_TOKENS
