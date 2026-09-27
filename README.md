@@ -102,16 +102,18 @@ python -m nextwave --version
 
 ## Проверка LLM-контура
 
-Query Resolver, извлечение кандидатов, Candidate Gate и извлечение evidence используют
+Query Resolver, извлечение кандидатов, Candidate Gate и labeling Evidence executor используют
 явно настроенные YandexGPT-модели: основная пара `NEXTWAVE_LLM_PROVIDER/MODEL` —
-`YandexGPT Lite 5`, а Candidate Gate — отдельная пара
-`NEXTWAVE_GATE_LLM_PROVIDER/MODEL` — `YandexGPT Pro 5`. Это две фиксированные
+`YandexGPT Lite 5`, Candidate Gate — отдельная пара
+`NEXTWAVE_GATE_LLM_PROVIDER/MODEL` с `YandexGPT Pro 5`, а labeling Evidence —
+`NEXTWAVE_EVIDENCE_LLM_PROVIDER/MODEL` с `YandexGPT Pro 5.1`. Это три фиксированные
 конфигурации, а не автоматический routing и не скрытый fallback; пользователь
 интерфейса ничего не выбирает и не вводит. Провайдер и модели зафиксированы в
 `config/hackathon.env`; API-ключ и ID
 каталога являются серверными секретами и не передаются во frontend, prompt, snapshots или
 логи. Query Resolver может повторить только повреждённый JSON через `YandexGPT Pro 5` и
-сохраняет фактически ответившую модель. Остальные этапы не выполняют скрытый fallback:
+сохраняет фактически ответившую модель. Остальные этапы, включая labeling Evidence,
+не выполняют скрытый fallback:
 ошибка становится `review` или неизвестным покрытием.
 
 CLI читает настройки слоями: `config/hackathon.env`, затем локальный `.env`, затем переменные

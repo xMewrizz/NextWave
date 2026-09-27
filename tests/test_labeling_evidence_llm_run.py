@@ -327,6 +327,38 @@ class ExecutorCallTests(unittest.TestCase):
         self.assertTrue(kwargs["server_side_json_schema"])
         self.assertEqual(kwargs["json_schema"], EVIDENCE_RESPONSE_JSON_SCHEMA)
 
+    def test_runtime_builder_receives_separate_pro51_evidence_settings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row("c1", 1, "openalex", 1)]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            generator = success_handler({"c1": [(docs[0]["document_id"], [])]})
+            environment = ENV | {
+                "NEXTWAVE_EVIDENCE_LLM_PROVIDER": "yandex",
+                "NEXTWAVE_EVIDENCE_LLM_MODEL": "YandexGPT Pro 5.1",
+            }
+            with mock.patch(
+                "nextwave.labeling.evidence_llm_run.build_json_generator",
+                return_value=generator,
+            ) as builder:
+                paths = run_evidence_llm(
+                    plan_dir=plan,
+                    work_dir=root / "work",
+                    output_dir=root / "out",
+                    environment=environment,
+                )
+            work_manifest = json.loads(
+                (root / "work" / "work_manifest.json").read_text(encoding="utf-8")
+            )
+            result_manifest = json.loads(paths.manifest.read_text(encoding="utf-8"))
+
+        settings = builder.call_args.args[0]
+        self.assertEqual(settings.selection.model, "YandexGPT Pro 5.1")
+        self.assertEqual(work_manifest["model"], "YandexGPT Pro 5.1")
+        self.assertEqual(result_manifest["model"], "YandexGPT Pro 5.1")
+        self.assertIn("yandexgpt-pro-5.1", result_manifest["extractor_id"])
+
     def test_no_input_makes_zero_calls(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

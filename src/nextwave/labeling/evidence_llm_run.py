@@ -27,7 +27,7 @@ from nextwave.discovery.llm import (
     YandexContentFilterError,
     YandexTruncationError,
     build_json_generator,
-    load_llm_runtime_settings,
+    load_evidence_llm_settings,
 )
 from nextwave.sources import publish_staging
 
@@ -1162,10 +1162,10 @@ def run_evidence_llm(
         wanted = set(candidate_ids)
         if not wanted or any(not isinstance(item, str) for item in wanted):
             raise ValueError("candidate_ids must be a non-empty string collection")
-    settings = load_llm_runtime_settings(environment)
+    settings = load_evidence_llm_settings(environment)
     if settings.selection.provider is not LlmProvider.YANDEX:
         raise ValueError(
-            "evidence executor supports the Yandex main model, "
+            "evidence executor supports a Yandex evidence model, "
             f"not {settings.selection.provider.value!r}"
         )
     provider = settings.selection.provider.value

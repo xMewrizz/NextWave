@@ -140,6 +140,41 @@ def load_gate_llm_settings(environment: Mapping[str, str]) -> LlmRuntimeSettings
     )
 
 
+def load_evidence_llm_settings(environment: Mapping[str, str]) -> LlmRuntimeSettings:
+    """Read the optional Evidence extraction model selection.
+
+    Both evidence variables must be set together. When both are absent the
+    main model is reused for backward compatibility. Credentials remain the
+    shared server credentials and never enter reprs or comparisons.
+    """
+
+    evidence_provider = environment.get("NEXTWAVE_EVIDENCE_LLM_PROVIDER", "").strip()
+    evidence_model = environment.get("NEXTWAVE_EVIDENCE_LLM_MODEL", "").strip()
+    if not evidence_provider and not evidence_model:
+        return load_llm_runtime_settings(environment)
+    if bool(evidence_provider) != bool(evidence_model):
+        missing = (
+            "NEXTWAVE_EVIDENCE_LLM_MODEL"
+            if evidence_provider
+            else "NEXTWAVE_EVIDENCE_LLM_PROVIDER"
+        )
+        raise ValueError(
+            f"{missing} is required when the other "
+            "NEXTWAVE_EVIDENCE_LLM_* variable is set"
+        )
+    api_key = environment.get("NEXTWAVE_LLM_API_KEY", "").strip()
+    yandex_folder_id = environment.get("NEXTWAVE_YANDEX_FOLDER_ID", "").strip()
+    try:
+        provider = LlmProvider(evidence_provider)
+    except ValueError as error:
+        raise ValueError(f"unknown LLM provider: {evidence_provider}") from error
+    return LlmRuntimeSettings(
+        selection=LlmSelection(provider, evidence_model),
+        api_key=api_key,
+        yandex_folder_id=yandex_folder_id,
+    )
+
+
 class JsonHttpTransport(Protocol):
     def post_json(
         self,
