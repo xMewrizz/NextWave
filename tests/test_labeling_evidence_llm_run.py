@@ -389,17 +389,17 @@ class EvidenceSchemaContractTests(unittest.TestCase):
 
     def test_versions_change_only_executor_and_extractor_policy(self) -> None:
         self.assertEqual(EVIDENCE_MAX_OUTPUT_TOKENS, 2000)
-        self.assertEqual(EVIDENCE_EXTRACTOR_VERSION, "evidence-llm-v4")
+        self.assertEqual(EVIDENCE_EXTRACTOR_VERSION, "evidence-llm-v5")
         self.assertEqual(
             LABELING_EVIDENCE_LLM_EXECUTOR_VERSION,
-            "labeling-evidence-llm-executor-v5",
+            "labeling-evidence-llm-executor-v6",
         )
         self.assertEqual(LABELING_EVIDENCE_LLM_WORK_VERSION, "labeling-evidence-llm-work-v1")
         self.assertEqual(LABELING_EVIDENCE_LLM_CACHE_VERSION, "labeling-evidence-llm-cache-v1")
         self.assertEqual(LABELING_EVIDENCE_LLM_RESULT_VERSION, "labeling-evidence-llm-result-v1")
         self.assertEqual(
             _extractor_id("yandex", "YandexGPT Lite 5"),
-            "yandex-yandexgpt-lite-5-evidence-llm-v4",
+            "yandex-yandexgpt-lite-5-evidence-llm-v5",
         )
 
 
@@ -477,6 +477,18 @@ class ClaimValidationTests(unittest.TestCase):
             _claim_match_is_sufficient(
                 "alpha and beta appear separately in factual implementation details",
                 "alpha beta gamma",
+            )
+        )
+        self.assertFalse(
+            _claim_match_is_sufficient(
+                "Alpha beta implementation details are reported",
+                "alpha beta gamma",
+            )
+        )
+        self.assertTrue(
+            _claim_match_is_sufficient(
+                "Alpha beta gamma implementation details are reported",
+                "alpha beta gamma delta epsilon",
             )
         )
 
@@ -747,7 +759,7 @@ class ResumeTests(unittest.TestCase):
             manifest_path = root / "work" / "work_manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["extractor_id"] = manifest["extractor_id"].replace(
-                "evidence-llm-v4", "evidence-llm-v3"
+                "evidence-llm-v5", "evidence-llm-v4"
             )
             manifest_path.write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",

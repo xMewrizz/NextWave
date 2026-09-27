@@ -259,7 +259,7 @@ class TaskAssemblyTests(unittest.TestCase):
 
         self.assertEqual(len(tasks), 2)
         self.assertNotEqual(len(tasks), 5)
-        self.assertEqual(manifest["schema_version"], "labeling-evidence-llm-plan-v4")
+        self.assertEqual(manifest["schema_version"], "labeling-evidence-llm-plan-v5")
         self.assertEqual(manifest["claim_policy"]["max_claims_per_document"], 1)
         self.assertEqual(manifest["totals"]["planned_tasks"], 2)
         self.assertEqual(manifest["totals"]["input_documents"], 5)
@@ -324,6 +324,8 @@ class PromptContractTests(unittest.TestCase):
         self.assertIn("directly states a verifiable fact", lowered)
         self.assertIn("specific reviewed matched_term", lowered)
         self.assertIn("neighboring topic", lowered)
+        self.assertIn("at least three unique tokens", lowered)
+        self.assertIn("adjacent token pair", lowered)
         self.assertIn("separate generic", lowered)
         self.assertIn("when unsure, use []", lowered)
         self.assertIn("title is not evidence", lowered)

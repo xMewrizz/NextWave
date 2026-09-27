@@ -28,7 +28,7 @@ from .evidence_input_plan import (
     _normalize_text,
 )
 
-LABELING_EVIDENCE_LLM_PLAN_VERSION = "labeling-evidence-llm-plan-v4"
+LABELING_EVIDENCE_LLM_PLAN_VERSION = "labeling-evidence-llm-plan-v5"
 
 CUTOFF_ISO = LABELING_CUTOFF_DATE.isoformat()
 MAX_PASSAGE_CHARS = 3000
@@ -445,6 +445,9 @@ def build_evidence_prompt(task: Mapping[str, Any]) -> str:
         "  about that document's specific reviewed matched_term.",
         "- Facts about a neighboring topic are forbidden; sharing separate generic",
         "  words with matched_term does not establish relevance. When unsure, use [].",
+        "- If matched_term has at least three unique tokens, the quote must contain",
+        "  at least three of them and one adjacent token pair in the original order.",
+        "  For a two-token matched_term, both tokens must appear as that adjacent pair.",
         "- Every quote must be copied verbatim from that document's passage only;",
         "  quotes of 20-500 characters; never quote the title.",
         "- The title is not evidence; it is context only.",

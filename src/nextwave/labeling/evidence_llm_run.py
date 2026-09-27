@@ -41,15 +41,14 @@ from .evidence_llm_plan import (
     build_evidence_prompt,
 )
 
-LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v5"
+LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v6"
 LABELING_EVIDENCE_LLM_WORK_VERSION = "labeling-evidence-llm-work-v1"
 LABELING_EVIDENCE_LLM_CACHE_VERSION = "labeling-evidence-llm-cache-v1"
 LABELING_EVIDENCE_LLM_RESULT_VERSION = "labeling-evidence-llm-result-v1"
 
 EVIDENCE_MAX_OUTPUT_TOKENS = 2000
 EVIDENCE_CONCURRENCY = 3
-EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v4"
-CLAIM_MIN_MATCHED_TOKENS = 2
+EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v5"
 EVIDENCE_RESPONSE_JSON_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -625,8 +624,10 @@ def _claim_match_is_sufficient(quote: str, matched_term: str) -> bool:
         return False
     if len(term_tokens) == 1:
         return term_tokens[0] in quote_tokens
+    unique_term_count = len(frozenset(term_tokens))
+    required_matches = min(3, unique_term_count)
     matched = frozenset(term_tokens) & frozenset(quote_tokens)
-    if len(matched) < CLAIM_MIN_MATCHED_TOKENS:
+    if len(matched) < required_matches:
         return False
     quote_pairs = set(zip(quote_tokens, quote_tokens[1:], strict=False))
     term_pairs = set(zip(term_tokens, term_tokens[1:], strict=False))
