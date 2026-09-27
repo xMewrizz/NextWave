@@ -50,6 +50,8 @@ LABELING_EVIDENCE_LLM_RESULT_VERSION = "labeling-evidence-llm-result-v5"
 EVIDENCE_MAX_OUTPUT_TOKENS = 2000
 EVIDENCE_CONCURRENCY = 3
 EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v10-specific-core"
+QUALIFICATION_EVIDENCE_PROVIDER = "yandex"
+QUALIFICATION_EVIDENCE_MODEL = "YandexGPT Pro 5.1"
 EVIDENCE_RESPONSE_JSON_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -1354,6 +1356,16 @@ def run_evidence_llm(
         )
     provider = settings.selection.provider.value
     model = settings.selection.model
+    if (
+        provider != QUALIFICATION_EVIDENCE_PROVIDER
+        or model != QUALIFICATION_EVIDENCE_MODEL
+    ):
+        raise ValueError(
+            "qualification Evidence requires "
+            f"{QUALIFICATION_EVIDENCE_PROVIDER}/{QUALIFICATION_EVIDENCE_MODEL}; "
+            f"resolved {provider}/{model}. Use config/hackathon.env as --env-file "
+            "and keep credentials in the automatically loaded .env"
+        )
     extractor_id = _extractor_id(provider, model)
 
     plan_path = Path(plan_dir)

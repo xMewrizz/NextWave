@@ -30,6 +30,10 @@ from .labeling.evidence_input_plan import (
     LABELING_EVIDENCE_INPUT_PLAN_VERSION,
     export_evidence_input_plan,
 )
+from .labeling.evidence_llm_merge import (
+    LABELING_EVIDENCE_LLM_MERGED_RESULT_VERSION,
+    merge_evidence_llm_results,
+)
 from .labeling.evidence_llm_plan import (
     LABELING_EVIDENCE_LLM_PLAN_VERSION,
     export_evidence_llm_plan,
@@ -360,6 +364,24 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="candidate_ids",
         help="обработать только указанного кандидата (можно повторять)",
     )
+    evidence_llm_merge = commands.add_parser(
+        "labeling-evidence-llm-merge",
+        help="объединить полный Evidence-результат с одним целевым retry без API",
+    )
+    evidence_llm_merge.add_argument(
+        "--primary", type=Path, required=True, help="каталог полного Evidence-прогона"
+    )
+    evidence_llm_merge.add_argument(
+        "--retry", type=Path, required=True, help="каталог целевого retry"
+    )
+    evidence_llm_merge.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data")
+        / "development"
+        / LABELING_EVIDENCE_LLM_MERGED_RESULT_VERSION,
+        help="новый каталог объединённого результата",
+    )
     return parser
 
 
@@ -683,6 +705,24 @@ def _run_labeling_evidence_llm_run(
     return 0
 
 
+def _run_labeling_evidence_llm_merge(
+    primary: Path, retry: Path, output: Path
+) -> int:
+    try:
+        paths = merge_evidence_llm_results(
+            primary_dir=primary, retry_dir=retry, output_dir=output
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось объединить Evidence-результаты: {error}", file=sys.stderr)
+        return 1
+
+    print("Evidence-результаты успешно объединены.")
+    print(f"Утверждения: {paths.claims}")
+    print(f"Покрытие: {paths.coverage}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     arguments = parser.parse_args(argv)
@@ -745,6 +785,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.env_file,
             arguments.max_new_tasks,
             arguments.candidate_ids,
+        )
+    if arguments.command == "labeling-evidence-llm-merge":
+        return _run_labeling_evidence_llm_merge(
+            arguments.primary, arguments.retry, arguments.output
         )
     parser.print_help()
     return 0

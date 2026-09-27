@@ -47,6 +47,8 @@ SECRET_LIKE = "secret-xyz-123"
 ENV = {
     "NEXTWAVE_LLM_PROVIDER": "yandex",
     "NEXTWAVE_LLM_MODEL": "YandexGPT Lite 5",
+    "NEXTWAVE_EVIDENCE_LLM_PROVIDER": "yandex",
+    "NEXTWAVE_EVIDENCE_LLM_MODEL": "YandexGPT Pro 5.1",
     "NEXTWAVE_LLM_API_KEY": "fake-key",
     "NEXTWAVE_YANDEX_FOLDER_ID": "fake-folder",
 }
@@ -365,6 +367,34 @@ class ExecutorCallTests(unittest.TestCase):
         self.assertEqual(work_manifest["model"], "YandexGPT Pro 5.1")
         self.assertEqual(result_manifest["model"], "YandexGPT Pro 5.1")
         self.assertIn("yandexgpt-pro-5.1", result_manifest["extractor_id"])
+
+    def test_lite_fallback_is_rejected_before_work_and_generator(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row("c1", 1, "openalex", 1)]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            generator = success_handler({"c1": [(docs[0]["document_id"], [])]})
+            lite_only = {
+                key: value
+                for key, value in ENV.items()
+                if not key.startswith("NEXTWAVE_EVIDENCE_LLM_")
+            }
+
+            with self.assertRaisesRegex(
+                ValueError, "qualification Evidence requires yandex/YandexGPT Pro 5.1"
+            ):
+                run_evidence_llm(
+                    plan_dir=plan,
+                    work_dir=root / "work",
+                    output_dir=root / "out",
+                    environment=lite_only,
+                    generator=generator,
+                )
+
+            self.assertEqual(generator.calls, [])
+            self.assertFalse((root / "work").exists())
+            self.assertFalse((root / "out").exists())
 
     def test_no_input_makes_zero_calls(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

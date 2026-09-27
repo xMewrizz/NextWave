@@ -469,6 +469,38 @@ class CommandLineTests(unittest.TestCase):
             _build_parser().format_help(),
         )
 
+    @patch("nextwave.__main__.merge_evidence_llm_results")
+    def test_evidence_llm_merge_uses_versioned_default_output(self, merge) -> None:
+        from nextwave.labeling.evidence_llm_merge import (
+            LABELING_EVIDENCE_LLM_MERGED_RESULT_VERSION,
+            LabelingEvidenceLlmMergePaths,
+        )
+
+        merge.return_value = LabelingEvidenceLlmMergePaths(
+            manifest=Path("out/manifest.json"),
+            request_results=Path("out/request_results.jsonl"),
+            claims=Path("out/claims.jsonl"),
+            document_results=Path("out/document_results.jsonl"),
+            issues=Path("out/issues.jsonl"),
+            coverage=Path("out/coverage.jsonl"),
+        )
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main([
+                "labeling-evidence-llm-merge",
+                "--primary", "primary",
+                "--retry", "retry",
+            ])
+
+        self.assertEqual(exit_code, 0)
+        _, kwargs = merge.call_args
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data")
+            / "development"
+            / LABELING_EVIDENCE_LLM_MERGED_RESULT_VERSION,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

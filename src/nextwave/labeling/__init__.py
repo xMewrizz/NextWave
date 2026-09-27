@@ -42,6 +42,12 @@ from .evidence_input_plan import (
     media_capacity,
     score_media_document,
 )
+from .evidence_llm_merge import (
+    LABELING_EVIDENCE_LLM_MERGE_VERSION,
+    LABELING_EVIDENCE_LLM_MERGED_RESULT_VERSION,
+    LabelingEvidenceLlmMergePaths,
+    merge_evidence_llm_results,
+)
 from .evidence_llm_plan import (
     EVIDENCE_CLAIM_SCOPES,
     LABELING_EVIDENCE_LLM_PLAN_VERSION,
@@ -110,6 +116,8 @@ __all__ = [
     "LABELING_EVIDENCE_LLM_EXECUTOR_VERSION",
     "LABELING_EVIDENCE_LLM_PLAN_VERSION",
     "LABELING_EVIDENCE_LLM_RESULT_VERSION",
+    "LABELING_EVIDENCE_LLM_MERGED_RESULT_VERSION",
+    "LABELING_EVIDENCE_LLM_MERGE_VERSION",
     "LABELING_EVIDENCE_LLM_WORK_VERSION",
     "LABELING_EXPORT_MANIFEST_VERSION",
     "LABELING_MEDIA_FETCH_CACHE_VERSION",
@@ -153,6 +161,7 @@ __all__ = [
     "LabelingEvidenceInputPlanPaths",
     "LabelingEvidenceLlmPlanPaths",
     "LabelingEvidenceLlmRunPaths",
+    "LabelingEvidenceLlmMergePaths",
     "LabelingExportPaths",
     "LabelingMediaFetchRunPaths",
     "LabelingRelevancePlanPaths",
@@ -175,6 +184,7 @@ __all__ = [
     "read_noise_slots",
     "run_enrichment",
     "run_evidence_llm",
+    "merge_evidence_llm_results",
     "run_media_fetch",
     "score_media_document",
     "select_passage",
