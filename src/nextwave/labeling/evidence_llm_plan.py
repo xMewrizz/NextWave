@@ -27,8 +27,9 @@ from .evidence_input_plan import (
     _min_window_width,
     _normalize_text,
 )
+from .evidence_term_policy import text_supports_matched_term
 
-LABELING_EVIDENCE_LLM_PLAN_VERSION = "labeling-evidence-llm-plan-v5"
+LABELING_EVIDENCE_LLM_PLAN_VERSION = "labeling-evidence-llm-plan-v6"
 
 CUTOFF_ISO = LABELING_CUTOFF_DATE.isoformat()
 MAX_PASSAGE_CHARS = 3000
@@ -363,7 +364,7 @@ def select_passage(
         if start + MAX_PASSAGE_CHARS >= len(excerpt):
             break
         start += CHUNK_STEP_CHARS
-    scored: list[tuple[tuple[int, float, float, int], int, str]] = []
+    scored: list[tuple[tuple[int, int, float, float, int], int, str]] = []
     for index, (offset, text) in enumerate(chunks):
         tokens = _normalize_text(text).split()
         token_set = frozenset(tokens)
@@ -380,7 +381,8 @@ def select_passage(
                 fraction = matched / len(term_set)
                 span = float(width) if width is not None else math.inf
                 key = (3, -fraction, span, index)
-        scored.append((key, offset, text))
+        eligibility = 0 if text_supports_matched_term(text, matched_term) else 1
+        scored.append(((eligibility, *key), offset, text))
     scored.sort(key=lambda item: item[0])
     _, offset, text = scored[0]
     passage_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -525,7 +527,9 @@ def build_evidence_llm_plan(
         "candidates": len(coverage),
         "planned_tasks": 0,
         "no_input_candidates": 0,
-        "input_documents": len(documents),
+        "source_input_documents": len(documents),
+        "input_documents": 0,
+        "excluded_ineligible_passages": 0,
         "scientific_documents": 0,
         "industry_documents": 0,
         "total_prompt_chars": 0,
@@ -565,9 +569,12 @@ def build_evidence_llm_plan(
                     f"candidate {candidate_id!r} passage offsets do not restore "
                     f"document {row['document_id']!r}"
                 )
+            if not text_supports_matched_term(passage, row["matched_term"]):
+                totals["excluded_ineligible_passages"] += 1
+                continue
             task_documents.append({
                 "document_id": row["document_id"],
-                "final_rank": row["final_rank"],
+                "final_rank": len(task_documents) + 1,
                 "source_class": row["source_class"],
                 "connector": row["connector"],
                 "title": row["title"],
@@ -585,6 +592,24 @@ def build_evidence_llm_plan(
                 "source_excerpt_sha256": source_sha,
                 "passage_sha256": passage_sha,
             })
+        if not task_documents:
+            reasons = list(coverage_by_id[candidate_id].get("empty_reasons") or [])
+            if "no_claim_eligible_passage" not in reasons:
+                reasons.append("no_claim_eligible_passage")
+            coverage_rows.append({
+                "candidate_id": candidate_id,
+                "status": "no_input",
+                "task_id": None,
+                "input_documents": 0,
+                "scientific_documents": 0,
+                "industry_documents": 0,
+                "prompt_chars": 0,
+                "estimated_input_tokens": 0,
+                "llm_call_planned": False,
+                "empty_reasons": reasons,
+            })
+            totals["no_input_candidates"] += 1
+            continue
         stub = {"candidate_id": candidate_id, "documents": task_documents}
         prompt = build_evidence_prompt(stub)
         prompt_chars = len(prompt)
@@ -622,6 +647,7 @@ def build_evidence_llm_plan(
             "llm_call_planned": True,
         })
         totals["planned_tasks"] += 1
+        totals["input_documents"] += len(task_documents)
         totals["scientific_documents"] += scientific
         totals["industry_documents"] += industry
         totals["total_prompt_chars"] += prompt_chars
@@ -658,6 +684,9 @@ def build_evidence_llm_plan(
             "max_claims_per_document": MAX_CLAIMS_PER_DOCUMENT,
             "quote_min_chars": QUOTE_MIN_CHARS,
             "quote_max_chars": QUOTE_MAX_CHARS,
+            "passage_preflight_uses_claim_lexical_gate": True,
+            "minimum_unique_term_tokens": 3,
+            "requires_adjacent_term_pair": True,
         },
         "token_estimate_formula": "ceil(prompt_chars / 3)",
         "totals": totals,

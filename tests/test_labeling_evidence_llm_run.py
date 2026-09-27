@@ -389,17 +389,17 @@ class EvidenceSchemaContractTests(unittest.TestCase):
 
     def test_versions_change_only_executor_and_extractor_policy(self) -> None:
         self.assertEqual(EVIDENCE_MAX_OUTPUT_TOKENS, 2000)
-        self.assertEqual(EVIDENCE_EXTRACTOR_VERSION, "evidence-llm-v5")
+        self.assertEqual(EVIDENCE_EXTRACTOR_VERSION, "evidence-llm-v6")
         self.assertEqual(
             LABELING_EVIDENCE_LLM_EXECUTOR_VERSION,
-            "labeling-evidence-llm-executor-v6",
+            "labeling-evidence-llm-executor-v7",
         )
         self.assertEqual(LABELING_EVIDENCE_LLM_WORK_VERSION, "labeling-evidence-llm-work-v1")
         self.assertEqual(LABELING_EVIDENCE_LLM_CACHE_VERSION, "labeling-evidence-llm-cache-v1")
         self.assertEqual(LABELING_EVIDENCE_LLM_RESULT_VERSION, "labeling-evidence-llm-result-v1")
         self.assertEqual(
             _extractor_id("yandex", "YandexGPT Lite 5"),
-            "yandex-yandexgpt-lite-5-evidence-llm-v5",
+            "yandex-yandexgpt-lite-5-evidence-llm-v6",
         )
 
 
@@ -725,7 +725,10 @@ class ResumeTests(unittest.TestCase):
             })
             run_with_fake(plan, root / "work", root / "out-1", good)
             other_docs = [task_doc_row("c1", 1, "openalex", 1,
-                                       excerpt="Different article text here.")]
+                                       excerpt=(
+                                           "Quantum error correction appears in a "
+                                           "different article."
+                                       ))]
             other_task = make_task_row("c1", other_docs)
             other_plan = build_input(
                 root / "other", [other_task], [run_coverage_row("c1", other_task)]
@@ -759,7 +762,7 @@ class ResumeTests(unittest.TestCase):
             manifest_path = root / "work" / "work_manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["extractor_id"] = manifest["extractor_id"].replace(
-                "evidence-llm-v5", "evidence-llm-v4"
+                "evidence-llm-v6", "evidence-llm-v5"
             )
             manifest_path.write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -1187,6 +1190,20 @@ class PreflightTests(unittest.TestCase):
             task = make_task_row("c1", docs)
             input_dir = build_input(root, [task], [run_coverage_row("c1", task)])
             self._run_fails(root, input_dir, "connector does not match")
+
+    def test_ineligible_passage_is_rejected_before_work_or_model(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row(
+                "c1",
+                1,
+                "openalex",
+                1,
+                excerpt="Quantum devices use error controls and correction methods.",
+            )]
+            task = make_task_row("c1", docs)
+            input_dir = build_input(root, [task], [run_coverage_row("c1", task)])
+            self._run_fails(root, input_dir, "cannot satisfy the claim lexical gate")
 
     def test_corrupt_checksum_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

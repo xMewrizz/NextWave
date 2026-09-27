@@ -17,6 +17,7 @@ from nextwave.labeling.evidence_llm_plan import (
     export_evidence_llm_plan,
     select_passage,
 )
+from nextwave.labeling.evidence_term_policy import text_supports_matched_term
 
 BUNDLE = "bundle-test-001"
 
@@ -124,6 +125,30 @@ def six_doc_fixture() -> tuple[list[dict], list[dict]]:
 
 
 class PassageSelectionTests(unittest.TestCase):
+    def test_shared_policy_requires_enough_tokens_and_a_term_bigram(self) -> None:
+        self.assertTrue(
+            text_supports_matched_term(
+                "Quantum error correction improves devices.",
+                "quantum error correction platform",
+            )
+        )
+        self.assertFalse(
+            text_supports_matched_term(
+                "Quantum devices use error controls and correction methods.",
+                "quantum error correction platform",
+            )
+        )
+        self.assertFalse(
+            text_supports_matched_term(
+                "Quantum error methods.", "quantum error correction platform"
+            )
+        )
+
+    def test_shared_policy_handles_two_and_one_token_terms(self) -> None:
+        self.assertTrue(text_supports_matched_term("Edge AI runs here.", "edge ai"))
+        self.assertFalse(text_supports_matched_term("AI at the edge.", "edge ai"))
+        self.assertTrue(text_supports_matched_term("RAG is evaluated.", "RAG"))
+
     def test_short_excerpt_passes_through_whole(self) -> None:
         excerpt = "Quantum error correction improves devices."
         passage, start, end, truncated, source_sha, passage_sha = select_passage(
@@ -210,6 +235,19 @@ class PassageSelectionTests(unittest.TestCase):
         self.assertIn("m49", passage)
         self.assertNotIn("s399", passage)
 
+    def test_eligible_later_chunk_beats_ineligible_earlier_chunk(self) -> None:
+        excerpt = (
+            "Quantum devices use error controls and correction methods. "
+            + "x" * 3200
+            + " eligible-marker quantum error correction works."
+        )
+        passage, _, _, _, _, _ = select_passage(
+            excerpt, "quantum error correction"
+        )
+
+        self.assertIn("eligible-marker quantum error correction", passage)
+        self.assertTrue(text_supports_matched_term(passage, "quantum error correction"))
+
 
 class TaskAssemblyTests(unittest.TestCase):
     def test_six_documents_make_one_task(self) -> None:
@@ -259,10 +297,60 @@ class TaskAssemblyTests(unittest.TestCase):
 
         self.assertEqual(len(tasks), 2)
         self.assertNotEqual(len(tasks), 5)
-        self.assertEqual(manifest["schema_version"], "labeling-evidence-llm-plan-v5")
+        self.assertEqual(manifest["schema_version"], "labeling-evidence-llm-plan-v6")
         self.assertEqual(manifest["claim_policy"]["max_claims_per_document"], 1)
         self.assertEqual(manifest["totals"]["planned_tasks"], 2)
         self.assertEqual(manifest["totals"]["input_documents"], 5)
+
+    def test_ineligible_passage_is_removed_and_remaining_rank_is_compacted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [
+                doc_row(
+                    "c1",
+                    1,
+                    "openalex",
+                    1,
+                    excerpt=(
+                        "Quantum devices use error controls and correction methods."
+                    ),
+                ),
+                doc_row("c1", 2, "openalex", 2),
+            ]
+            paths = export_evidence_llm_plan(
+                input_dir=build_input(root, docs, [coverage_row("c1", 2)]),
+                output_dir=root / "out",
+            )
+            tasks = read_jsonl(paths.tasks)
+            manifest = json.loads(paths.manifest.read_text(encoding="utf-8"))
+
+        self.assertEqual(tasks[0]["document_count"], 1)
+        self.assertEqual(tasks[0]["documents"][0]["document_id"], "document-c1-2")
+        self.assertEqual(tasks[0]["documents"][0]["final_rank"], 1)
+        self.assertEqual(manifest["totals"]["source_input_documents"], 2)
+        self.assertEqual(manifest["totals"]["input_documents"], 1)
+        self.assertEqual(manifest["totals"]["excluded_ineligible_passages"], 1)
+
+    def test_all_ineligible_passages_create_no_input_without_task(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [doc_row(
+                "c1",
+                1,
+                "openalex",
+                1,
+                excerpt="Quantum devices use error controls and correction methods.",
+            )]
+            paths = export_evidence_llm_plan(
+                input_dir=build_input(root, docs, [coverage_row("c1", 1)]),
+                output_dir=root / "out",
+            )
+            tasks = read_jsonl(paths.tasks)
+            coverage = read_jsonl(paths.coverage)
+
+        self.assertEqual(tasks, [])
+        self.assertEqual(coverage[0]["status"], "no_input")
+        self.assertIn("no_claim_eligible_passage", coverage[0]["empty_reasons"])
 
     def test_no_input_creates_no_task(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

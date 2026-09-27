@@ -13,7 +13,6 @@ import json
 import math
 import shutil
 import tempfile
-import unicodedata
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -40,15 +39,16 @@ from .evidence_llm_plan import (
     MAX_DOCUMENTS_PER_TASK,
     build_evidence_prompt,
 )
+from .evidence_term_policy import text_supports_matched_term
 
-LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v6"
+LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v7"
 LABELING_EVIDENCE_LLM_WORK_VERSION = "labeling-evidence-llm-work-v1"
 LABELING_EVIDENCE_LLM_CACHE_VERSION = "labeling-evidence-llm-cache-v1"
 LABELING_EVIDENCE_LLM_RESULT_VERSION = "labeling-evidence-llm-result-v1"
 
 EVIDENCE_MAX_OUTPUT_TOKENS = 2000
 EVIDENCE_CONCURRENCY = 3
-EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v5"
+EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v6"
 EVIDENCE_RESPONSE_JSON_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -366,6 +366,11 @@ def _validate_task(
             raise ValueError(f"{label} passage must be a non-empty string")
         if len(passage) > 3000:
             raise ValueError(f"{label} passage exceeds 3000 characters")
+        if not text_supports_matched_term(passage, doc["matched_term"]):
+            raise ValueError(
+                f"{label} passage cannot satisfy the claim lexical gate "
+                f"for {document_id!r}"
+            )
         if hashlib.sha256(passage.encode("utf-8")).hexdigest() != doc.get("passage_sha256"):
             raise ValueError(f"{label} passage SHA mismatch for {document_id!r}")
         source_sha = doc.get("source_excerpt_sha256")
@@ -610,28 +615,7 @@ def _claim_id(candidate_id: str, document_id: str, kind: str, direction: str, qu
     return "claim-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
 
 
-def _claim_tokens(value: str) -> list[str]:
-    folded = unicodedata.normalize("NFKC", value).casefold()
-    return "".join(char if char.isalnum() else " " for char in folded).split()
-
-
-def _claim_match_is_sufficient(quote: str, matched_term: str) -> bool:
-    """Require a claim quote to contain a contiguous matched-term token pair."""
-
-    term_tokens = _claim_tokens(matched_term)
-    quote_tokens = _claim_tokens(quote)
-    if not term_tokens:
-        return False
-    if len(term_tokens) == 1:
-        return term_tokens[0] in quote_tokens
-    unique_term_count = len(frozenset(term_tokens))
-    required_matches = min(3, unique_term_count)
-    matched = frozenset(term_tokens) & frozenset(quote_tokens)
-    if len(matched) < required_matches:
-        return False
-    quote_pairs = set(zip(quote_tokens, quote_tokens[1:], strict=False))
-    term_pairs = set(zip(term_tokens, term_tokens[1:], strict=False))
-    return bool(quote_pairs & term_pairs)
+_claim_match_is_sufficient = text_supports_matched_term
 
 
 def _validate_response(
