@@ -91,7 +91,7 @@ def build_input(
     (input_dir / "evidence_input_documents.jsonl").write_bytes(documents_bytes)
     (input_dir / "coverage.jsonl").write_bytes(coverage_bytes)
     manifest = {
-        "schema_version": "labeling-evidence-input-plan-v2",
+        "schema_version": "labeling-evidence-input-plan-v3",
         "bundle_id": BUNDLE,
         "cutoff_date": "2026-09-15",
         "totals": {
@@ -259,6 +259,8 @@ class TaskAssemblyTests(unittest.TestCase):
 
         self.assertEqual(len(tasks), 2)
         self.assertNotEqual(len(tasks), 5)
+        self.assertEqual(manifest["schema_version"], "labeling-evidence-llm-plan-v3")
+        self.assertEqual(manifest["claim_policy"]["max_claims_per_document"], 1)
         self.assertEqual(manifest["totals"]["planned_tasks"], 2)
         self.assertEqual(manifest["totals"]["input_documents"], 5)
 
@@ -317,7 +319,13 @@ class PromptContractTests(unittest.TestCase):
             "annotation",
         ):
             self.assertNotIn(forbidden, lowered)
+        self.assertIn("exactly one strongest claim", lowered)
         self.assertIn("empty claims", lowered)
+        self.assertIn("directly states a verifiable fact", lowered)
+        self.assertIn("specific reviewed matched_term", lowered)
+        self.assertIn("neighboring topic", lowered)
+        self.assertIn("separate generic", lowered)
+        self.assertIn("when unsure, use []", lowered)
         self.assertIn("title is not evidence", lowered)
         self.assertIn("untrusted", lowered)
         self.assertIn("promotional_claim", lowered)
@@ -331,7 +339,7 @@ class PromptContractTests(unittest.TestCase):
         schema = json.loads(schema_text.split("\n\n", 1)[0])
 
         claim = schema["properties"]["documents"]["items"]["properties"]["claims"]
-        self.assertEqual(claim["maxItems"], 3)
+        self.assertEqual(claim["maxItems"], 1)
         kinds = schema["properties"]["documents"]["items"]["properties"]["claims"][
             "items"
         ]["properties"]["kind"]["enum"]

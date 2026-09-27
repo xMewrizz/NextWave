@@ -267,6 +267,7 @@ class YandexCompletionJsonGenerator:
         max_output_tokens: int = 500,
         json_schema: Mapping[str, Any] | None = None,
         schema_name: str = "response",
+        server_side_json_schema: bool = False,
     ) -> None:
         if not api_key.strip():
             raise ValueError("Yandex API key must not be blank")
@@ -284,6 +285,10 @@ class YandexCompletionJsonGenerator:
             raise ValueError("schema_name must be a lowercase JSON schema identifier")
         if json_schema is not None and not isinstance(json_schema, Mapping):
             raise ValueError("json_schema must be an object")
+        if not isinstance(server_side_json_schema, bool):
+            raise ValueError("server_side_json_schema must be a bool")
+        if server_side_json_schema and json_schema is None:
+            raise ValueError("server-side JSON Schema requires json_schema")
         self.selection = selection or LlmSelection(
             LlmProvider.YANDEX, "YandexGPT Lite 5"
         )
@@ -302,19 +307,31 @@ class YandexCompletionJsonGenerator:
         self._max_output_tokens = max_output_tokens
         self._json_schema = dict(json_schema) if json_schema is not None else None
         self._schema_name = schema_name
+        self._server_side_json_schema = server_side_json_schema
 
     def __call__(self, prompt: str) -> str:
         if not prompt.strip():
             raise ValueError("prompt must not be blank")
-        # Yandex has no server-side schema enforcement: the builders reference
-        # "the response schema" in their prompts, so the schema travels in text.
         request_text = prompt
-        if self._json_schema is not None:
+        if self._json_schema is not None and not self._server_side_json_schema:
             schema_text = json.dumps(self._json_schema, ensure_ascii=False)
             request_text = (
                 f"Return only a JSON object matching this JSON Schema "
                 f"({self._schema_name}):\n{schema_text}\n\n{prompt}"
             )
+        payload: dict[str, Any] = {
+            "modelUri": self._model_uri,
+            "completionOptions": {
+                "stream": False,
+                "temperature": 0,
+                "maxTokens": str(self._max_output_tokens),
+            },
+            "messages": [{"role": "user", "text": request_text}],
+        }
+        if self._server_side_json_schema:
+            payload["jsonSchema"] = {"schema": self._json_schema}
+        else:
+            payload["jsonObject"] = True
         response = self._transport.post_json(
             YANDEX_COMPLETION_ENDPOINT,
             headers={
@@ -323,16 +340,7 @@ class YandexCompletionJsonGenerator:
                 "Content-Type": "application/json",
                 "User-Agent": "NextWave/0.1",
             },
-            payload={
-                "modelUri": self._model_uri,
-                "completionOptions": {
-                    "stream": False,
-                    "temperature": 0,
-                    "maxTokens": str(self._max_output_tokens),
-                },
-                "messages": [{"role": "user", "text": request_text}],
-                "jsonObject": True,
-            },
+            payload=payload,
             timeout_seconds=self._timeout_seconds,
         )
         if not 200 <= response.status_code <= 299:
@@ -464,6 +472,7 @@ def build_json_generator(
     json_schema: Mapping[str, Any] = QUERY_INTERPRETATION_JSON_SCHEMA,
     schema_name: str = "query_interpretation",
     max_output_tokens: int = 500,
+    server_side_json_schema: bool = False,
 ) -> YandexCompletionJsonGenerator | LocalLlamaJsonGenerator:
     """Build the selected supported adapter without exposing credentials."""
     if settings.selection.provider is LlmProvider.HUGGINGFACE:
@@ -483,6 +492,7 @@ def build_json_generator(
             max_output_tokens=max_output_tokens,
             json_schema=json_schema,
             schema_name=schema_name,
+            server_side_json_schema=server_side_json_schema,
         )
     raise ValueError(f"LLM adapter is not implemented for {settings.selection.provider.value!r}")
 

@@ -12,6 +12,7 @@ from typing import Any
 from nextwave.__main__ import main
 from nextwave.labeling.evidence_input_plan import (
     LABELING_EVIDENCE_INPUT_PLAN_VERSION,
+    _scientific_eligible,
     export_evidence_input_plan,
     media_capacity,
     score_media_document,
@@ -110,6 +111,15 @@ def shortlist_row(document: dict, rank: int, **overrides) -> dict:
         "relevance_class": "strong",
         "reasons": ["all_tokens_in_title"],
         "matched_term": "test term",
+        "matched_tokens": ["term", "test"],
+        "term_tokens": ["term", "test"],
+        "document_identity": document["canonical_url"],
+        "origin_id": document["origin_id"],
+        "published_at": document["published_at"],
+        "publisher": document["publisher"],
+        "trust_tier": document["trust_tier"],
+        "url": document["url"],
+        "time_window": "previous",
     }
     payload.update(overrides)
     return payload
@@ -125,11 +135,17 @@ def queue_row(document: dict, rank: int, **overrides) -> dict:
         "selection_rank": rank,
         "score": 10,
         "relevance_class": "none",
+        "reasons": ["partial_token_overlap"],
         "matched_term": "test term",
+        "matched_tokens": ["term"],
+        "term_tokens": ["term", "test"],
         "url": document["url"],
         "document_identity": document["canonical_url"],
         "origin_id": document["origin_id"],
         "published_at": document["published_at"],
+        "publisher": document["publisher"],
+        "trust_tier": document["trust_tier"],
+        "time_window": "previous",
     }
     payload.update(overrides)
     return payload
@@ -197,6 +213,7 @@ def build_all(
     shortlist: list[dict],
     pages: list[dict],
     enriched: list[dict],
+    ranked_rows: list[dict] | None = None,
 ) -> tuple[Path, Path, Path, Path]:
     plan_bytes = dump_json({
         "schema_version": "labeling-enrichment-plan-v2",
@@ -239,7 +256,8 @@ def build_all(
 
     relevance_dir = root / "relevance"
     relevance_dir.mkdir(parents=True)
-    ranked_bytes = b'{"unrelated": true}\n'
+    ranked = [*shortlist, *queue] if ranked_rows is None else ranked_rows
+    ranked_bytes = dump_jsonl(ranked)
     shortlist_bytes = dump_jsonl(shortlist)
     queue_bytes = dump_jsonl(queue)
     rel_coverage_bytes = b'{"unrelated": true}\n'
@@ -261,6 +279,7 @@ def build_all(
             },
         },
         "totals": {
+            "links_kept": len(ranked),
             "media_fetch_queue_rows": len(queue),
             "scientific_shortlist_rows": len(shortlist),
         },
@@ -935,7 +954,7 @@ class EvidenceChainTests(unittest.TestCase):
         ):
             self.assertNotIn(token, text)
         self.assertEqual(
-            LABELING_EVIDENCE_INPUT_PLAN_VERSION, "labeling-evidence-input-plan-v2"
+            LABELING_EVIDENCE_INPUT_PLAN_VERSION, "labeling-evidence-input-plan-v3"
         )
 
 
@@ -1127,7 +1146,7 @@ class EvidenceSetEqualityTests(unittest.TestCase):
             plan, result, relevance, media = build_all(
                 root, candidates, sci + med, queue, bad_shortlist, pages, enriched
             )
-            with self.assertRaisesRegex(ValueError, "non-scientific search"):
+            with self.assertRaisesRegex(ValueError, "mismatched search class"):
                 export_evidence_input_plan(
                     plan_dir=plan, result_dir=result, relevance_dir=relevance,
                     media_dir=media, output_dir=root / "out",
@@ -1147,28 +1166,111 @@ class EvidenceSetEqualityTests(unittest.TestCase):
             plan, result, relevance, media = build_all(
                 root, candidates, sci + med, queue, shortlist, pages, enriched
             )
-            with self.assertRaisesRegex(ValueError, "source document is not openalex"):
+            with self.assertRaisesRegex(ValueError, "connector diverges from result"):
                 export_evidence_input_plan(
                     plan_dir=plan, result_dir=result, relevance_dir=relevance,
                     media_dir=media, output_dir=root / "out",
                 )
             self.assertFalse((root / "out").exists())
-
-
-            with self.assertRaisesRegex(ValueError, "source document is not openalex"):
-                export_evidence_input_plan(
-                    plan_dir=plan, result_dir=result, relevance_dir=relevance,
-                    media_dir=media, output_dir=root / "out",
-                )
-            self.assertFalse((root / "out").exists())
-
-
 def pads(count: int) -> str:
     return " ".join(f"pad{i}" for i in range(count))
 
 
 def width_article(term_first: str, term_rest: str, fillers: int) -> str:
     return f"{term_first} {pads(fillers)} {term_rest}"
+
+
+class ScientificEvidencePolicyTests(unittest.TestCase):
+    def test_strong_is_always_eligible(self) -> None:
+        admitted, _, _ = _scientific_eligible(
+            {"relevance_class": "strong", "score": 60, "matched_tokens": ["alpha"]},
+            {"title": "Unrelated", "excerpt": "Unrelated"},
+        )
+        self.assertTrue(admitted)
+
+    def test_weak_below_30_is_rejected(self) -> None:
+        admitted, _, _ = _scientific_eligible(
+            {"relevance_class": "weak", "score": 27, "matched_tokens": ["alpha", "beta"]},
+            {"title": "alpha beta", "excerpt": "alpha beta"},
+        )
+        self.assertFalse(admitted)
+
+    def test_weak_title_cooccurrence_is_eligible(self) -> None:
+        admitted, title_matches, _ = _scientific_eligible(
+            {"relevance_class": "weak", "score": 30, "matched_tokens": ["alpha", "beta"]},
+            {"title": "A focused alpha beta study", "excerpt": "Abstract"},
+        )
+        self.assertTrue(admitted)
+        self.assertEqual(title_matches, 2)
+
+    def test_weak_excerpt_window_boundary(self) -> None:
+        row = {
+            "relevance_class": "weak",
+            "score": 30,
+            "matched_tokens": ["alpha", "beta"],
+        }
+        admitted_32, _, width_32 = _scientific_eligible(
+            row, {"title": "Study", "excerpt": "alpha " + "x " * 30 + "beta"}
+        )
+        admitted_33, _, width_33 = _scientific_eligible(
+            row, {"title": "Study", "excerpt": "alpha " + "x " * 31 + "beta"}
+        )
+        self.assertTrue(admitted_32)
+        self.assertEqual(width_32, 32)
+        self.assertFalse(admitted_33)
+        self.assertEqual(width_33, 33)
+
+    def test_eligible_row_below_old_top_four_is_selected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate = plan_candidate("c1", ["alpha beta gamma delta"])
+            documents = [
+                science_doc(
+                    "c1", number,
+                    title="Generic alpha paper",
+                    excerpt="alpha " + "x " * 40 + "beta " + "x " * 40 + "gamma",
+                )
+                for number in range(1, 5)
+            ]
+            good = science_doc(
+                "c1", 5,
+                title="Focused alpha beta method",
+                excerpt="alpha beta experimental system",
+            )
+            documents.append(good)
+            shortlist = [
+                shortlist_row(
+                    document, rank,
+                    score=30,
+                    relevance_class="weak",
+                    reasons=["partial_token_overlap"],
+                    matched_term="alpha beta gamma delta",
+                    matched_tokens=["alpha", "beta", "gamma"],
+                    term_tokens=["alpha", "beta", "delta", "gamma"],
+                )
+                for rank, document in enumerate(documents[:4], start=1)
+            ]
+            good_ranked = shortlist_row(
+                good, 5,
+                score=30,
+                relevance_class="weak",
+                reasons=["partial_token_overlap"],
+                matched_term="alpha beta gamma delta",
+                matched_tokens=["alpha", "beta", "gamma"],
+                term_tokens=["alpha", "beta", "delta", "gamma"],
+            )
+            good_ranked.pop("selection_rank")
+            plan, result, relevance, media = build_all(
+                root, [candidate], documents, [], shortlist, [], [],
+                ranked_rows=[*shortlist, good_ranked],
+            )
+            paths = export_evidence_input_plan(
+                plan_dir=plan, result_dir=result, relevance_dir=relevance,
+                media_dir=media, output_dir=root / "out",
+            )
+            evidence = read_jsonl(paths.evidence_input_documents)
+
+        self.assertEqual([row["document_id"] for row in evidence], [good["document_id"]])
 
 
 class EvidencePolicyCTests(unittest.TestCase):
@@ -1409,12 +1511,17 @@ class EvidencePolicyCTests(unittest.TestCase):
             manifest = json.loads((paths.manifest).read_text(encoding="utf-8"))
 
         self.assertEqual(
-            manifest["schema_version"], "labeling-evidence-input-plan-v2"
+            manifest["schema_version"], "labeling-evidence-input-plan-v3"
         )
         self.assertEqual(
             manifest["selection_policy"],
             {
                 "strong_allowed": True,
+                "scientific_source": "all ranked OpenAlex documents, before top-4",
+                "scientific_weak_min_score": 30,
+                "scientific_weak_min_matched_tokens": 2,
+                "scientific_weak_max_excerpt_window_tokens": 32,
+                "scientific_weak_title_matches": 2,
                 "weak_score": 40,
                 "weak_min_window_tokens": 33,
                 "weak_max_window_tokens": 96,

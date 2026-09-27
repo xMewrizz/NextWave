@@ -124,7 +124,62 @@ class YandexRequestTests(unittest.TestCase):
         )
         self.assertFalse(payload["completionOptions"]["stream"])
         self.assertEqual(payload["completionOptions"]["temperature"], 0)
+        self.assertNotIn("jsonSchema", payload)
+        self.assertEqual(
+            payload,
+            {
+                "modelUri": "gpt://folder-1/yandexgpt-5-lite",
+                "completionOptions": {
+                    "stream": False,
+                    "temperature": 0,
+                    "maxTokens": "500",
+                },
+                "messages": [{"role": "user", "text": "Технологии в ИИ"}],
+                "jsonObject": True,
+            },
+        )
         self.assertNotIn("temporary-secret", json.dumps(payload, ensure_ascii=False))
+
+    def test_server_side_schema_keeps_prompt_and_replaces_json_object(self) -> None:
+        transport = FakeJsonTransport(
+            HttpResponse(200, {"Content-Type": "application/json"}, yandex_body())
+        )
+        schema = {
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+            "required": ["value"],
+            "additionalProperties": False,
+        }
+        adapter = YandexCompletionJsonGenerator(
+            "temporary-secret",
+            folder_id="folder-1",
+            selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
+            transport=transport,
+            json_schema=schema,
+            schema_name="server_response",
+            server_side_json_schema=True,
+        )
+
+        adapter("Original prompt bytes: target protein annotation")
+
+        payload = transport.calls[0][2]
+        self.assertEqual(
+            payload["messages"][0]["text"],
+            "Original prompt bytes: target protein annotation",
+        )
+        self.assertEqual(payload["jsonSchema"], {"schema": schema})
+        self.assertNotIn("jsonObject", payload)
+        self.assertNotIn("matching this JSON Schema", payload["messages"][0]["text"])
+
+    def test_server_side_schema_requires_schema(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires json_schema"):
+            YandexCompletionJsonGenerator(
+                "temporary-secret",
+                folder_id="folder-1",
+                selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
+                json_schema=None,
+                server_side_json_schema=True,
+            )
 
     def test_rejects_blank_prompt(self) -> None:
         adapter, _ = generator(

@@ -13,6 +13,7 @@ import json
 import math
 import shutil
 import tempfile
+import unicodedata
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -40,13 +41,61 @@ from .evidence_llm_plan import (
     build_evidence_prompt,
 )
 
-LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v1"
+LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v5"
 LABELING_EVIDENCE_LLM_WORK_VERSION = "labeling-evidence-llm-work-v1"
 LABELING_EVIDENCE_LLM_CACHE_VERSION = "labeling-evidence-llm-cache-v1"
 LABELING_EVIDENCE_LLM_RESULT_VERSION = "labeling-evidence-llm-result-v1"
 
-EVIDENCE_MAX_OUTPUT_TOKENS = 6000
+EVIDENCE_MAX_OUTPUT_TOKENS = 2000
 EVIDENCE_CONCURRENCY = 3
+EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v4"
+CLAIM_MIN_MATCHED_TOKENS = 2
+EVIDENCE_RESPONSE_JSON_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["candidate_id", "documents"],
+    "properties": {
+        "candidate_id": {"type": "string"},
+        "documents": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": MAX_DOCUMENTS_PER_TASK,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["document_id", "claims"],
+                "properties": {
+                    "document_id": {"type": "string"},
+                    "claims": {
+                        "type": "array",
+                        "minItems": 0,
+                        "maxItems": MAX_CLAIMS_PER_DOCUMENT,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["quote", "kind", "direction"],
+                            "properties": {
+                                "quote": {
+                                    "type": "string",
+                                    "minLength": 20,
+                                    "maxLength": 500,
+                                },
+                                "kind": {
+                                    "type": "string",
+                                    "enum": [item.value for item in ClaimType],
+                                },
+                                "direction": {
+                                    "type": "string",
+                                    "enum": [item.value for item in EvidenceDirection],
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+}
 
 WORK_MANIFEST_FILENAME = "work_manifest.json"
 CACHE_MANIFEST_FILENAME = "cache_manifest.json"
@@ -173,7 +222,7 @@ def _check_date(value: Any, label: str) -> None:
 
 def _extractor_id(provider: str, model: str) -> str:
     slug = "-".join(model.lower().split())
-    return f"{provider}-{slug}-evidence-llm-v1"
+    return f"{provider}-{slug}-{EVIDENCE_EXTRACTOR_VERSION}"
 
 
 def _load_plan(
@@ -562,6 +611,28 @@ def _claim_id(candidate_id: str, document_id: str, kind: str, direction: str, qu
     return "claim-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
 
 
+def _claim_tokens(value: str) -> list[str]:
+    folded = unicodedata.normalize("NFKC", value).casefold()
+    return "".join(char if char.isalnum() else " " for char in folded).split()
+
+
+def _claim_match_is_sufficient(quote: str, matched_term: str) -> bool:
+    """Require a claim quote to contain a contiguous matched-term token pair."""
+
+    term_tokens = _claim_tokens(matched_term)
+    quote_tokens = _claim_tokens(quote)
+    if not term_tokens:
+        return False
+    if len(term_tokens) == 1:
+        return term_tokens[0] in quote_tokens
+    matched = frozenset(term_tokens) & frozenset(quote_tokens)
+    if len(matched) < CLAIM_MIN_MATCHED_TOKENS:
+        return False
+    quote_pairs = set(zip(quote_tokens, quote_tokens[1:], strict=False))
+    term_pairs = set(zip(term_tokens, term_tokens[1:], strict=False))
+    return bool(quote_pairs & term_pairs)
+
+
 def _validate_response(
     task: Mapping[str, Any], text: str
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -592,6 +663,7 @@ def _validate_response(
         raise ValueError("model answer documents diverge from the task roster")
     passages = {doc["document_id"]: doc["passage"] for doc in task["documents"]}
     starts = {doc["document_id"]: doc["passage_start"] for doc in task["documents"]}
+    matched_terms = {doc["document_id"]: doc["matched_term"] for doc in task["documents"]}
     claims: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
     document_rows: list[dict[str, Any]] = []
@@ -635,6 +707,10 @@ def _validate_response(
                 issues.append(_issue(task, document_id, "non_verbatim"))
                 doc_issues += 1
                 continue
+            if not _claim_match_is_sufficient(quote, matched_terms[document_id]):
+                issues.append(_issue(task, document_id, "insufficient_term_match"))
+                doc_issues += 1
+                continue
             key = (quote, kind, direction)
             if key in seen:
                 issues.append(_issue(task, document_id, "duplicate_claim"))
@@ -674,6 +750,9 @@ def _issue(task: Mapping[str, Any], document_id: str | None, code: str) -> dict[
         "invalid_claim": "claim dropped: malformed quote, kind or direction",
         "non_verbatim": "claim dropped: quote is not verbatim in the passage",
         "duplicate_claim": "claim dropped: repeated claim kept once",
+        "insufficient_term_match": (
+            "claim dropped: quote does not locally name enough of matched_term"
+        ),
         "model_error": "model call failed: transport or provider error",
         "invalid_response": "model answer failed structural validation",
         "truncation": "model answer was truncated before completion",
@@ -1133,8 +1212,10 @@ def run_evidence_llm(
         or build_json_generator(
             settings,
             transport=generator_transport,
-            json_schema=None,
+            json_schema=EVIDENCE_RESPONSE_JSON_SCHEMA,
+            schema_name="evidence_response",
             max_output_tokens=EVIDENCE_MAX_OUTPUT_TOKENS,
+            server_side_json_schema=True,
         )
     )
     prompts: dict[str, str] = {}

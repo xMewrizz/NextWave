@@ -33,13 +33,16 @@ from .relevance_plan import (
     time_window,
 )
 
-LABELING_EVIDENCE_INPUT_PLAN_VERSION = "labeling-evidence-input-plan-v2"
+LABELING_EVIDENCE_INPUT_PLAN_VERSION = "labeling-evidence-input-plan-v3"
 
 CUTOFF_ISO = LABELING_CUTOFF_DATE.isoformat()
 MEDIA_WINDOW_TOKENS = 32
 WEAK_MIN_WINDOW_TOKENS = 33
 WEAK_MAX_WINDOW_TOKENS = 96
 WEAK_ADMITTED_SCORE = 40
+SCIENTIFIC_WEAK_MIN_SCORE = 30
+SCIENTIFIC_WEAK_MIN_MATCHED_TOKENS = 2
+SCIENTIFIC_WEAK_MAX_EXCERPT_WINDOW_TOKENS = 32
 SCIENTIFIC_PER_CANDIDATE = 4
 MEDIA_CAPACITY_MAX = 4
 MEDIA_CAPACITY_MIN = 2
@@ -448,6 +451,7 @@ def _load_relevance(
     if not isinstance(outputs, dict):
         raise ValueError("relevance manifest outputs must be an object")
     digests: dict[str, Any] = {}
+    ranked: list[dict[str, Any]] = []
     queue: list[dict[str, Any]] = []
     shortlist: list[dict[str, Any]] = []
     for filename in (
@@ -459,7 +463,9 @@ def _load_relevance(
         payload = _check_digest(relevance_dir / filename, outputs.get(filename), filename)
         digests[filename] = _digest(payload)
         rows = _read_rows(relevance_dir / filename, payload, filename)
-        if filename == "media_fetch_queue.jsonl":
+        if filename == "ranked_documents.jsonl":
+            ranked = rows
+        elif filename == "media_fetch_queue.jsonl":
             queue = rows
         elif filename == "scientific_shortlist.jsonl":
             shortlist = rows
@@ -470,9 +476,11 @@ def _load_relevance(
         raise ValueError("relevance totals do not match media_fetch_queue.jsonl rows")
     if totals.get("scientific_shortlist_rows") != len(shortlist):
         raise ValueError("relevance totals do not match scientific_shortlist.jsonl rows")
+    if totals.get("links_kept") != len(ranked):
+        raise ValueError("relevance totals do not match ranked_documents.jsonl rows")
     manifest_bytes = manifest_path.read_bytes()
     digests["manifest.json"] = _digest(manifest_bytes)
-    return manifest, queue, shortlist, digests
+    return manifest, ranked, queue, shortlist, digests
 
 
 def _load_media(
@@ -606,6 +614,7 @@ def _cross_check(
     terms: dict[str, tuple[str, ...]],
     search_classes: dict[str, str],
     documents: dict[tuple[str, str], dict[str, Any]],
+    ranked: list[dict[str, Any]],
     queue: list[dict[str, Any]],
     shortlist: list[dict[str, Any]],
     pages: list[dict[str, Any]],
@@ -614,13 +623,41 @@ def _cross_check(
     dict[tuple[str, str], dict[str, Any]],
     dict[tuple[str, str], dict[str, Any]],
     dict[tuple[str, str], dict[str, Any]],
+    dict[tuple[str, str], dict[str, Any]],
 ]:
     """Verify every cross-artifact reference before any scoring."""
 
+    ranked_index = _require_pair_uniqueness(ranked, "ranked_documents.jsonl")
     queue_index = _require_pair_uniqueness(queue, "media_fetch_queue.jsonl")
     short_index = _require_pair_uniqueness(shortlist, "scientific_shortlist.jsonl")
     page_index = _require_pair_uniqueness(pages, "page_results.jsonl")
     enriched_index = _require_pair_uniqueness(enriched, "enriched_documents.jsonl")
+
+    for pair, row in ranked_index.items():
+        if pair[0] not in terms:
+            raise ValueError(f"ranked pair {pair!r} has an unknown candidate")
+        connector = row.get("connector")
+        if connector not in ("openalex", "mediacloud"):
+            raise ValueError(f"ranked pair {pair!r} has an unknown connector")
+        source = documents.get(pair)
+        if source is None:
+            raise ValueError(f"ranked pair {pair!r} missing in result")
+        if source.get("connector_id") != connector:
+            raise ValueError(f"ranked pair {pair!r} connector diverges from result")
+        score = row.get("score")
+        if not isinstance(score, int) or isinstance(score, bool) or not 0 <= score <= 100:
+            raise ValueError(f"ranked pair {pair!r} has an invalid score")
+        if row.get("relevance_class") not in ("strong", "weak", "none"):
+            raise ValueError(f"ranked pair {pair!r} has an unknown class")
+        if not isinstance(row.get("matched_term"), str):
+            raise ValueError(f"ranked pair {pair!r} has no matched term")
+        matched = row.get("matched_tokens")
+        if not isinstance(matched, list) or any(not isinstance(item, str) for item in matched):
+            raise ValueError(f"ranked pair {pair!r} has invalid matched tokens")
+        search_id = row.get("search_id")
+        expected_class = "scientific" if connector == "openalex" else "industry"
+        if search_classes.get(search_id) != expected_class:
+            raise ValueError(f"ranked pair {pair!r} has a mismatched search class")
 
     for pair, row in queue_index.items():
         if pair[0] not in terms:
@@ -728,7 +765,7 @@ def _cross_check(
             raise ValueError(f"failed page pair {pair!r} present in enriched documents")
         if page.get("status") == "success" and pair not in enriched_index:
             raise ValueError(f"successful page pair {pair!r} missing in enriched documents")
-    return queue_index, short_index, page_index
+    return ranked_index, queue_index, short_index, page_index
 
 
 def _media_eligible(row: Mapping[str, Any]) -> bool:
@@ -748,6 +785,46 @@ def _media_eligible(row: Mapping[str, Any]) -> bool:
     if not isinstance(width, int) or isinstance(width, bool):
         return False
     return WEAK_MIN_WINDOW_TOKENS <= width <= WEAK_MAX_WINDOW_TOKENS
+
+
+def _scientific_eligible(
+    row: Mapping[str, Any], source: Mapping[str, Any]
+) -> tuple[bool, int, int | None]:
+    """Admit strong science and locally coherent score-30+ weak matches.
+
+    Weak retrieval hits must match at least two reviewed-term tokens. Those
+    tokens must either co-occur in the title or fit in a 32-token excerpt
+    window. This rejects broad articles that mention generic term fragments
+    far apart while retaining focused papers whose title or abstract names
+    the candidate concept.
+    """
+
+    matched = row.get("matched_tokens")
+    if not isinstance(matched, list) or any(not isinstance(item, str) for item in matched):
+        return False, 0, None
+    matched_set = frozenset(_normalize_text(item) for item in matched if _normalize_text(item))
+    title_tokens = _normalize_text(str(source.get("title") or "")).split()
+    excerpt_tokens = _normalize_text(str(source.get("excerpt") or "")).split()
+    title_matches = len(matched_set & frozenset(title_tokens))
+    excerpt_window = _min_window_width(excerpt_tokens, matched_set) if matched_set else None
+    if row.get("relevance_class") == "strong":
+        return True, title_matches, excerpt_window
+    score = row.get("score")
+    eligible = (
+        row.get("relevance_class") == "weak"
+        and isinstance(score, int)
+        and not isinstance(score, bool)
+        and score >= SCIENTIFIC_WEAK_MIN_SCORE
+        and len(matched_set) >= SCIENTIFIC_WEAK_MIN_MATCHED_TOKENS
+        and (
+            title_matches >= SCIENTIFIC_WEAK_MIN_MATCHED_TOKENS
+            or (
+                excerpt_window is not None
+                and excerpt_window <= SCIENTIFIC_WEAK_MAX_EXCERPT_WINDOW_TOKENS
+            )
+        )
+    )
+    return eligible, title_matches, excerpt_window
 
 
 def _exclusion_bucket(row: Mapping[str, Any]) -> str:
@@ -799,6 +876,88 @@ def _media_order_key(row: dict[str, Any]) -> tuple[int, int, int, str, str, str]
     )
 
 
+def _scientific_order_key(row: dict[str, Any]) -> tuple[int, int, int, str, str, str]:
+    published = row.get("published_at")
+    return (
+        -row["score"],
+        _trust_rank(row.get("trust_tier") or "unknown"),
+        1 if published is None else 0,
+        _invert_date(published) if published is not None else "",
+        row["document_identity"],
+        row["document_id"],
+    )
+
+
+def _select_scientific(
+    candidate_id: str,
+    ranked_index: Mapping[tuple[str, str], dict[str, Any]],
+    documents: Mapping[tuple[str, str], dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int, dict[str, int]]:
+    """Filter all ranked OpenAlex rows, then choose up to four diversely."""
+
+    eligible: list[dict[str, Any]] = []
+    exclusions = {"low_score": 0, "weak_context": 0}
+    available = 0
+    for pair in sorted(ranked_index):
+        if pair[0] != candidate_id:
+            continue
+        row = ranked_index[pair]
+        if row.get("connector") != "openalex":
+            continue
+        source = documents[pair]
+        if not isinstance(source.get("excerpt"), str) or not source["excerpt"].strip():
+            continue
+        if row.get("relevance_class") not in ("strong", "weak"):
+            continue
+        available += 1
+        admitted, title_matches, excerpt_window = _scientific_eligible(row, source)
+        if not admitted:
+            if (
+                row.get("relevance_class") == "weak"
+                and row.get("score", 0) < SCIENTIFIC_WEAK_MIN_SCORE
+            ):
+                exclusions["low_score"] += 1
+            else:
+                exclusions["weak_context"] += 1
+            continue
+        eligible.append({
+            **row,
+            "reason": (row.get("reasons") or [None])[0],
+            "scientific_title_matches": title_matches,
+            "scientific_excerpt_window": excerpt_window,
+        })
+    buckets: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in eligible:
+        buckets.setdefault((row["relevance_class"], row["time_window"]), []).append(row)
+    for bucket in buckets.values():
+        bucket.sort(key=_scientific_order_key)
+    selected: list[dict[str, Any]] = []
+    used_origins: set[str] = set()
+    for relevance_class in ("strong", "weak"):
+        while len(selected) < SCIENTIFIC_PER_CANDIDATE:
+            progressed = False
+            for window in _WINDOW_CYCLE:
+                if len(selected) >= SCIENTIFIC_PER_CANDIDATE:
+                    break
+                bucket = buckets.get((relevance_class, window))
+                if not bucket:
+                    continue
+                pick = next(
+                    (
+                        index for index, row in enumerate(bucket)
+                        if row["origin_id"] not in used_origins
+                    ),
+                    0,
+                )
+                row = bucket.pop(pick)
+                used_origins.add(row["origin_id"])
+                selected.append(row)
+                progressed = True
+            if not progressed:
+                break
+    return selected, available, exclusions
+
+
 def build_evidence_input_plan(
     plan_dir: str | Path,
     result_dir: str | Path,
@@ -843,14 +1002,14 @@ def _assemble(
     relevance_path: Path,
     media_path: Path,
 ) -> tuple[dict[str, bytes], dict[str, Any]]:
-    _rel_manifest, queue, shortlist, relevance_digests = _load_relevance(
+    _rel_manifest, ranked, queue, shortlist, relevance_digests = _load_relevance(
         relevance_path, bundle_id, plan_digests, result_digests
     )
     _media_manifest, pages, enriched, media_digests = _load_media(
         media_path, bundle_id, relevance_digests, result_digests
     )
-    queue_index, short_index, page_index = _cross_check(
-        terms, search_classes, documents, queue, shortlist, pages, enriched
+    ranked_index, queue_index, short_index, page_index = _cross_check(
+        terms, search_classes, documents, ranked, queue, shortlist, pages, enriched
     )
     enriched_index = _require_pair_uniqueness(enriched, "enriched_documents.jsonl")
 
@@ -941,32 +1100,14 @@ def _assemble(
             row["trust_tier"] = source.get("trust_tier") or "unknown"
             row["publisher"] = source.get("publisher")
 
-    science_by_candidate: dict[str, list[dict[str, Any]]] = {}
-    for pair in sorted(short_index):
-        row = short_index[pair]
-        source = documents[pair]
-        published = _check_date(source.get("published_at"), f"scientific pair {pair!r}")
-        science_by_candidate.setdefault(pair[0], []).append({
-            "candidate_id": pair[0],
-            "document_id": pair[1],
-            "search_id": row.get("search_id"),
-            "selection_rank": row.get("selection_rank"),
-            "published_at": published,
-            "time_window": time_window(published),
-            "identity": document_identity(source),
-            "trust_tier": source.get("trust_tier") or "unknown",
-            "score": row.get("score"),
-            "relevance_class": row.get("relevance_class"),
-            "reason": (row.get("reasons") or [None])[0],
-            "matched_term": row.get("matched_term"),
-            "matched_tokens": row.get("matched_tokens"),
-        })
-
     evidence_rows: list[dict[str, Any]] = []
     coverage_rows: list[dict[str, Any]] = []
     totals = {
         "candidates": 0,
         "scientific_available": 0,
+        "scientific_eligible": 0,
+        "scientific_excluded_low_score": 0,
+        "scientific_excluded_weak_context": 0,
         "scientific_selected": 0,
         "media_article_text": 0,
         "media_strong": 0,
@@ -978,13 +1119,9 @@ def _assemble(
         "candidates_without_final_input": 0,
     }
     for candidate_id in sorted(terms):
-        science = sorted(
-            science_by_candidate.get(candidate_id, []),
-            key=lambda row: (
-                row["selection_rank"] if isinstance(row.get("selection_rank"), int) else 0,
-                row["document_id"],
-            ),
-        )[:SCIENTIFIC_PER_CANDIDATE]
+        science, scientific_available, scientific_exclusions = _select_scientific(
+            candidate_id, ranked_index, documents
+        )
         capacity = media_capacity(len(science))
         media_pool = articles_by_candidate.get(candidate_id, [])
         strong = [row for row in media_pool if row["final_class"] == "strong"]
@@ -1108,7 +1245,10 @@ def _assemble(
             reasons.append("no_final_input")
         coverage_rows.append({
             "candidate_id": candidate_id,
-            "scientific_available": len(science_by_candidate.get(candidate_id, [])),
+            "scientific_available": scientific_available,
+            "scientific_eligible": len(science),
+            "scientific_excluded_low_score": scientific_exclusions["low_score"],
+            "scientific_excluded_weak_context": scientific_exclusions["weak_context"],
             "scientific_selected": len(science),
             "media_planned": len(queue_rows),
             "media_completed": sum(1 for row in page_rows if row.get("status") == "success"),
@@ -1137,7 +1277,10 @@ def _assemble(
             "empty_reasons": reasons,
         })
         totals["candidates"] += 1
-        totals["scientific_available"] += len(science_by_candidate.get(candidate_id, []))
+        totals["scientific_available"] += scientific_available
+        totals["scientific_eligible"] += len(science)
+        totals["scientific_excluded_low_score"] += scientific_exclusions["low_score"]
+        totals["scientific_excluded_weak_context"] += scientific_exclusions["weak_context"]
         totals["scientific_selected"] += len(science)
         totals["media_selected"] += len(selected_media)
         totals["evidence_input_documents"] += len(ordered)
@@ -1214,6 +1357,13 @@ def _assemble(
         },
         "selection_policy": {
             "strong_allowed": True,
+            "scientific_source": "all ranked OpenAlex documents, before top-4",
+            "scientific_weak_min_score": SCIENTIFIC_WEAK_MIN_SCORE,
+            "scientific_weak_min_matched_tokens": SCIENTIFIC_WEAK_MIN_MATCHED_TOKENS,
+            "scientific_weak_max_excerpt_window_tokens": (
+                SCIENTIFIC_WEAK_MAX_EXCERPT_WINDOW_TOKENS
+            ),
+            "scientific_weak_title_matches": SCIENTIFIC_WEAK_MIN_MATCHED_TOKENS,
             "weak_score": WEAK_ADMITTED_SCORE,
             "weak_min_window_tokens": WEAK_MIN_WINDOW_TOKENS,
             "weak_max_window_tokens": WEAK_MAX_WINDOW_TOKENS,

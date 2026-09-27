@@ -431,7 +431,7 @@ class CommandLineTests(unittest.TestCase):
         )
         self.assertEqual(
             kwargs["output_dir"],
-            Path("data/development/labeling-evidence-input-plan-v2"),
+            Path("data/development/labeling-evidence-input-plan-v3"),
         )
         help_text = _build_parser().format_help()
         self.assertNotIn("labeling-evidence-input-plan-v1", help_text)
@@ -440,6 +440,7 @@ class CommandLineTests(unittest.TestCase):
     def test_evidence_llm_plan_uses_versioned_default_output(
         self, export
     ) -> None:
+        from nextwave.__main__ import _build_parser
         from nextwave.labeling.evidence_llm_plan import (
             LABELING_EVIDENCE_LLM_PLAN_VERSION,
             LabelingEvidenceLlmPlanPaths,
@@ -463,9 +464,9 @@ class CommandLineTests(unittest.TestCase):
             kwargs["output_dir"],
             Path("data") / "development" / LABELING_EVIDENCE_LLM_PLAN_VERSION,
         )
-        self.assertEqual(
-            kwargs["output_dir"],
-            Path("data/development/labeling-evidence-llm-plan-v1"),
+        self.assertNotIn(
+            "labeling-evidence-llm-plan-v1",
+            _build_parser().format_help(),
         )
 
 

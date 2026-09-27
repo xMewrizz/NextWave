@@ -28,14 +28,14 @@ from .evidence_input_plan import (
     _normalize_text,
 )
 
-LABELING_EVIDENCE_LLM_PLAN_VERSION = "labeling-evidence-llm-plan-v1"
+LABELING_EVIDENCE_LLM_PLAN_VERSION = "labeling-evidence-llm-plan-v3"
 
 CUTOFF_ISO = LABELING_CUTOFF_DATE.isoformat()
 MAX_PASSAGE_CHARS = 3000
 CHUNK_OVERLAP_CHARS = 500
 CHUNK_STEP_CHARS = MAX_PASSAGE_CHARS - CHUNK_OVERLAP_CHARS
 MAX_DOCUMENTS_PER_TASK = 6
-MAX_CLAIMS_PER_DOCUMENT = 3
+MAX_CLAIMS_PER_DOCUMENT = 1
 QUOTE_MIN_CHARS = 20
 QUOTE_MAX_CHARS = 500
 
@@ -439,8 +439,12 @@ def build_evidence_prompt(task: Mapping[str, Any]) -> str:
         "",
         "Rules:",
         "- Return one record for every input document_id, in the same order.",
-        f"- At most {MAX_CLAIMS_PER_DOCUMENT} claims per document.",
-        "- An empty claims list is allowed and means no concrete facts were found.",
+        "- For each document return exactly one strongest claim, or [].",
+        "- An empty claims list [] means no qualifying fact exists.",
+        "- A claim is allowed only when its quote directly states a verifiable fact",
+        "  about that document's specific reviewed matched_term.",
+        "- Facts about a neighboring topic are forbidden; sharing separate generic",
+        "  words with matched_term does not establish relevance. When unsure, use [].",
         "- Every quote must be copied verbatim from that document's passage only;",
         "  quotes of 20-500 characters; never quote the title.",
         "- The title is not evidence; it is context only.",
