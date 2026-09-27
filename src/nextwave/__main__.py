@@ -34,6 +34,10 @@ from .labeling.evidence_llm_plan import (
     LABELING_EVIDENCE_LLM_PLAN_VERSION,
     export_evidence_llm_plan,
 )
+from .labeling.evidence_llm_run import (
+    LABELING_EVIDENCE_LLM_RESULT_VERSION,
+    run_evidence_llm,
+)
 from .labeling.export import export_labeling_bundle
 from .labeling.media_fetch_run import (
     LABELING_MEDIA_FETCH_RESULT_VERSION,
@@ -314,6 +318,47 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data") / "development" / LABELING_EVIDENCE_LLM_PLAN_VERSION,
         help="новый каталог результата",
+    )
+    evidence_llm_run = commands.add_parser(
+        "labeling-evidence-llm-run",
+        help="выполнить задания Evidence LLM с возобновляемым work-хранилищем",
+    )
+    evidence_llm_run.add_argument(
+        "--plan",
+        type=Path,
+        required=True,
+        help="каталог плана Evidence LLM (tasks.jsonl + coverage.jsonl + manifest.json)",
+    )
+    evidence_llm_run.add_argument(
+        "--work",
+        type=Path,
+        required=True,
+        help="постоянное рабочее хранилище выполненных заданий",
+    )
+    evidence_llm_run.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / LABELING_EVIDENCE_LLM_RESULT_VERSION,
+        help="новый каталог результата",
+    )
+    evidence_llm_run.add_argument(
+        "--env-file",
+        type=Path,
+        default=Path("config") / "hackathon.env",
+        help="файл runtime-настроек; переменные процесса имеют приоритет",
+    )
+    evidence_llm_run.add_argument(
+        "--max-new-tasks",
+        type=int,
+        default=None,
+        help="обработать не более N новых заданий (повторное использование не считается)",
+    )
+    evidence_llm_run.add_argument(
+        "--candidate-id",
+        action="append",
+        default=None,
+        dest="candidate_ids",
+        help="обработать только указанного кандидата (можно повторять)",
     )
     return parser
 
@@ -608,6 +653,36 @@ def _run_labeling_evidence_llm_plan(input_dir: Path, output: Path) -> int:
     return 0
 
 
+def _run_labeling_evidence_llm_run(
+    plan: Path,
+    work: Path,
+    output: Path,
+    env_file: Path,
+    max_new_tasks: int | None,
+    candidate_ids: list[str] | None,
+) -> int:
+    try:
+        environment = _runtime_environment(env_file)
+        paths = run_evidence_llm(
+            plan_dir=plan,
+            work_dir=work,
+            output_dir=output,
+            environment=environment,
+            max_new_tasks=max_new_tasks,
+            candidate_ids=candidate_ids,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось выполнить Evidence LLM: {error}", file=sys.stderr)
+        return 1
+
+    print("Evidence LLM успешно выполнен.")
+    print(f"Запросы: {paths.request_results}")
+    print(f"Утверждения: {paths.claims}")
+    print(f"Покрытие: {paths.coverage}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     arguments = parser.parse_args(argv)
@@ -661,6 +736,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_labeling_evidence_llm_plan(
             arguments.input,
             arguments.output,
+        )
+    if arguments.command == "labeling-evidence-llm-run":
+        return _run_labeling_evidence_llm_run(
+            arguments.plan,
+            arguments.work,
+            arguments.output,
+            arguments.env_file,
+            arguments.max_new_tasks,
+            arguments.candidate_ids,
         )
     parser.print_help()
     return 0

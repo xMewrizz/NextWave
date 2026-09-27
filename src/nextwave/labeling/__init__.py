@@ -50,6 +50,14 @@ from .evidence_llm_plan import (
     export_evidence_llm_plan,
     select_passage,
 )
+from .evidence_llm_run import (
+    LABELING_EVIDENCE_LLM_CACHE_VERSION,
+    LABELING_EVIDENCE_LLM_EXECUTOR_VERSION,
+    LABELING_EVIDENCE_LLM_RESULT_VERSION,
+    LABELING_EVIDENCE_LLM_WORK_VERSION,
+    LabelingEvidenceLlmRunPaths,
+    run_evidence_llm,
+)
 from .export import (
     LABELING_EXPORT_MANIFEST_VERSION,
     LabelingExportPaths,
@@ -96,7 +104,11 @@ __all__ = [
     "LABELING_CUTOFF_DATE",
     "LABELING_ENRICHMENT_PLAN_VERSION",
     "LABELING_EVIDENCE_INPUT_PLAN_VERSION",
+    "LABELING_EVIDENCE_LLM_CACHE_VERSION",
+    "LABELING_EVIDENCE_LLM_EXECUTOR_VERSION",
     "LABELING_EVIDENCE_LLM_PLAN_VERSION",
+    "LABELING_EVIDENCE_LLM_RESULT_VERSION",
+    "LABELING_EVIDENCE_LLM_WORK_VERSION",
     "LABELING_EXPORT_MANIFEST_VERSION",
     "LABELING_MEDIA_FETCH_CACHE_VERSION",
     "LABELING_MEDIA_FETCH_EXECUTOR_VERSION",
@@ -138,6 +150,7 @@ __all__ = [
     "LabelingEnrichmentRunPaths",
     "LabelingEvidenceInputPlanPaths",
     "LabelingEvidenceLlmPlanPaths",
+    "LabelingEvidenceLlmRunPaths",
     "LabelingExportPaths",
     "LabelingMediaFetchRunPaths",
     "LabelingRelevancePlanPaths",
@@ -159,6 +172,7 @@ __all__ = [
     "read_candidate_slots",
     "read_noise_slots",
     "run_enrichment",
+    "run_evidence_llm",
     "run_media_fetch",
     "score_media_document",
     "select_passage",

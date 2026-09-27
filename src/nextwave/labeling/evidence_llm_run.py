@@ -1,0 +1,1362 @@
+"""Resumable Evidence LLM executor (offline-first design, no model calls here).
+
+Reads deterministic tasks from an evidence LLM plan, calls the configured
+Yandex model once per candidate task, validates every claim against the
+verbatim passage, and publishes claims with resumable work storage. Secrets,
+prompts duplication and silent zeros are all rejected loudly.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import shutil
+import tempfile
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+from nextwave.contracts import ClaimType, EvidenceDirection
+from nextwave.datasets.artifacts import publish_artifact_bundle
+from nextwave.discovery.llm import (
+    LlmProvider,
+    YandexContentFilterError,
+    YandexTruncationError,
+    build_json_generator,
+    load_llm_runtime_settings,
+)
+from nextwave.sources import publish_staging
+
+from . import evidence_llm_plan as plan_module
+from .contracts import LABELING_CUTOFF_DATE
+from .evidence_llm_plan import (
+    LABELING_EVIDENCE_LLM_PLAN_VERSION,
+    MAX_CLAIMS_PER_DOCUMENT,
+    MAX_DOCUMENTS_PER_TASK,
+    build_evidence_prompt,
+)
+
+LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v1"
+LABELING_EVIDENCE_LLM_WORK_VERSION = "labeling-evidence-llm-work-v1"
+LABELING_EVIDENCE_LLM_CACHE_VERSION = "labeling-evidence-llm-cache-v1"
+LABELING_EVIDENCE_LLM_RESULT_VERSION = "labeling-evidence-llm-result-v1"
+
+EVIDENCE_MAX_OUTPUT_TOKENS = 6000
+EVIDENCE_CONCURRENCY = 3
+
+WORK_MANIFEST_FILENAME = "work_manifest.json"
+CACHE_MANIFEST_FILENAME = "cache_manifest.json"
+REQUEST_RESULTS_FILENAME = "request_results.jsonl"
+CLAIMS_FILENAME = "claims.jsonl"
+DOCUMENT_RESULTS_FILENAME = "document_results.jsonl"
+ISSUES_FILENAME = "issues.jsonl"
+COVERAGE_FILENAME = "coverage.jsonl"
+RESULT_MANIFEST_FILENAME = "manifest.json"
+
+_CONNECTOR_BY_CLASS = {"scientific": "openalex", "industry": "mediacloud"}
+_VALID_CLASSES = ("scientific", "industry")
+
+
+@dataclass(frozen=True, slots=True)
+class LabelingEvidenceLlmRunPaths:
+    """Paths of one published Evidence LLM result."""
+
+    manifest: Path
+    request_results: Path
+    claims: Path
+    document_results: Path
+    issues: Path
+    coverage: Path
+
+
+def _read_json(path: Path, label: str) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{label} is not valid JSON: {error}") from error
+
+
+def _check_digest(path: Path, entry: Any, label: str) -> bytes:
+    if not isinstance(entry, dict):
+        raise ValueError(f"manifest entry for {label} must be an object")
+    size = entry.get("size_bytes")
+    sha = entry.get("sha256")
+    if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+        raise ValueError(f"manifest size_bytes for {label} must be a non-negative int")
+    if not isinstance(sha, str) or len(sha) != 64:
+        raise ValueError(f"manifest sha256 for {label} must be 64 hex characters")
+    try:
+        int(sha, 16)
+    except ValueError as error:
+        raise ValueError(f"manifest sha256 for {label} must be hex") from error
+    if sha != sha.lower():
+        raise ValueError(f"manifest sha256 for {label} must be lowercase hex")
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise ValueError(f"cannot read {label}: {error}") from error
+    if len(payload) != size:
+        raise ValueError(f"{label} size mismatch with manifest")
+    if hashlib.sha256(payload).hexdigest() != sha:
+        raise ValueError(f"{label} checksum mismatch with manifest")
+    return payload
+
+
+def _read_rows(path: Path, payload: bytes, label: str) -> list[dict[str, Any]]:
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{label} is not valid UTF-8: {error}") from error
+    rows: list[dict[str, Any]] = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise ValueError(f"{label} line {lineno} is not valid JSON") from error
+        if not isinstance(item, dict):
+            raise ValueError(f"{label} line {lineno} must be an object")
+        rows.append(item)
+    return rows
+
+
+def _digest(payload: bytes) -> dict[str, Any]:
+    return {"sha256": hashlib.sha256(payload).hexdigest(), "size_bytes": len(payload)}
+
+
+def _render_jsonl(rows: list[dict[str, Any]]) -> bytes:
+    return (
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows
+        ).encode("utf-8")
+    )
+
+
+def _require_text(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} must be a non-empty string")
+    return value
+
+
+def _require_plain_count(value: Any, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{label} must be a non-negative plain int")
+    return value
+
+
+def _require_url(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be a string URL")
+    parsed = value.strip()
+    if not parsed.startswith(("http://", "https://")) or " " in parsed:
+        raise ValueError(f"{label} must be an absolute HTTP(S) URL")
+    return value
+
+
+def _check_date(value: Any, label: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, str):
+        raise ValueError(f"{label} published_at must be an ISO date string or null")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as error:
+        raise ValueError(f"{label} published_at is not an ISO date") from error
+    if parsed > LABELING_CUTOFF_DATE:
+        raise ValueError(f"{label} published_at {value} is past cutoff")
+
+
+def _extractor_id(provider: str, model: str) -> str:
+    slug = "-".join(model.lower().split())
+    return f"{provider}-{slug}-evidence-llm-v1"
+
+
+def _load_plan(
+    plan_dir: Path,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    manifest_path = plan_dir / "manifest.json"
+    if not manifest_path.is_file():
+        raise ValueError(f"evidence LLM plan is incomplete: {plan_dir}")
+    manifest = _read_json(manifest_path, "evidence LLM plan manifest")
+    if not isinstance(manifest, dict):
+        raise ValueError("evidence LLM plan manifest must be a JSON object")
+    if manifest.get("schema_version") != LABELING_EVIDENCE_LLM_PLAN_VERSION:
+        raise ValueError(
+            f"evidence LLM plan manifest {manifest.get('schema_version')!r} "
+            f"does not match {LABELING_EVIDENCE_LLM_PLAN_VERSION!r}"
+        )
+    outputs = manifest.get("outputs")
+    if not isinstance(outputs, dict):
+        raise ValueError("evidence LLM plan manifest outputs must be an object")
+    tasks_payload = _check_digest(
+        plan_dir / "tasks.jsonl", outputs.get("tasks.jsonl"), "tasks.jsonl"
+    )
+    coverage_payload = _check_digest(
+        plan_dir / "coverage.jsonl", outputs.get("coverage.jsonl"), "coverage.jsonl"
+    )
+    tasks = _read_rows(plan_dir / "tasks.jsonl", tasks_payload, "tasks.jsonl")
+    coverage = _read_rows(plan_dir / "coverage.jsonl", coverage_payload, "coverage.jsonl")
+    totals = manifest.get("totals")
+    if not isinstance(totals, dict):
+        raise ValueError("evidence LLM plan manifest totals must be an object")
+    if totals.get("candidates") != len(coverage):
+        raise ValueError("plan totals.candidates does not match coverage rows")
+    if totals.get("planned_tasks") != len(tasks):
+        raise ValueError("plan totals.planned_tasks does not match task rows")
+    input_manifest = manifest.get("input_manifest")
+    if not isinstance(input_manifest, dict):
+        raise ValueError("evidence LLM plan manifest input_manifest must be an object")
+    input_sha = input_manifest.get("sha256")
+    if (
+        not isinstance(input_sha, str)
+        or len(input_sha) != 64
+        or input_sha != input_sha.lower()
+    ):
+        raise ValueError("evidence LLM plan input manifest SHA is malformed")
+    try:
+        int(input_sha, 16)
+    except ValueError as error:
+        raise ValueError("evidence LLM plan input manifest SHA must be hex") from error
+    input_size = input_manifest.get("size_bytes")
+    if not isinstance(input_size, int) or isinstance(input_size, bool) or input_size < 0:
+        raise ValueError("evidence LLM plan input manifest size is malformed")
+    manifest_bytes = manifest_path.read_bytes()
+    digests = {
+        "manifest.json": _digest(manifest_bytes),
+        "tasks.jsonl": _digest(tasks_payload),
+        "coverage.jsonl": _digest(coverage_payload),
+        "input_manifest": {"sha256": input_sha, "size_bytes": input_size},
+    }
+    return manifest, tasks, coverage, digests
+
+
+_TASK_KEYS = frozenset({
+    "task_id",
+    "candidate_id",
+    "documents",
+    "document_count",
+    "prompt_chars",
+    "estimated_input_tokens",
+    "input_manifest_sha256",
+    "prompt_sha256",
+})
+
+_TASK_DOCUMENT_KEYS = frozenset({
+    "document_id",
+    "final_rank",
+    "source_class",
+    "connector",
+    "title",
+    "url",
+    "origin_id",
+    "published_at",
+    "trust_tier",
+    "matched_term",
+    "relevance_score",
+    "relevance_class",
+    "passage",
+    "passage_start",
+    "passage_end",
+    "passage_truncated",
+    "source_excerpt_sha256",
+    "passage_sha256",
+})
+
+
+def _validate_task(
+    task: Mapping[str, Any], input_manifest_sha: str, lineno: int
+) -> dict[str, Any]:
+    """Validate one planned task, including a rebuilt prompt and task_id."""
+
+    label = f"tasks.jsonl line {lineno}"
+    if not isinstance(task, dict):
+        raise ValueError(f"{label} must be an object")
+    if set(task) != set(_TASK_KEYS):
+        raise ValueError(f"{label} holds unexpected task keys")
+    task_id = _require_text(task.get("task_id"), f"{label} task_id")
+    candidate_id = _require_text(task.get("candidate_id"), f"{label} candidate_id")
+    documents = task.get("documents")
+    if not isinstance(documents, list) or not documents:
+        raise ValueError(f"{label} documents must be a non-empty list")
+    if len(documents) > MAX_DOCUMENTS_PER_TASK:
+        raise ValueError(f"{label} has more than {MAX_DOCUMENTS_PER_TASK} documents")
+    if task.get("document_count") != len(documents):
+        raise ValueError(f"{label} document_count diverges from documents")
+    ordered = []
+    for index, doc in enumerate(documents):
+        if not isinstance(doc, dict):
+            raise ValueError(f"{label} document {index} must be an object")
+        if set(doc) != set(_TASK_DOCUMENT_KEYS):
+            raise ValueError(f"{label} document {index} holds unexpected keys")
+        rank = doc.get("final_rank")
+        if not isinstance(rank, int) or isinstance(rank, bool):
+            raise ValueError(f"{label} final_rank must be plain ints")
+        ordered.append(rank)
+        document_id = _require_text(doc.get("document_id"), f"{label} document_id")
+        source_class = doc.get("source_class")
+        if source_class not in _VALID_CLASSES:
+            raise ValueError(f"{label} has an unknown source_class")
+        if doc.get("connector") != _CONNECTOR_BY_CLASS[source_class]:
+            raise ValueError(f"{label} connector does not match source_class")
+        for name in ("title", "origin_id", "matched_term"):
+            _require_text(doc.get(name), f"{label} {name}")
+        _require_url(doc.get("url"), f"{label} url")
+        score = doc.get("relevance_score")
+        if not isinstance(score, int) or isinstance(score, bool) or not 0 <= score <= 100:
+            raise ValueError(f"{label} relevance_score must be a plain int 0..100")
+        if doc.get("relevance_class") not in ("strong", "weak"):
+            raise ValueError(f"{label} relevance_class must be strong or weak")
+        if doc.get("trust_tier") not in ("A", "B", "C", "D", "unknown"):
+            raise ValueError(f"{label} trust_tier must be A/B/C/D/unknown")
+        passage = doc.get("passage")
+        if not isinstance(passage, str) or not passage:
+            raise ValueError(f"{label} passage must be a non-empty string")
+        if len(passage) > 3000:
+            raise ValueError(f"{label} passage exceeds 3000 characters")
+        if hashlib.sha256(passage.encode("utf-8")).hexdigest() != doc.get("passage_sha256"):
+            raise ValueError(f"{label} passage SHA mismatch for {document_id!r}")
+        source_sha = doc.get("source_excerpt_sha256")
+        if (
+            not isinstance(source_sha, str)
+            or len(source_sha) != 64
+            or source_sha != source_sha.lower()
+        ):
+            raise ValueError(f"{label} source excerpt SHA has a bad format")
+        try:
+            int(source_sha, 16)
+        except ValueError as error:
+            raise ValueError(f"{label} source excerpt SHA must be hex") from error
+        for name in ("passage_start", "passage_end"):
+            value = doc.get(name)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"{label} {name} must be a non-negative plain int")
+        if doc["passage_end"] != doc["passage_start"] + len(passage):
+            raise ValueError(f"{label} passage span diverges from passage length")
+        _check_date(doc.get("published_at"), label)
+    if ordered != list(range(1, len(documents) + 1)):
+        raise ValueError(f"{label} final_rank must form 1..N without gaps")
+    prompt = build_evidence_prompt({"candidate_id": candidate_id, "documents": documents})
+    if len(prompt) != task.get("prompt_chars"):
+        raise ValueError(f"{label} prompt_chars diverges from the rebuilt prompt")
+    prompt_sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    if prompt_sha != task.get("prompt_sha256"):
+        raise ValueError(f"{label} prompt_sha256 diverges from the rebuilt prompt")
+    if task.get("estimated_input_tokens") != math.ceil(len(prompt) / 3):
+        raise ValueError(f"{label} token estimate diverges from ceil(chars/3)")
+    if task.get("input_manifest_sha256") != input_manifest_sha:
+        raise ValueError(f"{label} input manifest SHA diverges")
+    expected_id = plan_module._task_id(
+        input_manifest_sha,
+        candidate_id,
+        [doc["document_id"] for doc in documents],
+        [doc["passage_sha256"] for doc in documents],
+        [(doc["passage_start"], doc["passage_end"]) for doc in documents],
+        prompt_sha,
+    )
+    if expected_id != task_id:
+        raise ValueError(f"{label} task_id does not recompute")
+    return {"task_id": task_id, "candidate_id": candidate_id, "documents": documents}
+
+
+def _validate(
+    tasks: list[dict[str, Any]],
+    coverage: list[dict[str, Any]],
+    input_manifest_sha: str,
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Validate tasks against coverage before any work, output or model call."""
+
+    seen_tasks: set[str] = set()
+    seen_candidates: set[str] = set()
+    validated: dict[str, dict[str, Any]] = {}
+    for lineno, task in enumerate(tasks, start=1):
+        record = _validate_task(task, input_manifest_sha, lineno)
+        if record["task_id"] in seen_tasks:
+            raise ValueError(f"duplicate task_id {record['task_id']!r}")
+        seen_tasks.add(record["task_id"])
+        if record["candidate_id"] in seen_candidates:
+            raise ValueError(f"duplicate task candidate {record['candidate_id']!r}")
+        seen_candidates.add(record["candidate_id"])
+        if not isinstance(task, dict):
+            raise ValueError(f"tasks.jsonl line {lineno} must be an object")
+        validated[record["candidate_id"]] = task
+    seen_coverage: set[str] = set()
+    for row in coverage:
+        candidate_id = row.get("candidate_id")
+        if not isinstance(candidate_id, str) or not candidate_id:
+            raise ValueError("coverage rows need a candidate_id")
+        if candidate_id in seen_coverage:
+            raise ValueError(f"coverage duplicates candidate {candidate_id!r}")
+        seen_coverage.add(candidate_id)
+        status = row.get("status")
+        if status == "planned":
+            task = validated.get(candidate_id)
+            if task is None:
+                raise ValueError(f"planned coverage {candidate_id!r} has no task")
+            if row.get("task_id") != task["task_id"]:
+                raise ValueError(
+                    f"planned coverage {candidate_id!r} references a wrong task_id"
+                )
+            for name in (
+                "input_documents",
+                "scientific_documents",
+                "industry_documents",
+                "prompt_chars",
+                "estimated_input_tokens",
+            ):
+                value = row.get(name)
+                if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                    raise ValueError(
+                        f"planned coverage {candidate_id!r} {name} must be a plain int"
+                    )
+            if row["input_documents"] != len(task["documents"]):
+                raise ValueError(
+                    f"planned coverage {candidate_id!r} document count diverges"
+                )
+            if row["input_documents"] != (
+                row["scientific_documents"] + row["industry_documents"]
+            ):
+                raise ValueError(
+                    f"planned coverage {candidate_id!r} class counts do not add up"
+                )
+            if row.get("llm_call_planned") is not True:
+                raise ValueError(
+                    f"planned coverage {candidate_id!r} must set llm_call_planned"
+                )
+        elif status == "no_input":
+            if candidate_id in validated:
+                raise ValueError(f"no_input coverage {candidate_id!r} has a task")
+            if row.get("task_id") is not None:
+                raise ValueError(f"no_input coverage {candidate_id!r} carries a task_id")
+            for name in (
+                "input_documents",
+                "scientific_documents",
+                "industry_documents",
+                "prompt_chars",
+                "estimated_input_tokens",
+            ):
+                if row.get(name) != 0:
+                    raise ValueError(f"no_input coverage {candidate_id!r} {name} must be 0")
+            if row.get("llm_call_planned") is not False:
+                raise ValueError(f"no_input coverage {candidate_id!r} must not plan a call")
+            reasons = row.get("empty_reasons")
+            if not isinstance(reasons, list) or any(
+                not isinstance(item, str) for item in reasons
+            ):
+                raise ValueError(
+                    f"no_input coverage {candidate_id!r} empty_reasons must be strings"
+                )
+        else:
+            raise ValueError(f"coverage {candidate_id!r} has an unknown status")
+    planned_ids = {
+        row["candidate_id"] for row in coverage if row.get("status") == "planned"
+    }
+    unknown = sorted(set(validated) - planned_ids)
+    if unknown:
+        raise ValueError(
+            f"unknown candidate(s) missing in planned coverage: {', '.join(unknown)}"
+        )
+    if set(validated) != planned_ids:
+        raise ValueError("planned coverage rows do not match task rows")
+    return validated, {row["candidate_id"]: row for row in coverage}
+
+
+def _task_spec(
+    task: Mapping[str, Any],
+    prompt_sha: str,
+    provider: str,
+    model: str,
+    extractor_id: str,
+) -> dict[str, Any]:
+    return {
+        "executor_version": LABELING_EVIDENCE_LLM_EXECUTOR_VERSION,
+        "task_id": task["task_id"],
+        "candidate_id": task["candidate_id"],
+        "document_ids": sorted(doc["document_id"] for doc in task["documents"]),
+        "prompt_sha256": prompt_sha,
+        "provider": provider,
+        "model": model,
+        "extractor_id": extractor_id,
+        "max_output_tokens": EVIDENCE_MAX_OUTPUT_TOKENS,
+    }
+
+
+def _spec_digest(spec: Mapping[str, Any]) -> str:
+    canonical = json.dumps(spec, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _work_fingerprint(
+    plan_digests: Mapping[str, Any],
+    bundle_id: str,
+    cutoff: str,
+    provider: str,
+    model: str,
+    extractor_id: str,
+    planned: int,
+) -> dict[str, Any]:
+    return {
+        "schema_version": LABELING_EVIDENCE_LLM_WORK_VERSION,
+        "plan_manifest": dict(plan_digests["manifest.json"]),
+        "plan_tasks": dict(plan_digests["tasks.jsonl"]),
+        "plan_coverage": dict(plan_digests["coverage.jsonl"]),
+        "bundle_id": bundle_id,
+        "cutoff_date": cutoff,
+        "provider": provider,
+        "model": model,
+        "extractor_id": extractor_id,
+        "max_output_tokens": EVIDENCE_MAX_OUTPUT_TOKENS,
+        "concurrency": EVIDENCE_CONCURRENCY,
+        "planned_tasks": planned,
+    }
+
+
+def _init_or_check_work(work_dir: str | Path, fingerprint: Mapping[str, Any]) -> Path:
+    """Create the work store atomically or verify it belongs to these inputs."""
+
+    work = Path(work_dir)
+    manifest_bytes = (
+        json.dumps(dict(fingerprint), ensure_ascii=False, indent=2, sort_keys=True)
+        + "\n"
+    ).encode("utf-8")
+    if not work.exists():
+        work.parent.mkdir(parents=True, exist_ok=True)
+        staging = Path(tempfile.mkdtemp(prefix=f".{work.name}-", dir=work.parent))
+        try:
+            (staging / WORK_MANIFEST_FILENAME).write_bytes(manifest_bytes)
+            (staging / "completed").mkdir()
+            (staging / "failures").mkdir()
+            publish_staging(staging, work)
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        return work
+    manifest_path = work / WORK_MANIFEST_FILENAME
+    if not manifest_path.is_file():
+        raise ValueError(f"evidence LLM work store is corrupt, manifest missing: {work}")
+    stored = _read_json(manifest_path, "evidence LLM work manifest")
+    if not isinstance(stored, dict):
+        raise ValueError(f"evidence LLM work manifest must be an object: {work}")
+    if stored.get("schema_version") != LABELING_EVIDENCE_LLM_WORK_VERSION:
+        raise ValueError(
+            f"evidence LLM work schema {stored.get('schema_version')!r} "
+            f"does not match {LABELING_EVIDENCE_LLM_WORK_VERSION!r}"
+        )
+    if stored != dict(fingerprint):
+        raise ValueError(
+            "evidence LLM work store belongs to different inputs; "
+            "use a fresh work directory instead of reusing it silently"
+        )
+    for service in ("completed", "failures"):
+        if not (work / service).is_dir():
+            raise ValueError(f"evidence LLM work service directory is missing: {service}")
+    return work
+
+
+def _claim_id(candidate_id: str, document_id: str, kind: str, direction: str, quote: str) -> str:
+    identity = "|".join((candidate_id, document_id, kind, direction, quote))
+    return "claim-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
+
+
+def _validate_response(
+    task: Mapping[str, Any], text: str
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split a model answer into valid claims, per-claim issues and doc rows.
+
+    Returns ``(claims, issues, document_rows)``. Raises ValueError when the
+    whole task answer is structurally unusable.
+    """
+
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise ValueError("model answer is not valid JSON") from error
+    if not isinstance(payload, dict) or set(payload) != {"candidate_id", "documents"}:
+        raise ValueError("model answer root must hold only candidate_id/documents")
+    if payload.get("candidate_id") != task["candidate_id"]:
+        raise ValueError("model answer candidate_id diverges from the task")
+    records = payload.get("documents")
+    if not isinstance(records, list):
+        raise ValueError("model answer documents must be a list")
+    expected_ids = [doc["document_id"] for doc in task["documents"]]
+    actual_ids = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise ValueError("model answer document record must be an object")
+        actual_ids.append(record.get("document_id"))
+    if actual_ids != expected_ids:
+        raise ValueError("model answer documents diverge from the task roster")
+    passages = {doc["document_id"]: doc["passage"] for doc in task["documents"]}
+    starts = {doc["document_id"]: doc["passage_start"] for doc in task["documents"]}
+    claims: list[dict[str, Any]] = []
+    issues: list[dict[str, Any]] = []
+    document_rows: list[dict[str, Any]] = []
+    valid_kinds = {item.value for item in ClaimType}
+    valid_directions = {item.value for item in EvidenceDirection}
+    for record in records:
+        document_id = record["document_id"]
+        if set(record) != {"document_id", "claims"}:
+            raise ValueError(f"document record {document_id!r} holds unexpected keys")
+        raw_claims = record.get("claims")
+        if not isinstance(raw_claims, list):
+            raise ValueError(f"document {document_id!r} claims must be a list")
+        if len(raw_claims) > MAX_CLAIMS_PER_DOCUMENT:
+            raise ValueError(f"document {document_id!r} carries too many claims")
+        passage = passages[document_id]
+        kept = 0
+        doc_issues = 0
+        seen: set[tuple[str, str, str]] = set()
+        for raw in raw_claims:
+            if (
+                not isinstance(raw, dict)
+                or set(raw) != {"quote", "kind", "direction"}
+            ):
+                issues.append(_issue(task, document_id, "invalid_claim"))
+                doc_issues += 1
+                continue
+            quote, kind, direction = raw["quote"], raw["kind"], raw["direction"]
+            if (
+                not isinstance(quote, str)
+                or not 20 <= len(quote) <= 500
+            ):
+                issues.append(_issue(task, document_id, "invalid_claim"))
+                doc_issues += 1
+                continue
+            if kind not in valid_kinds or direction not in valid_directions:
+                issues.append(_issue(task, document_id, "invalid_claim"))
+                doc_issues += 1
+                continue
+            local = passage.find(quote)
+            if local < 0:
+                issues.append(_issue(task, document_id, "non_verbatim"))
+                doc_issues += 1
+                continue
+            key = (quote, kind, direction)
+            if key in seen:
+                issues.append(_issue(task, document_id, "duplicate_claim"))
+                doc_issues += 1
+                continue
+            seen.add(key)
+            start = starts[document_id] + local
+            end = start + len(quote)
+            claims.append({
+                "claim_id": _claim_id(
+                    task["candidate_id"], document_id, kind, direction, quote
+                ),
+                "candidate_id": task["candidate_id"],
+                "task_id": task["task_id"],
+                "document_id": document_id,
+                "quote": quote,
+                "kind": kind,
+                "direction": direction,
+                "locator_start": start,
+                "locator_end": end,
+                "locator": f"excerpt[{start}:{end}]",
+            })
+            kept += 1
+        document_rows.append({
+            "candidate_id": task["candidate_id"],
+            "task_id": task["task_id"],
+            "document_id": document_id,
+            "status": "processed",
+            "claim_count": kept,
+            "issue_count": doc_issues,
+        })
+    return claims, issues, document_rows
+
+
+def _issue(task: Mapping[str, Any], document_id: str | None, code: str) -> dict[str, Any]:
+    messages = {
+        "invalid_claim": "claim dropped: malformed quote, kind or direction",
+        "non_verbatim": "claim dropped: quote is not verbatim in the passage",
+        "duplicate_claim": "claim dropped: repeated claim kept once",
+        "model_error": "model call failed: transport or provider error",
+        "invalid_response": "model answer failed structural validation",
+        "truncation": "model answer was truncated before completion",
+        "content_filter": "model answer was refused by content filter",
+    }
+    return {
+        "candidate_id": task["candidate_id"],
+        "task_id": task["task_id"],
+        "document_id": document_id,
+        "code": code,
+        "message": messages[code],
+    }
+
+
+def _publish_completed(
+    work: Path,
+    task_id: str,
+    result: Mapping[str, Any],
+    spec_digest: str,
+    raw_text: str,
+    manifest_sha: str,
+    provider: str,
+    model: str,
+    extractor_id: str,
+) -> None:
+    completed_dir = work / "completed" / task_id
+    if completed_dir.exists():
+        raise FileExistsError(
+            f"completed task already exists and must never be replaced: {completed_dir}"
+        )
+    result_bytes = (
+        json.dumps(dict(result), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    raw_bytes = raw_text.encode("utf-8")
+    cache_bytes = (
+        json.dumps(
+            {
+                "schema_version": LABELING_EVIDENCE_LLM_CACHE_VERSION,
+                "task_id": task_id,
+                "candidate_id": result["candidate_id"],
+                "spec_digest": spec_digest,
+                "result": _digest(result_bytes),
+                "raw_response": _digest(raw_bytes),
+                "plan_manifest_sha256": manifest_sha,
+                "provider": provider,
+                "model": model,
+                "extractor_id": extractor_id,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    staging = Path(tempfile.mkdtemp(prefix=f".{task_id}-", dir=work))
+    try:
+        (staging / "result.json").write_bytes(result_bytes)
+        (staging / "raw_response.txt").write_bytes(raw_bytes)
+        (staging / CACHE_MANIFEST_FILENAME).write_bytes(cache_bytes)
+        publish_staging(staging, completed_dir)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
+def _next_cycle(work: Path, task_id: str) -> tuple[Path, str]:
+    failures_dir = work / "failures" / task_id
+    existing = sorted(
+        path.name for path in failures_dir.glob("cycle-*") if path.is_dir()
+    ) if failures_dir.is_dir() else []
+    cycle = f"cycle-{len(existing) + 1:03d}"
+    return failures_dir / cycle, cycle
+
+
+def _publish_failure(
+    work: Path, task_id: str, result: Mapping[str, Any], raw_text: str | None
+) -> str:
+    cycle_dir, cycle = _next_cycle(work, task_id)
+    if cycle_dir.exists():
+        raise FileExistsError(f"failure cycle already exists: {cycle_dir}")
+    result_bytes = (
+        json.dumps(dict(result), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    staging = Path(tempfile.mkdtemp(prefix=f".{task_id}-", dir=work))
+    try:
+        (staging / "result.json").write_bytes(result_bytes)
+        if raw_text is not None:
+            (staging / "raw_response.txt").write_bytes(raw_text.encode("utf-8"))
+        cycle_dir.parent.mkdir(parents=True, exist_ok=True)
+        publish_staging(staging, cycle_dir)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return cycle
+
+
+def _check_file_digest(path: Path, entry: Any, task_id: str) -> bytes:
+    if not isinstance(entry, dict):
+        raise ValueError(f"completed cache digest entry is invalid for {task_id!r}")
+    size = entry.get("size_bytes")
+    sha = entry.get("sha256")
+    if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+        raise ValueError(f"completed cache size is invalid for {task_id!r}")
+    if not isinstance(sha, str) or len(sha) != 64:
+        raise ValueError(f"completed cache sha256 is invalid for {task_id!r}")
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise ValueError(
+            f"completed cache file is missing for {task_id!r}: {error}"
+        ) from error
+    if len(payload) != size or hashlib.sha256(payload).hexdigest() != sha:
+        raise ValueError(f"completed cache checksum mismatch for {task_id!r}")
+    return payload
+
+
+def _check_completed_cache(
+    completed_dir: Path,
+    task: Mapping[str, Any],
+    spec: Mapping[str, Any],
+    prompt_sha: str,
+    expect: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate one cached task by fully reconstructing it from raw text."""
+
+    task_id = task["task_id"]
+    cache_path = completed_dir / CACHE_MANIFEST_FILENAME
+    try:
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(
+            f"completed cache for {task_id!r} has no readable cache manifest: {error}"
+        ) from error
+    if not isinstance(cache, dict):
+        raise ValueError(f"completed cache manifest for {task_id!r} must be an object")
+    if set(cache) != {
+        "schema_version",
+        "task_id",
+        "candidate_id",
+        "spec_digest",
+        "result",
+        "raw_response",
+        "plan_manifest_sha256",
+        "provider",
+        "model",
+        "extractor_id",
+    }:
+        raise ValueError(f"completed cache manifest keys diverge for {task_id!r}")
+    if cache.get("schema_version") != LABELING_EVIDENCE_LLM_CACHE_VERSION:
+        raise ValueError(
+            f"completed cache schema {cache.get('schema_version')!r} "
+            f"does not match {LABELING_EVIDENCE_LLM_CACHE_VERSION!r}"
+        )
+    if cache.get("task_id") != task_id:
+        raise ValueError(f"completed cache task_id mismatch for {task_id!r}")
+    if cache.get("candidate_id") != task["candidate_id"]:
+        raise ValueError(f"completed cache candidate mismatch for {task_id!r}")
+    if cache.get("spec_digest") != _spec_digest(spec):
+        raise ValueError(f"completed cache spec_digest mismatch for {task_id!r}")
+    for name in ("plan_manifest_sha256", "provider", "model", "extractor_id"):
+        if cache.get(name) != expect.get(name):
+            raise ValueError(f"completed cache {name} diverges for {task_id!r}")
+    result_path = completed_dir / "result.json"
+    _check_file_digest(result_path, cache.get("result") or {}, task_id)
+    raw_path = completed_dir / "raw_response.txt"
+    _check_file_digest(raw_path, cache.get("raw_response") or {}, task_id)
+    try:
+        raw_text = raw_path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise ValueError(
+            f"completed cache raw text is missing for {task_id!r}: {error}"
+        ) from error
+    except UnicodeDecodeError as error:
+        raise ValueError(
+            f"completed cache raw text is not UTF-8 for {task_id!r}: {error}"
+        ) from error
+    try:
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"completed cache result for {task_id!r} is not valid JSON: {error}"
+        ) from error
+    if not isinstance(result, dict):
+        raise ValueError(f"completed cache result for {task_id!r} must be an object")
+    if set(result) != {
+        "schema_version",
+        "task_id",
+        "candidate_id",
+        "spec_digest",
+        "plan_manifest_sha256",
+        "provider",
+        "model",
+        "extractor_id",
+        "status",
+        "attempts",
+        "prompt_sha256",
+        "claims",
+        "issues",
+        "document_results",
+        "raw_response_sha256",
+        "note",
+    }:
+        raise ValueError(f"completed cache result keys diverge for {task_id!r}")
+    try:
+        claims, issues, document_rows = _validate_response(task, raw_text)
+    except ValueError as error:
+        raise ValueError(
+            f"completed cache raw text does not reconstruct for {task_id!r}: {error}"
+        ) from error
+    expected_result = {
+        "schema_version": LABELING_EVIDENCE_LLM_RESULT_VERSION,
+        "task_id": task_id,
+        "candidate_id": task["candidate_id"],
+        "spec_digest": _spec_digest(spec),
+        "plan_manifest_sha256": expect["plan_manifest_sha256"],
+        "provider": expect["provider"],
+        "model": expect["model"],
+        "extractor_id": expect["extractor_id"],
+        "status": "success",
+        "attempts": 1,
+        "prompt_sha256": prompt_sha,
+        "claims": claims,
+        "issues": issues,
+        "document_results": document_rows,
+        "raw_response_sha256": hashlib.sha256(raw_text.encode("utf-8")).hexdigest(),
+        "note": f"model call succeeded with {len(claims)} claims",
+    }
+    if result != expected_result:
+        raise ValueError(f"completed cache result diverges for {task_id!r}")
+    _check_no_secret_keys(result, task_id)
+    return result
+
+
+def _check_no_secret_keys(value: Any, task_id: str) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            folded = str(key).casefold()
+            if (
+                "header" in folded
+                or "cookie" in folded
+                or "authorization" in folded
+                or "api_key" in folded
+                or "api-key" in folded
+            ):
+                raise ValueError(
+                    f"completed cache for {task_id!r} stores forbidden secret data"
+                )
+            _check_no_secret_keys(item, task_id)
+    elif isinstance(value, list):
+        for item in value:
+            _check_no_secret_keys(item, task_id)
+
+
+def _call_model(
+    generator: Callable[[str], str], prompt: str
+) -> tuple[str | None, str | None]:
+    """Call once; return ``(text, failure_code)`` with fixed failure codes."""
+
+    try:
+        return generator(prompt), None
+    except YandexTruncationError:
+        return None, "truncation"
+    except YandexContentFilterError:
+        return None, "content_filter"
+    except (RuntimeError, OSError):
+        return None, "model_error"
+    except ValueError:
+        return None, "invalid_response"
+    except Exception:
+        return None, "model_error"
+
+
+def _run_single_task(
+    work: Path,
+    generator: Callable[[str], str],
+    provider: str,
+    model: str,
+    extractor_id: str,
+    manifest_sha: str,
+    task: Mapping[str, Any],
+    spec: Mapping[str, Any],
+    spec_digest: str,
+    prompt: str,
+    prompt_sha: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Call the model once, publish the outcome, return output rows."""
+
+    task_id = task["task_id"]
+    candidate_id = task["candidate_id"]
+    text, failure = _call_model(generator, prompt)
+    if failure is not None:
+        result = {
+            "schema_version": LABELING_EVIDENCE_LLM_RESULT_VERSION,
+            "task_id": task_id,
+            "candidate_id": candidate_id,
+            "spec_digest": spec_digest,
+            "status": "failed",
+            "error": failure,
+            "attempts": 1,
+            "note": f"model call failed: {failure}",
+        }
+        _publish_failure(work, task_id, result, text)
+        record = {
+            "candidate_id": candidate_id,
+            "task_id": task_id,
+            "status": "failed",
+            "reused": False,
+            "attempts": 1,
+            "error": failure,
+        }
+        issue = {
+            "candidate_id": candidate_id,
+            "task_id": task_id,
+            "document_id": None,
+            "code": failure,
+            "message": f"model call failed: {failure}",
+        }
+        return record, [], [], [issue]
+    if text is None:
+        raise RuntimeError("model call returned neither text nor failure")
+    try:
+        claims, issues, document_rows = _validate_response(task, text)
+    except ValueError:
+        result = {
+            "schema_version": LABELING_EVIDENCE_LLM_RESULT_VERSION,
+            "task_id": task_id,
+            "candidate_id": candidate_id,
+            "spec_digest": spec_digest,
+            "status": "failed",
+            "error": "invalid_response",
+            "attempts": 1,
+            "note": "model call failed: invalid_response",
+        }
+        _publish_failure(work, task_id, result, text)
+        record = {
+            "candidate_id": candidate_id,
+            "task_id": task_id,
+            "status": "failed",
+            "reused": False,
+            "attempts": 1,
+            "error": "invalid_response",
+        }
+        issue = {
+            "candidate_id": candidate_id,
+            "task_id": task_id,
+            "document_id": None,
+            "code": "invalid_response",
+            "message": "model call failed: invalid_response",
+        }
+        return record, [], [], [issue]
+    result = {
+        "schema_version": LABELING_EVIDENCE_LLM_RESULT_VERSION,
+        "task_id": task_id,
+        "candidate_id": candidate_id,
+        "spec_digest": spec_digest,
+        "plan_manifest_sha256": manifest_sha,
+        "provider": provider,
+        "model": model,
+        "extractor_id": extractor_id,
+        "status": "success",
+        "attempts": 1,
+        "prompt_sha256": prompt_sha,
+        "claims": claims,
+        "issues": issues,
+        "document_results": document_rows,
+        "raw_response_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "note": f"model call succeeded with {len(claims)} claims",
+    }
+    _publish_completed(
+        work, task_id, result, spec_digest, text,
+        manifest_sha, provider, model, extractor_id,
+    )
+    record = {
+        "candidate_id": candidate_id,
+        "task_id": task_id,
+        "status": "success",
+        "reused": False,
+        "attempts": 1,
+        "error": None,
+    }
+    return record, claims, document_rows, issues
+
+
+def _reused_rows(
+    task: Mapping[str, Any], result: Mapping[str, Any]
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    claims = result.get("claims") or []
+    issues = result.get("issues") or []
+    document_rows = result.get("document_results") or []
+    record = {
+        "candidate_id": task["candidate_id"],
+        "task_id": task["task_id"],
+        "status": "success",
+        "reused": True,
+        "attempts": 0,
+        "error": None,
+    }
+    return record, claims, document_rows, issues
+
+
+def run_evidence_llm(
+    *,
+    plan_dir: str | Path,
+    work_dir: str | Path,
+    output_dir: str | Path,
+    environment: Mapping[str, str],
+    max_new_tasks: int | None = None,
+    candidate_ids: list[str] | tuple[str, ...] | None = None,
+    generator: Callable[[str], str] | None = None,
+    generator_transport: Any | None = None,
+) -> LabelingEvidenceLlmRunPaths:
+    """Execute planned Evidence tasks with resume, then publish the result."""
+
+    if max_new_tasks is not None and (
+        not isinstance(max_new_tasks, int)
+        or isinstance(max_new_tasks, bool)
+        or max_new_tasks < 1
+    ):
+        raise ValueError("max_new_tasks must be a positive int")
+    wanted: set[str] | None = None
+    if candidate_ids is not None:
+        wanted = set(candidate_ids)
+        if not wanted or any(not isinstance(item, str) for item in wanted):
+            raise ValueError("candidate_ids must be a non-empty string collection")
+    settings = load_llm_runtime_settings(environment)
+    if settings.selection.provider is not LlmProvider.YANDEX:
+        raise ValueError(
+            "evidence executor supports the Yandex main model, "
+            f"not {settings.selection.provider.value!r}"
+        )
+    provider = settings.selection.provider.value
+    model = settings.selection.model
+    extractor_id = _extractor_id(provider, model)
+
+    plan_path = Path(plan_dir)
+    manifest, tasks, coverage, digests = _load_plan(plan_path)
+    bundle_id = manifest.get("bundle_id")
+    cutoff = manifest.get("cutoff_date")
+    validated, coverage_by_id = _validate(
+        tasks, coverage, digests["input_manifest"]["sha256"]
+    )
+    if wanted is not None:
+        unknown = sorted(wanted - set(coverage_by_id))
+        if unknown:
+            raise ValueError(f"unknown candidate_id filter: {', '.join(unknown)}")
+
+    output = Path(output_dir)
+    if output.exists():
+        raise ValueError(f"output directory already exists: {output}")
+    fingerprint = _work_fingerprint(
+        digests, bundle_id, cutoff, provider, model, extractor_id, len(validated)
+    )
+    work = _init_or_check_work(work_dir, fingerprint)
+
+    active = (
+        generator
+        or build_json_generator(
+            settings,
+            transport=generator_transport,
+            json_schema=None,
+            max_output_tokens=EVIDENCE_MAX_OUTPUT_TOKENS,
+        )
+    )
+    prompts: dict[str, str] = {}
+    prompt_shas: dict[str, str] = {}
+    specs: dict[str, dict[str, Any]] = {}
+    for task in validated.values():
+        prompt = build_evidence_prompt(task)
+        prompt_sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        prompts[task["task_id"]] = prompt
+        prompt_shas[task["task_id"]] = prompt_sha
+        specs[task["task_id"]] = _task_spec(task, prompt_sha, provider, model, extractor_id)
+
+    selected = [
+        task for candidate_id, task in validated.items()
+        if wanted is None or candidate_id in wanted
+    ]
+    pending: list[dict[str, Any]] = []
+    request_rows: list[dict[str, Any]] = []
+    claim_rows: list[dict[str, Any]] = []
+    document_rows: list[dict[str, Any]] = []
+    issue_rows: list[dict[str, Any]] = []
+    called = 0
+    reused = 0
+    expect = {
+        "plan_manifest_sha256": digests["manifest.json"]["sha256"],
+        "provider": provider,
+        "model": model,
+        "extractor_id": extractor_id,
+    }
+    for task in selected:
+        task_id = task["task_id"]
+        completed_dir = work / "completed" / task_id
+        if completed_dir.exists():
+            result = _check_completed_cache(
+                completed_dir, task, specs[task_id], prompt_shas[task_id], expect
+            )
+            record, claims, documents, issues = _reused_rows(task, result)
+            request_rows.append(record)
+            claim_rows.extend(claims)
+            document_rows.extend(documents)
+            issue_rows.extend(issues)
+            reused += 1
+        else:
+            pending.append(task)
+    if max_new_tasks is not None:
+        pending = pending[:max_new_tasks]
+
+    if pending:
+        with ThreadPoolExecutor(max_workers=EVIDENCE_CONCURRENCY) as pool:
+            futures = {
+                pool.submit(
+                    _run_single_task,
+                    work,
+                    active,
+                    provider,
+                    model,
+                    extractor_id,
+                    digests["manifest.json"]["sha256"],
+                    task,
+                    specs[task["task_id"]],
+                    _spec_digest(specs[task["task_id"]]),
+                    prompts[task["task_id"]],
+                    prompt_shas[task["task_id"]],
+                ): task
+                for task in pending
+            }
+            finished: dict[str, tuple] = {}
+            for future in as_completed(futures):
+                task = futures[future]
+                finished[task["task_id"]] = future.result()
+            for task in pending:
+                record, claims, documents, issues = finished[task["task_id"]]
+                request_rows.append(record)
+                claim_rows.extend(claims)
+                document_rows.extend(documents)
+                issue_rows.extend(issues)
+                called += 1
+
+    ran_ids = {row["task_id"] for row in request_rows}
+    for task in validated.values():
+        if task["task_id"] in ran_ids:
+            continue
+        request_rows.append({
+            "candidate_id": task["candidate_id"],
+            "task_id": task["task_id"],
+            "status": "not_run",
+            "reused": False,
+            "attempts": 0,
+            "error": None,
+        })
+    request_rows.sort(key=lambda row: (row["candidate_id"], row["task_id"]))
+    claim_rows.sort(
+        key=lambda row: (row["candidate_id"], row["task_id"], row["document_id"], row["claim_id"])
+    )
+    document_rows.sort(
+        key=lambda row: (row["candidate_id"], row["task_id"], row["document_id"])
+    )
+    issue_rows.sort(key=lambda row: (
+        row["candidate_id"],
+        row["task_id"],
+        row["document_id"] or "",
+        row["code"],
+    ))
+
+    coverage_rows: list[dict[str, Any]] = []
+    by_request = {row["task_id"]: row for row in request_rows}
+    for candidate_id in sorted(coverage_by_id):
+        plan_row = coverage_by_id[candidate_id]
+        if plan_row.get("status") == "no_input":
+            coverage_rows.append({
+                "candidate_id": candidate_id,
+                "status": "no_input",
+                "task_id": None,
+                "input_documents": 0,
+                "scientific_documents": 0,
+                "industry_documents": 0,
+                "prompt_chars": 0,
+                "estimated_input_tokens": 0,
+                "llm_call_planned": False,
+                "empty_reasons": list(plan_row.get("empty_reasons") or []),
+            })
+            continue
+        task = validated[candidate_id]
+        request = by_request[task["task_id"]]
+        scientific = sum(
+            1 for doc in task["documents"] if doc["source_class"] == "scientific"
+        )
+        coverage_rows.append({
+            "candidate_id": candidate_id,
+            "status": (
+                "complete"
+                if request["status"] == "success"
+                else request["status"]
+            ),
+            "task_id": task["task_id"],
+            "input_documents": len(task["documents"]),
+            "scientific_documents": scientific,
+            "industry_documents": len(task["documents"]) - scientific,
+            "prompt_chars": task["prompt_chars"],
+            "estimated_input_tokens": task["estimated_input_tokens"],
+            "llm_call_planned": True,
+            "reused": request["reused"],
+            "error": request["error"],
+        })
+
+    success = sum(1 for row in request_rows if row["status"] == "success")
+    failed = sum(1 for row in request_rows if row["status"] == "failed")
+    not_run = sum(1 for row in request_rows if row["status"] == "not_run")
+    no_input = sum(1 for row in coverage_rows if row["status"] == "no_input")
+    totals = {
+        "candidates": len(coverage_rows),
+        "planned_tasks": len(request_rows),
+        "called": called,
+        "reused": reused,
+        "success": success,
+        "failed": failed,
+        "not_run": not_run,
+        "no_input": no_input,
+        "input_documents_processed": sum(
+            row["input_documents"]
+            for row in coverage_rows
+            if row["status"] == "complete"
+        ),
+        "input_documents_attempted": sum(
+            row["input_documents"]
+            for row in coverage_rows
+            if row["status"] in ("complete", "failed")
+        ),
+        "claims": len(claim_rows),
+        "issues": len(issue_rows),
+    }
+    analysis_status = (
+        "complete"
+        if failed == 0
+        and not_run == 0
+        and success + no_input == len(coverage_rows)
+        and success == len(validated)
+        else "partial"
+    )
+    files = {
+        REQUEST_RESULTS_FILENAME: _render_jsonl(request_rows),
+        CLAIMS_FILENAME: _render_jsonl(claim_rows),
+        DOCUMENT_RESULTS_FILENAME: _render_jsonl(document_rows),
+        ISSUES_FILENAME: _render_jsonl(issue_rows),
+        COVERAGE_FILENAME: _render_jsonl(coverage_rows),
+    }
+    applied_filter = sorted(wanted) if wanted is not None else None
+    manifest_out = {
+        "schema_version": LABELING_EVIDENCE_LLM_RESULT_VERSION,
+        "analysis_status": analysis_status,
+        "bundle_id": bundle_id,
+        "cutoff_date": cutoff,
+        "plan_manifest": digests["manifest.json"],
+        "plan_files": {
+            "tasks.jsonl": digests["tasks.jsonl"],
+            "coverage.jsonl": digests["coverage.jsonl"],
+        },
+        "provider": provider,
+        "model": model,
+        "extractor_id": extractor_id,
+        "max_output_tokens": EVIDENCE_MAX_OUTPUT_TOKENS,
+        "concurrency": EVIDENCE_CONCURRENCY,
+        "applied_candidate_filter": applied_filter,
+        "applied_max_new_tasks": max_new_tasks,
+        "totals": totals,
+        "outputs": {
+            name: {
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "size_bytes": len(payload),
+            }
+            for name, payload in files.items()
+        },
+    }
+    files[RESULT_MANIFEST_FILENAME] = (
+        json.dumps(manifest_out, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    paths = publish_artifact_bundle(files, output)
+    return LabelingEvidenceLlmRunPaths(
+        manifest=paths[RESULT_MANIFEST_FILENAME],
+        request_results=paths[REQUEST_RESULTS_FILENAME],
+        claims=paths[CLAIMS_FILENAME],
+        document_results=paths[DOCUMENT_RESULTS_FILENAME],
+        issues=paths[ISSUES_FILENAME],
+        coverage=paths[COVERAGE_FILENAME],
+    )
