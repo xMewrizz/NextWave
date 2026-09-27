@@ -792,14 +792,43 @@ def _validate_response(
     if not isinstance(records, list):
         raise ValueError("model answer documents must be a list")
     expected_ids = [doc["document_id"] for doc in task["documents"]]
+    passages = {doc["document_id"]: doc["passage"] for doc in task["documents"]}
     actual_ids = []
+    records_by_id: dict[str, dict[str, Any]] = {}
+    unresolved_records: list[dict[str, Any]] = []
     for record in records:
         if not isinstance(record, dict):
             raise ValueError("model answer document record must be an object")
-        actual_ids.append(record.get("document_id"))
-    if actual_ids != expected_ids:
+        document_id = record.get("document_id")
+        actual_ids.append(document_id)
+        if not isinstance(document_id, str) or actual_ids.count(document_id) > 1:
+            raise ValueError("model answer documents diverge from the task roster")
+        if document_id in passages:
+            records_by_id[document_id] = record
+        else:
+            unresolved_records.append(record)
+    for record in unresolved_records:
+        raw_claims = record.get("claims")
+        quotes = [
+            claim.get("quote")
+            for claim in raw_claims
+            if isinstance(claim, dict) and isinstance(claim.get("quote"), str)
+        ] if isinstance(raw_claims, list) else []
+        remaining = [
+            document_id
+            for document_id in expected_ids
+            if document_id not in records_by_id
+            and quotes
+            and len(quotes) == len(raw_claims)
+            and all(quote in passages[document_id] for quote in quotes)
+        ]
+        if len(remaining) != 1:
+            raise ValueError("model answer documents diverge from the task roster")
+        resolved_id = remaining[0]
+        records_by_id[resolved_id] = {**record, "document_id": resolved_id}
+    if set(records_by_id) != set(expected_ids) or len(actual_ids) != len(expected_ids):
         raise ValueError("model answer documents diverge from the task roster")
-    passages = {doc["document_id"]: doc["passage"] for doc in task["documents"]}
+    records = [records_by_id[document_id] for document_id in expected_ids]
     starts = {doc["document_id"]: doc["passage_start"] for doc in task["documents"]}
     matched_terms = {doc["document_id"]: doc["matched_term"] for doc in task["documents"]}
     claims: list[dict[str, Any]] = []

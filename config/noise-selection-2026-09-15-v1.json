@@ -1,0 +1,506 @@
+{
+  "cutoff_date": "2026-09-15",
+  "entries": [
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "AI ecosystem",
+      "noise_id": "noise-001",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "broad_concept",
+      "rationale": "Широкая экосистема без конкретного проверяемого механизма.",
+      "run_id": "analysis-edge-001-565ec2b44576",
+      "source_document_url": "https://doi.org/10.1016/j.lrp.2025.102601"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "digital transformation",
+      "noise_id": "noise-002",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "broad_concept",
+      "rationale": "Общий процесс трансформации, а не отдельная технология.",
+      "run_id": "analysis-edge-001-565ec2b44576",
+      "source_document_url": "https://timesofindia.indiatimes.com/city/hyderabad/business-schools-reinvent-curriculum-for-ai-driven-era/articleshow/131101993.cms"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Artificial Intelligence",
+      "noise_id": "noise-003",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "broad_concept",
+      "rationale": "Название всей области ИИ, а не конкретной технологии.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://doi.org/10.3390/data10120201"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "machine learning",
+      "noise_id": "noise-004",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "broad_concept",
+      "rationale": "Название широкой области методов без конкретного механизма.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://www.benzinga.com/pressreleases/26/01/g49662411/materials-informatics-market-size-to-hit-usd-736-71-million-by-2035?utm_source=benzinga_taxonomy&utm_medium=rss_feed_free&utm_content=taxonomy_rss&utm_campaign=channel"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Industry 4.0",
+      "noise_id": "noise-005",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "broad_concept",
+      "rationale": "Зонтичная концепция промышленности, а не отдельная технология.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://timesofindia.indiatimes.com/education/how-students-skilled-in-machines-and-intelligence-impact-engineering/articleshow/131455632.cms"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "sustainability",
+      "noise_id": "noise-006",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "broad_concept",
+      "rationale": "Общая цель устойчивости без технического объекта.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://doi.org/10.1007/978-3-032-10561-5_9"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "AI technologies",
+      "noise_id": "noise-007",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "broad_concept",
+      "rationale": "Собирательная категория без конкретного метода или системы.",
+      "run_id": "analysis-aiinfra-004-2e0fd0c311bb",
+      "source_document_url": "https://doi.org/10.1016/j.caeo.2025.100304"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "AI models",
+      "noise_id": "noise-008",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "broad_concept",
+      "rationale": "Собирательная категория моделей без проверяемого объекта.",
+      "run_id": "analysis-aiinfra-004-2e0fd0c311bb",
+      "source_document_url": "https://doi.org/10.1038/s41746-025-02036-9"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Robot",
+      "noise_id": "noise-009",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "broad_concept",
+      "rationale": "Родовое название класса устройств, а не конкретная технология.",
+      "run_id": "analysis-robotics-001-8573172f8644",
+      "source_document_url": "https://doi.org/10.20517/ais.2025.113"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "digital payments",
+      "noise_id": "noise-010",
+      "origin_kind": "exclusion",
+      "planned_noise_type": "broad_concept",
+      "rationale": "Широкая область платежей без конкретного механизма.",
+      "run_id": "analysis-fintech-001-790282872ea6",
+      "source_document_url": "https://doi.org/10.1287/mnsc.2024.04423"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Peripheral Artery Disease (PAD)",
+      "noise_id": "noise-011",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "irrelevant",
+      "rationale": "Заболевание не относится к технологиям Edge AI.",
+      "run_id": "analysis-edge-001-565ec2b44576",
+      "source_document_url": "https://doi.org/10.1042/cs20258419"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Microplastics",
+      "noise_id": "noise-012",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "irrelevant",
+      "rationale": "Материал-загрязнитель не относится к технологиям Edge AI.",
+      "run_id": "analysis-edge-001-565ec2b44576",
+      "source_document_url": "https://doi.org/10.3390/jox16030072"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Gut microbiome",
+      "noise_id": "noise-013",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "irrelevant",
+      "rationale": "Биологический объект не относится к технологиям защиты ИИ.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://doi.org/10.1080/19490976.2025.2607076"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Biochar",
+      "noise_id": "noise-014",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "irrelevant",
+      "rationale": "Материал не относится к технологиям защиты ИИ.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://doi.org/10.1007/s43621-025-01581-3"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Chimeric Antigen Receptor (CAR)-T cell therapy",
+      "noise_id": "noise-015",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "irrelevant",
+      "rationale": "Медицинская терапия не относится к промышленным ИИ-технологиям.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://doi.org/10.3389/fbioe.2025.1612248"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Escherichia coli (E. Coli)",
+      "noise_id": "noise-016",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "irrelevant",
+      "rationale": "Бактерия не относится к промышленным ИИ-технологиям.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://doi.org/10.1007/s00604-026-07976-x"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Bt cotton",
+      "noise_id": "noise-017",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "irrelevant",
+      "rationale": "Сельскохозяйственная культура не относится к ИИ-инфраструктуре.",
+      "run_id": "analysis-aiinfra-004-2e0fd0c311bb",
+      "source_document_url": "https://doi.org/10.3389/fpls.2025.1675657"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "adaptive insulin management",
+      "noise_id": "noise-018",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "irrelevant",
+      "rationale": "Медицинский сценарий не является технологией инфраструктуры ИИ.",
+      "run_id": "analysis-aiinfra-004-2e0fd0c311bb",
+      "source_document_url": "https://doi.org/10.1038/s41746-025-02036-9"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "coral bleaching",
+      "noise_id": "noise-019",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "irrelevant",
+      "rationale": "Экологическое явление не относится к робототехнике.",
+      "run_id": "analysis-robotics-001-8573172f8644",
+      "source_document_url": "https://doi.org/10.1016/j.ecoinf.2025.103511"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Gonorrhea",
+      "noise_id": "noise-020",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "irrelevant",
+      "rationale": "Заболевание не относится к финтех-технологиям.",
+      "run_id": "analysis-fintech-001-790282872ea6",
+      "source_document_url": "https://doi.org/10.1038/s41598-025-16601-5"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "HCLTech",
+      "noise_id": "noise-021",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "not_technology",
+      "rationale": "Название компании, а не технология.",
+      "run_id": "analysis-edge-001-565ec2b44576",
+      "source_document_url": "https://economictimes.indiatimes.com/news/company/corporate-trends/sarvam-when-us-slams-the-door-india-begins-to-find-its-own-opening/articleshow/131765380.cms"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "OpenAI",
+      "noise_id": "noise-022",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "not_technology",
+      "rationale": "Название организации, а не технология.",
+      "run_id": "analysis-edge-001-565ec2b44576",
+      "source_document_url": "https://economictimes.indiatimes.com/news/company/corporate-trends/sarvam-when-us-slams-the-door-india-begins-to-find-its-own-opening/articleshow/131765380.cms"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Cloud Native Computing Foundation",
+      "noise_id": "noise-023",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "not_technology",
+      "rationale": "Название организации, а не технология.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://www.zdnet.com/article/kubernetes-cloud-native-computings-engine-is-getting-turbocharged-for-ai/"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Bosch Global Software Technologies",
+      "noise_id": "noise-024",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "not_technology",
+      "rationale": "Название компании, а не технология.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://www.thehindu.com/brandhub/pr-release/bosch-measuring-tools-expands-professional-solutions-portfolio-enters-electrical-amp-moisture-meter-segment/article71056631.ece"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Bosch Limited",
+      "noise_id": "noise-025",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "not_technology",
+      "rationale": "Название компании, а не технология.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://www.thehindu.com/brandhub/pr-release/bosch-measuring-tools-expands-professional-solutions-portfolio-enters-electrical-amp-moisture-meter-segment/article71056631.ece"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "NIST",
+      "noise_id": "noise-026",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "not_technology",
+      "rationale": "Название организации, а не технология.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://doi.org/10.3390/a19010062"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Addverb Technologies",
+      "noise_id": "noise-027",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "not_technology",
+      "rationale": "Название компании, а не технология.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://www.news18.com/opinion/opinion-indias-physical-ai-moment-why-robots-could-define-the-next-startup-revolution-ws-l-10281868.html"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Siemens",
+      "noise_id": "noise-028",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "not_technology",
+      "rationale": "Название компании, а не технология.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://timesofindia.indiatimes.com/technology/times-techies/indian-manufacturings-next-leap-ai-that-reads-the-factory/articleshow/133557262.cms"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Andrew Martin",
+      "noise_id": "noise-029",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "not_technology",
+      "rationale": "Имя человека, а не технология.",
+      "run_id": "analysis-robotics-001-8573172f8644",
+      "source_document_url": "https://www.firstpost.com/opinion/when-will-bicentennial-man-or-ava-move-in-the-race-to-build-synthetic-humans-14032250.html"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "BitStarz Casino",
+      "noise_id": "noise-030",
+      "origin_kind": "gate_reject",
+      "planned_noise_type": "not_technology",
+      "rationale": "Название компании/сервиса, а не технология.",
+      "run_id": "analysis-fintech-001-790282872ea6",
+      "source_document_url": "https://www.benzinga.com/pressreleases/25/10/g48422356/free-spins-no-deposit-casino-bonus-real-money-online-casino-by-bitstarz?utm_source=benzinga_taxonomy&utm_medium=rss_feed_free&utm_content=taxonomy_rss&utm_campaign=channel"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "GitHub Copilot”, “ChatGPT”,",
+      "noise_id": "noise-031",
+      "origin_kind": "extraction_issue",
+      "planned_noise_type": "extraction_error",
+      "rationale": "Повреждённый список с лишними кавычками и запятой, не самостоятельный объект.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://doi.org/10.3390/info17010054"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "flexible, skin-conformal, and mechanically adaptive healthcare platforms",
+      "noise_id": "noise-032",
+      "origin_kind": "extraction_issue",
+      "planned_noise_type": "extraction_error",
+      "rationale": "Описательный фрагмент признаков платформ, а не название технологии.",
+      "run_id": "analysis-robotics-001-8573172f8644",
+      "source_document_url": "https://doi.org/10.1002/admt.202502623"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "mechanical, chemical, biological, and upcycling pathways",
+      "noise_id": "noise-033",
+      "origin_kind": "extraction_issue",
+      "planned_noise_type": "extraction_error",
+      "rationale": "Перечень путей обработки без самостоятельного технического объекта.",
+      "run_id": "analysis-fintech-001-790282872ea6",
+      "source_document_url": "https://doi.org/10.3390/polym18020306"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "smart, sustainable, and digital advancements",
+      "noise_id": "noise-034",
+      "origin_kind": "extraction_issue",
+      "planned_noise_type": "extraction_error",
+      "rationale": "Описательный фрагмент общих улучшений без технического объекта.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://doi.org/10.1002/admt.202501409"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "AI-driven companies like Avride and Coco Robotics",
+      "noise_id": "noise-035",
+      "origin_kind": "extraction_issue",
+      "planned_noise_type": "extraction_error",
+      "rationale": "Фрагмент предложения с примерами компаний, а не технология.",
+      "run_id": "analysis-robotics-001-8573172f8644",
+      "source_document_url": "https://www.huffpost.com/entry/why-feel-bad-delivery-robots_l_69c2dbabe4b081b0ba5a4b14"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "spins in semiconductors and superconductors",
+      "noise_id": "noise-036",
+      "origin_kind": "extraction_issue",
+      "planned_noise_type": "extraction_error",
+      "rationale": "Фрагмент предмета исследования, не самостоятельное название технологии.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://doi.org/10.1063/5.0294020"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "AI-powered tools",
+      "noise_id": "noise-037",
+      "origin_kind": "extraction_issue",
+      "planned_noise_type": "extraction_error",
+      "rationale": "Неполная родовая фраза без указания конкретного инструмента.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://doi.org/10.1007/s10643-025-02036-0"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "AI Technologies",
+      "noise_id": "noise-038",
+      "origin_kind": "extraction_issue",
+      "planned_noise_type": "extraction_error",
+      "rationale": "Извлечён общий заголовочный фрагмент, а не самостоятельный объект.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://doi.org/10.3390/s26051685"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "ecological protection methods",
+      "noise_id": "noise-039",
+      "origin_kind": "extraction_issue",
+      "planned_noise_type": "extraction_error",
+      "rationale": "Неполная родовая фраза без конкретного метода.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://doi.org/10.1007/s44421-025-00002-5"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "conventional methods",
+      "noise_id": "noise-040",
+      "origin_kind": "extraction_issue",
+      "planned_noise_type": "extraction_error",
+      "rationale": "Контекстно зависимый фрагмент без названия конкретного метода.",
+      "run_id": "analysis-ai-security-001-f57cd8297044",
+      "source_document_url": "https://doi.org/10.1016/j.jwpe.2026.110070"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "multi-teacher agreement knowledge distillation",
+      "noise_id": "noise-041",
+      "origin_kind": "alias_suggestion",
+      "planned_noise_type": "duplicate",
+      "rationale": "Раскрытая форма MTAKD; Alias Resolver предложил объединение.",
+      "run_id": "analysis-edge-001-565ec2b44576",
+      "source_document_url": "https://doi.org/10.1038/s41598-025-27038-1"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "Unified Payments Interface",
+      "noise_id": "noise-042",
+      "origin_kind": "alias_suggestion",
+      "planned_noise_type": "duplicate",
+      "rationale": "Раскрытая форма UPI; Alias Resolver предложил объединение.",
+      "run_id": "analysis-fintech-001-790282872ea6",
+      "source_document_url": "https://doi.org/10.5281/zenodo.18922560"
+    },
+    {
+      "duplicate_of_candidate_id": "team-negative-071",
+      "extracted_text": "HRI",
+      "noise_id": "noise-043",
+      "origin_kind": "alias_suggestion",
+      "planned_noise_type": "duplicate",
+      "rationale": "Аббревиатура Human–Robot Interaction.",
+      "run_id": "analysis-robotics-001-8573172f8644",
+      "source_document_url": "https://doi.org/10.1145/3778865"
+    },
+    {
+      "duplicate_of_candidate_id": null,
+      "extracted_text": "MRS",
+      "noise_id": "noise-044",
+      "origin_kind": "alias_suggestion",
+      "planned_noise_type": "duplicate",
+      "rationale": "Аббревиатура Multi-Robot Systems.",
+      "run_id": "analysis-robotics-001-8573172f8644",
+      "source_document_url": "https://doi.org/10.1007/s10514-026-10257-4"
+    },
+    {
+      "duplicate_of_candidate_id": "team-negative-086",
+      "extracted_text": "Unified Payments Interface (UPI)",
+      "noise_id": "noise-045",
+      "origin_kind": "candidate_duplicate",
+      "planned_noise_type": "duplicate",
+      "rationale": "Вариант написания выбранного Unified Payment Interface.",
+      "run_id": "analysis-fintech-001-790282872ea6",
+      "source_document_url": "https://doi.org/10.5281/zenodo.20068556"
+    },
+    {
+      "duplicate_of_candidate_id": "team-negative-035",
+      "extracted_text": "Digital twin",
+      "noise_id": "noise-046",
+      "origin_kind": "candidate_duplicate",
+      "planned_noise_type": "duplicate",
+      "rationale": "Вариант регистра выбранного digital twin.",
+      "run_id": "analysis-industrial-ai-001-9ae5100f97ec",
+      "source_document_url": "https://doi.org/10.3390/machines13111021"
+    },
+    {
+      "duplicate_of_candidate_id": "team-negative-011",
+      "extracted_text": "edge LAMs",
+      "noise_id": "noise-047",
+      "origin_kind": "candidate_duplicate",
+      "planned_noise_type": "duplicate",
+      "rationale": "Форма множественного числа выбранного edge LAM.",
+      "run_id": "analysis-edge-001-565ec2b44576",
+      "source_document_url": "https://doi.org/10.1109/mcom.001.2400761"
+    },
+    {
+      "duplicate_of_candidate_id": "team-negative-077",
+      "extracted_text": "Optimus robots",
+      "noise_id": "noise-048",
+      "origin_kind": "candidate_duplicate",
+      "planned_noise_type": "duplicate",
+      "rationale": "Форма множественного числа выбранного Optimus robot.",
+      "run_id": "analysis-robotics-001-8573172f8644",
+      "source_document_url": "https://gizmodo.com/elon-musks-optimus-robot-collapses-in-a-hilariously-suspicious-way-2000696760"
+    },
+    {
+      "duplicate_of_candidate_id": "team-negative-068",
+      "extracted_text": "service robot",
+      "noise_id": "noise-049",
+      "origin_kind": "candidate_duplicate",
+      "planned_noise_type": "duplicate",
+      "rationale": "Форма единственного числа выбранного service robots.",
+      "run_id": "analysis-robotics-001-8573172f8644",
+      "source_document_url": "https://doi.org/10.1108/jstp-03-2025-0099"
+    },
+    {
+      "duplicate_of_candidate_id": "team-negative-001",
+      "extracted_text": "in‐memory computing (IMC)",
+      "noise_id": "noise-050",
+      "origin_kind": "candidate_alias",
+      "planned_noise_type": "duplicate",
+      "rationale": "Алиас выбранного in-memory computing.",
+      "run_id": "analysis-edge-001-565ec2b44576",
+      "source_document_url": "https://doi.org/10.1126/sciadv.aed9436"
+    }
+  ],
+  "schema_version": "labeling-noise-selection-v1"
+}

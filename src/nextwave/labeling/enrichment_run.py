@@ -1078,6 +1078,47 @@ def _execute_request(
         raise
 
 
+def _deduplicate_document_rows(
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Collapse the same candidate/document returned by multiple requests.
+
+    EN/RU retrieval and aliases may independently return the same stable
+    document. Request provenance is allowed to differ; document content is
+    not. The lexicographically first provenance wins so output stays byte
+    deterministic under request reordering.
+    """
+
+    provenance_fields = {"request_id", "search_id", "retrieved_at"}
+    chosen: dict[tuple[str, str], dict[str, Any]] = {}
+    content: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (str(row.get("candidate_id") or ""), str(row.get("document_id") or ""))
+        canonical = {
+            name: value for name, value in row.items() if name not in provenance_fields
+        }
+        previous = content.get(key)
+        if previous is not None and previous != canonical:
+            raise ValueError(
+                "enrichment returned conflicting copies of "
+                f"candidate/document {key!r}"
+            )
+        content[key] = canonical
+        current = chosen.get(key)
+        provenance = (
+            str(row.get("search_id") or ""),
+            str(row.get("request_id") or ""),
+            str(row.get("retrieved_at") or ""),
+        )
+        if current is None or provenance < (
+            str(current.get("search_id") or ""),
+            str(current.get("request_id") or ""),
+            str(current.get("retrieved_at") or ""),
+        ):
+            chosen[key] = row
+    return list(chosen.values())
+
+
 def run_enrichment(
     *,
     plan_dir: str | Path,
@@ -1304,6 +1345,7 @@ def run_enrichment(
                 for document in documents or []:
                     document_rows.append(document)
 
+    document_rows = _deduplicate_document_rows(document_rows)
     coverage_rows: list[dict[str, Any]] = []
     for entry in sorted(plan["candidates"], key=lambda item: item["candidate_id"]):
         for search in entry["searches"]:

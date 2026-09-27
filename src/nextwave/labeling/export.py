@@ -18,6 +18,7 @@ from .contracts import LABELING_CUTOFF_DATE, RUBRIC_VERSION
 from .queue import (
     QUEUE_SCHEMA_VERSION,
     CandidateSlot,
+    NoiseSelectionEntry,
     NoiseSlot,
     build_labeling_queue,
     queue_to_jsonl,
@@ -31,6 +32,8 @@ from .workbook import (
 )
 
 LABELING_EXPORT_MANIFEST_VERSION = "labeling-export-manifest-v1"
+CANDIDATE_SELECTION_VERSION = "labeling-candidate-selection-v1"
+NOISE_SELECTION_VERSION = "labeling-noise-selection-v1"
 NEGATIVE_CANDIDATES_FILENAME = "negative_candidates.jsonl"
 NOISE_CONTROLS_FILENAME = "noise_controls.jsonl"
 WORKBOOK_FILENAME = "labeling_workbook.xlsx"
@@ -96,6 +99,8 @@ def export_labeling_bundle(
     template_path: str | Path,
     output_dir: str | Path,
     run_domains: Mapping[str, str] | None = None,
+    candidate_selection_path: str | Path | None = None,
+    noise_selection_path: str | Path | None = None,
 ) -> LabelingExportPaths:
     """Build the queue from runs and publish workbook, JSONL and manifest."""
 
@@ -118,6 +123,44 @@ def export_labeling_bundle(
         )
         for row in candidate_rows
     )
+    selected_group_ids: dict[str, str] | None = None
+    selection_digest: dict[str, Any] | None = None
+    if candidate_selection_path is not None:
+        selection_path = Path(candidate_selection_path)
+        selection_bytes = selection_path.read_bytes()
+        try:
+            selection = json.loads(selection_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("candidate selection must be valid UTF-8 JSON") from error
+        if not isinstance(selection, dict):
+            raise ValueError("candidate selection must be a JSON object")
+        if selection.get("schema_version") != CANDIDATE_SELECTION_VERSION:
+            raise ValueError("candidate selection version does not match")
+        if selection.get("cutoff_date") != LABELING_CUTOFF_DATE.isoformat():
+            raise ValueError("candidate selection cutoff does not match")
+        entries = selection.get("entries")
+        if not isinstance(entries, list):
+            raise ValueError("candidate selection entries must be a list")
+        selected_group_ids = {}
+        for index, entry in enumerate(entries, 1):
+            if not isinstance(entry, dict) or set(entry) != {
+                "candidate_id",
+                "group_id",
+                "rationale",
+            }:
+                raise ValueError(f"candidate selection entry {index} has invalid fields")
+            candidate_id = entry.get("candidate_id")
+            group_id = entry.get("group_id")
+            rationale = entry.get("rationale")
+            if not all(
+                isinstance(value, str) and value.strip()
+                for value in (candidate_id, group_id, rationale)
+            ):
+                raise ValueError(f"candidate selection entry {index} has blank fields")
+            if candidate_id in selected_group_ids:
+                raise ValueError(f"duplicate candidate selection ID {candidate_id!r}")
+            selected_group_ids[candidate_id] = group_id
+        selection_digest = {"filename": selection_path.name, **_digest(selection_bytes)}
     noise_slots = tuple(
         NoiseSlot(
             noise_id=row["noise_id"],
@@ -125,11 +168,82 @@ def export_labeling_bundle(
         )
         for row in noise_rows
     )
+    selected_noise: dict[str, NoiseSelectionEntry] | None = None
+    noise_selection_digest: dict[str, Any] | None = None
+    if noise_selection_path is not None:
+        selection_path = Path(noise_selection_path)
+        selection_bytes = selection_path.read_bytes()
+        try:
+            selection = json.loads(selection_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("noise selection must be valid UTF-8 JSON") from error
+        if not isinstance(selection, dict):
+            raise ValueError("noise selection must be a JSON object")
+        if selection.get("schema_version") != NOISE_SELECTION_VERSION:
+            raise ValueError("noise selection version does not match")
+        if selection.get("cutoff_date") != LABELING_CUTOFF_DATE.isoformat():
+            raise ValueError("noise selection cutoff does not match")
+        entries = selection.get("entries")
+        if not isinstance(entries, list):
+            raise ValueError("noise selection entries must be a list")
+        selected_noise = {}
+        required_fields = {
+            "noise_id",
+            "planned_noise_type",
+            "run_id",
+            "origin_kind",
+            "extracted_text",
+            "source_document_url",
+            "duplicate_of_candidate_id",
+            "rationale",
+        }
+        for index, entry in enumerate(entries, 1):
+            if not isinstance(entry, dict) or set(entry) != required_fields:
+                raise ValueError(f"noise selection entry {index} has invalid fields")
+            string_fields = (
+                "noise_id",
+                "planned_noise_type",
+                "run_id",
+                "origin_kind",
+                "extracted_text",
+                "source_document_url",
+                "rationale",
+            )
+            if not all(
+                isinstance(entry.get(field), str) and entry[field].strip()
+                for field in string_fields
+            ):
+                raise ValueError(f"noise selection entry {index} has blank fields")
+            duplicate_of = entry.get("duplicate_of_candidate_id")
+            if duplicate_of is not None and (
+                not isinstance(duplicate_of, str) or not duplicate_of.strip()
+            ):
+                raise ValueError(
+                    f"noise selection entry {index} has invalid duplicate link"
+                )
+            noise_id = entry["noise_id"]
+            if noise_id in selected_noise:
+                raise ValueError(f"duplicate noise selection ID {noise_id!r}")
+            selected_noise[noise_id] = NoiseSelectionEntry(
+                noise_id=noise_id,
+                planned_noise_type=entry["planned_noise_type"],
+                run_id=entry["run_id"],
+                origin_kind=entry["origin_kind"],
+                extracted_text=entry["extracted_text"],
+                source_document_url=entry["source_document_url"],
+                duplicate_of_candidate_id=duplicate_of,
+            )
+        noise_selection_digest = {
+            "filename": selection_path.name,
+            **_digest(selection_bytes),
+        }
     queue = build_labeling_queue(
         runs,
         candidate_slots=candidate_slots,
         noise_slots=noise_slots,
         run_domains=run_domains,
+        selected_group_ids=selected_group_ids,
+        selected_noise=selected_noise,
     )
     workbook_bytes = _normalize_workbook_bytes(fill_labeling_workbook(template, queue))
     negative_bytes, noise_bytes = queue_to_jsonl(queue)
@@ -170,6 +284,8 @@ def export_labeling_bundle(
             "noise_rows": len(noise_rows),
             "evidence_rows": count_evidence_rows(template),
         },
+        "candidate_selection": selection_digest,
+        "noise_selection": noise_selection_digest,
         "filled_candidates": filled_candidates,
         "filled_candidate_strata": filled_candidate_strata,
         "filled_noise": filled_noise,

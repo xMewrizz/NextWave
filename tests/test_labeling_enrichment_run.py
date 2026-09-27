@@ -17,7 +17,7 @@ from unittest import mock
 from nextwave.__main__ import main
 from nextwave.labeling import enrichment_run as enrichment_run_module
 from nextwave.labeling.enrichment_plan import export_enrichment_plan
-from nextwave.labeling.enrichment_run import run_enrichment
+from nextwave.labeling.enrichment_run import _deduplicate_document_rows, run_enrichment
 from nextwave.sources import (
     HttpResponse,
     MediaCloudConnector,
@@ -29,6 +29,45 @@ FAKE_KEY = "test-key-abc-123"
 FAKE_FOLDER = "test-folder-9"
 FAKE_MAILTO = "test@example.org"
 FIXED_NOW = datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC)
+
+
+class DocumentDeduplicationTests(unittest.TestCase):
+    def test_same_document_from_two_requests_keeps_stable_provenance(self) -> None:
+        later = {
+            "candidate_id": "team-negative-001",
+            "document_id": "document-openalex-1",
+            "title": "Same study",
+            "search_id": "search-1",
+            "request_id": "request-z",
+            "retrieved_at": "2026-09-20T12:00:01+00:00",
+        }
+        earlier = later | {
+            "request_id": "request-a",
+            "retrieved_at": "2026-09-20T12:00:00+00:00",
+        }
+
+        self.assertEqual(
+            _deduplicate_document_rows([later, earlier]),
+            [earlier],
+        )
+        self.assertEqual(
+            _deduplicate_document_rows([earlier, later]),
+            [earlier],
+        )
+
+    def test_conflicting_duplicate_document_is_rejected(self) -> None:
+        first = {
+            "candidate_id": "team-negative-001",
+            "document_id": "document-openalex-1",
+            "title": "First title",
+            "search_id": "search-1",
+            "request_id": "request-a",
+            "retrieved_at": "2026-09-20T12:00:00+00:00",
+        }
+        second = first | {"title": "Conflicting title", "request_id": "request-b"}
+
+        with self.assertRaisesRegex(ValueError, "conflicting copies"):
+            _deduplicate_document_rows([first, second])
 
 
 class FakeTransport:
@@ -1174,7 +1213,7 @@ class StrictValidationTests(unittest.TestCase):
             for row in coverage.values():
                 self.assertEqual(row["status"], "complete")
             self.assertEqual(coverage["openalex"]["returned_records"], 4)
-            self.assertEqual(coverage["openalex"]["returned_documents"], 2)
+            self.assertEqual(coverage["openalex"]["returned_documents"], 1)
             self.assertEqual(coverage["openalex"]["parse_issue_count"], 2)
             self.assertEqual(coverage["mediacloud"]["returned_records"], 2)
             self.assertEqual(coverage["mediacloud"]["returned_documents"], 1)

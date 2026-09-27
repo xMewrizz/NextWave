@@ -984,6 +984,67 @@ class ResponseFailureTests(unittest.TestCase):
                 self.assertEqual(request["status"], "failed", name)
                 self.assertEqual(request["error"], "invalid_response", name)
 
+    def test_reordered_complete_document_roster_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [
+                task_doc_row("c1", 1, "openalex", 1),
+                task_doc_row("c1", 2, "mediacloud", 2),
+            ]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            reordered = answer("c1", [
+                (docs[1]["document_id"], []),
+                (docs[0]["document_id"], []),
+            ])
+            paths = run_with_fake(
+                plan, root / "work", root / "out", scripted({"c1": reordered})
+            )
+            request = read_jsonl(paths.request_results)[0]
+            document_rows = read_jsonl(paths.document_results)
+
+        self.assertEqual(request["status"], "success")
+        self.assertEqual(
+            [row["document_id"] for row in document_rows],
+            [doc["document_id"] for doc in docs],
+        )
+
+    def test_single_mistyped_id_is_recovered_by_unique_verbatim_quote(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [
+                task_doc_row("c1", 1, "openalex", 1),
+                task_doc_row("c1", 2, "mediacloud", 2),
+            ]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            mistyped = answer("c1", [
+                (docs[0]["document_id"], []),
+                ("document-c1-222", [(QUOTE, "research", "support")]),
+            ])
+            paths = run_with_fake(
+                plan, root / "work", root / "out", scripted({"c1": mistyped})
+            )
+            request = read_jsonl(paths.request_results)[0]
+            claims = read_jsonl(paths.claims)
+
+        self.assertEqual(request["status"], "success")
+        self.assertEqual(claims[0]["document_id"], docs[1]["document_id"])
+
+    def test_mistyped_empty_id_is_not_guessed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row("c1", 1, "openalex", 1)]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            mistyped = answer("c1", [("document-c1-999", [])])
+            request, _, _, _ = self._failed(
+                root, plan, scripted({"c1": mistyped})
+            )
+
+        self.assertEqual(request["status"], "failed")
+        self.assertEqual(request["error"], "invalid_response")
+
     def test_non_json_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

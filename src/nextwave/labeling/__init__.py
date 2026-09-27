@@ -67,8 +67,14 @@ from .evidence_llm_run import (
 )
 from .export import (
     LABELING_EXPORT_MANIFEST_VERSION,
+    NOISE_SELECTION_VERSION,
     LabelingExportPaths,
     export_labeling_bundle,
+)
+from .finalize import (
+    LABELING_FINALIZE_VERSION,
+    LabelingFinalizePaths,
+    finalize_labeling_bundle,
 )
 from .media_fetch_run import (
     LABELING_MEDIA_FETCH_CACHE_VERSION,
@@ -82,6 +88,7 @@ from .queue import (
     QUEUE_SCHEMA_VERSION,
     CandidateSlot,
     LabelingQueue,
+    NoiseSelectionEntry,
     NoiseSlot,
     QueuedCandidate,
     QueueDeficit,
@@ -120,6 +127,7 @@ __all__ = [
     "LABELING_EVIDENCE_LLM_MERGE_VERSION",
     "LABELING_EVIDENCE_LLM_WORK_VERSION",
     "LABELING_EXPORT_MANIFEST_VERSION",
+    "LABELING_FINALIZE_VERSION",
     "LABELING_MEDIA_FETCH_CACHE_VERSION",
     "LABELING_MEDIA_FETCH_EXECUTOR_VERSION",
     "LABELING_MEDIA_FETCH_RESULT_VERSION",
@@ -128,6 +136,7 @@ __all__ = [
     "MODEL_DECISION_SCHEMA_VERSION",
     "NEGATIVE_CANDIDATE_SCHEMA_VERSION",
     "NOISE_CONTROL_SCHEMA_VERSION",
+    "NOISE_SELECTION_VERSION",
     "QUEUE_SCHEMA_VERSION",
     "RUBRIC_VERSION",
     "CandidateSlot",
@@ -141,6 +150,7 @@ __all__ = [
     "NegativeCandidateRecord",
     "NegativeClass",
     "NoiseControlRecord",
+    "NoiseSelectionEntry",
     "NoiseSlot",
     "NoiseType",
     "QueuedCandidate",
@@ -163,6 +173,7 @@ __all__ = [
     "LabelingEvidenceLlmRunPaths",
     "LabelingEvidenceLlmMergePaths",
     "LabelingExportPaths",
+    "LabelingFinalizePaths",
     "LabelingMediaFetchRunPaths",
     "LabelingRelevancePlanPaths",
     "build_enrichment_plan",
@@ -176,6 +187,7 @@ __all__ = [
     "export_evidence_input_plan",
     "export_evidence_llm_plan",
     "export_labeling_bundle",
+    "finalize_labeling_bundle",
     "export_relevance_plan",
     "fill_labeling_workbook",
     "media_capacity",

@@ -818,6 +818,10 @@ class QueueCandidateDuplicateNoiseTests(unittest.TestCase):
             by_text["transformers"].duplicate_of_candidate_id, "team-negative-001"
         )
         self.assertEqual(by_text["Other Tech"].origin_kind, "alias_suggestion")
+        self.assertEqual(
+            by_text["Other Tech"].duplicate_of_candidate_id,
+            "team-negative-001",
+        )
         self.assertFalse(
             any(item.kind == "candidate_duplicate" for item in queue.overflow)
         )

@@ -14,6 +14,8 @@ import openpyxl
 from nextwave.discovery.run_store import DiscoveryRun
 from nextwave.labeling.queue import (
     CandidateSlot,
+    NoiseSelectionEntry,
+    NoiseSlot,
     _queue_identity_key,
     build_labeling_queue,
     queue_to_jsonl,
@@ -29,13 +31,14 @@ def strat_group(
     connector_ids: list[str] | None = None,
     origins: list[str] | None = None,
     documents: list[str] | None = None,
+    aliases: list[str] | None = None,
 ) -> dict:
     origin_ids = origins if origins is not None else [f"origin-{group_id}-0"]
     document_ids = documents if documents is not None else [f"document-{group_id}-0"]
     return {
         "group_id": group_id,
         "canonical_name": canonical_name,
-        "aliases": [],
+        "aliases": aliases or [],
         "origin_ids": origin_ids,
         "document_ids": document_ids,
         "connector_ids": connector_ids or [],
@@ -112,6 +115,95 @@ def media_usage_list(requests: int, stop: str, connector: str = "mediacloud") ->
 
 
 class StratifiedSelectionTests(unittest.TestCase):
+    def test_reviewed_noise_selection_uses_exact_candidate_alias(self) -> None:
+        group = strat_group(
+            "group-upi",
+            "UPI",
+            documents=["document-upi"],
+            aliases=["Unified Payments Interface"],
+        )
+        run = strat_run("run-1", groups=[group])
+        run.result["scientific"]["documents"] = [
+            {
+                "document_id": "document-upi",
+                "url": "https://example.org/upi",
+            }
+        ]
+        queue = build_labeling_queue(
+            (run,),
+            candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
+            noise_slots=(NoiseSlot("noise-001", "duplicate"),),
+            selected_group_ids={"team-negative-001": "group-upi"},
+            selected_noise={
+                "noise-001": NoiseSelectionEntry(
+                    noise_id="noise-001",
+                    planned_noise_type="duplicate",
+                    run_id="run-1",
+                    origin_kind="candidate_alias",
+                    extracted_text="Unified Payments Interface",
+                    source_document_url="https://example.org/upi",
+                    duplicate_of_candidate_id="team-negative-001",
+                )
+            },
+        )
+
+        self.assertEqual(len(queue.noise), 1)
+        self.assertEqual(queue.noise[0].origin_kind, "candidate_alias")
+        self.assertEqual(
+            queue.noise[0].duplicate_of_candidate_id,
+            "team-negative-001",
+        )
+
+    def test_reviewed_noise_selection_rejects_wrong_type(self) -> None:
+        run = strat_run("run-1")
+        with self.assertRaisesRegex(ValueError, "expects 'broad_concept'"):
+            build_labeling_queue(
+                (run,),
+                noise_slots=(NoiseSlot("noise-001", "broad_concept"),),
+                selected_noise={
+                    "noise-001": NoiseSelectionEntry(
+                        noise_id="noise-001",
+                        planned_noise_type="irrelevant",
+                        run_id="run-1",
+                        origin_kind="gate_reject",
+                        extracted_text="Unrelated item",
+                        source_document_url="https://example.org/unrelated",
+                        duplicate_of_candidate_id=None,
+                    )
+                },
+            )
+
+    def test_reviewed_group_selection_overrides_automatic_ranking(self) -> None:
+        run = strat_run(
+            "run-1",
+            groups=[
+                strat_group("group-high", "High Origin", origins=["o1", "o2"]),
+                strat_group("group-reviewed", "Reviewed Tech", origins=["o3"]),
+            ],
+        )
+        queue = build_labeling_queue(
+            (run,),
+            candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
+            selected_group_ids={"team-negative-001": "group-reviewed"},
+        )
+        self.assertEqual(queue.candidates[0].canonical_name, "Reviewed Tech")
+        self.assertTrue(
+            any(item.key == "group-high" for item in queue.overflow)
+        )
+
+    def test_reviewed_group_selection_rejects_wrong_domain(self) -> None:
+        run = strat_run(
+            "run-1",
+            groups=[strat_group("group-fintech", "Fintech Tech")],
+            domain="Финтех",
+        )
+        with self.assertRaisesRegex(ValueError, "belongs to 'Финтех'"):
+            build_labeling_queue(
+                (run,),
+                candidate_slots=(CandidateSlot("team-negative-001", "Edge"),),
+                selected_group_ids={"team-negative-001": "group-fintech"},
+            )
+
     def test_round_robin_takes_from_available_strata(self) -> None:
         run = strat_run(
             "run-1",

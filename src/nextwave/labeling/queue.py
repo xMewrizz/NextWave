@@ -100,6 +100,19 @@ class NoiseSlot:
 
 
 @dataclass(frozen=True, slots=True)
+class NoiseSelectionEntry:
+    """One human-reviewed noise object assigned to a fixed template slot."""
+
+    noise_id: str
+    planned_noise_type: str
+    run_id: str
+    origin_kind: str
+    extracted_text: str
+    source_document_url: str
+    duplicate_of_candidate_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class QueuedCandidate:
     candidate_id: str
     canonical_name: str
@@ -523,6 +536,73 @@ def _fill_candidates(
     return queued
 
 
+def _fill_selected_candidates(
+    merged: list[tuple[dict[str, Any], str, str, str]],
+    slots: tuple[CandidateSlot, ...],
+    selected_group_ids: Mapping[str, str],
+    overflow: list[QueueOverflow],
+) -> list[QueuedCandidate]:
+    """Fill every slot from an explicit reviewed group selection."""
+
+    slot_ids = {slot.candidate_id for slot in slots}
+    if set(selected_group_ids) != slot_ids:
+        missing = sorted(slot_ids - set(selected_group_ids))
+        extra = sorted(set(selected_group_ids) - slot_ids)
+        raise ValueError(
+            f"candidate selection does not match slots; missing={missing[:3]}, "
+            f"extra={extra[:3]}"
+        )
+    group_ids = list(selected_group_ids.values())
+    if len(group_ids) != len(set(group_ids)):
+        raise ValueError("candidate selection group_id values must be unique")
+    by_group: dict[str, tuple[dict[str, Any], str, str, str]] = {}
+    for item in merged:
+        group_id = str(item[0].get("group_id") or "")
+        if group_id:
+            by_group[group_id] = item
+    selected = set(group_ids)
+    unknown = sorted(selected - set(by_group))
+    if unknown:
+        raise ValueError(f"candidate selection has unknown group_id {unknown[0]!r}")
+
+    queued: list[QueuedCandidate] = []
+    for slot in slots:
+        group_id = selected_group_ids[slot.candidate_id]
+        group, run_id, raw_query, domain = by_group[group_id]
+        if domain != slot.domain:
+            raise ValueError(
+                f"candidate selection {slot.candidate_id} expects {slot.domain!r}, "
+                f"but group {group_id!r} belongs to {domain!r}"
+            )
+        queued.append(
+            QueuedCandidate(
+                candidate_id=slot.candidate_id,
+                canonical_name=(group.get("canonical_name") or "").strip(),
+                aliases=_clean_aliases(
+                    (group.get("canonical_name") or ""), group.get("aliases")
+                ),
+                group_id=group_id,
+                source_query=raw_query,
+                domain=domain,
+                analysis_scope_key=_scope_key(domain),
+                run_id=run_id,
+                selection_stratum=_selection_stratum(group),
+            )
+        )
+    for group_id, item in sorted(by_group.items()):
+        if group_id in selected:
+            continue
+        overflow.append(
+            QueueOverflow(
+                kind="candidate",
+                key=group_id,
+                run_id=item[1],
+                reason="not selected for reviewed candidate pool",
+            )
+        )
+    return queued
+
+
 def _noise_pool(
     runs: tuple[DiscoveryRun, ...],
     domains: Mapping[str, str],
@@ -677,9 +757,24 @@ def _noise_pool(
                     "raw_query": raw_query_of(run),
                     "origin_kind": "alias_suggestion",
                     "duplicate_of": None,
+                    "primary_group_id": str(left),
                 }
             )
     return pool
+
+
+def _link_alias_suggestions(
+    pool: dict[str, list[dict[str, Any]]],
+    primary_index: Mapping[str, str],
+) -> None:
+    """Attach alias suggestions to a queued primary when it is available."""
+
+    for item in pool.get(NoiseType.DUPLICATE.value, []):
+        if item.get("origin_kind") != "alias_suggestion":
+            continue
+        primary_group_id = item.get("primary_group_id")
+        if isinstance(primary_group_id, str):
+            item["duplicate_of"] = primary_index.get(primary_group_id)
 
 
 def _transfer_candidate_duplicates(
@@ -769,13 +864,68 @@ def _transfer_candidate_duplicates(
         ]
 
 
-def _fill_noise(
+def _transfer_candidate_aliases(
     pool: dict[str, list[dict[str, Any]]],
-    slots: tuple[NoiseSlot, ...],
+    candidates: list[QueuedCandidate],
+    merged: list[tuple[dict[str, Any], str, str, str]],
+    runs_by_id: Mapping[str, DiscoveryRun],
     dropped: list[QueueDropped],
-    overflow: list[QueueOverflow],
-    deficits: list[QueueDeficit],
-) -> list[QueuedNoise]:
+) -> None:
+    """Offer reviewed candidate aliases as explicit duplicate controls.
+
+    An alias is linked to the already queued primary candidate and keeps the
+    URL of the source group that produced it. The alias is only a selectable
+    control proposal; its noise type is still confirmed by the reviewed
+    selection file before a final labeling bundle is built.
+    """
+
+    groups = {
+        str(group.get("group_id") or ""): (group, run_id, raw_query, domain)
+        for group, run_id, raw_query, domain in merged
+        if group.get("group_id")
+    }
+    for candidate in candidates:
+        source = groups.get(candidate.group_id)
+        if source is None:
+            continue
+        group, run_id, raw_query, domain = source
+        run = runs_by_id.get(run_id)
+        documents = _documents_by_id(run.result) if run is not None else {}
+        url = next(
+            (
+                str(documents[document_id].get("url") or "").strip()
+                for document_id in (group.get("document_ids") or [])
+                if document_id in documents
+                and isinstance(documents[document_id].get("url"), str)
+                and documents[document_id]["url"].strip()
+            ),
+            "",
+        )
+        if not url:
+            dropped.append(
+                QueueDropped(reason="no_url", detail=f"candidate_alias:{candidate.group_id}")
+            )
+            continue
+        for alias in candidate.aliases:
+            pool.setdefault(NoiseType.DUPLICATE.value, []).append(
+                {
+                    "text": alias,
+                    "url": url,
+                    "run_id": run_id,
+                    "domain": domain,
+                    "raw_query": raw_query,
+                    "origin_kind": "candidate_alias",
+                    "duplicate_of": candidate.candidate_id,
+                }
+            )
+
+
+def _normalize_noise_pool(
+    pool: dict[str, list[dict[str, Any]]],
+    dropped: list[QueueDropped],
+) -> None:
+    """Remove unusable and repeated noise proposals before slot assignment."""
+
     for items in pool.values():
         valid: list[dict[str, Any]] = []
         for item in items:
@@ -793,6 +943,7 @@ def _fill_noise(
                     )
                 )
                 continue
+            item["text"] = text.strip()
             item["url"] = url.strip()
             valid.append(item)
         items[:] = valid
@@ -806,6 +957,111 @@ def _fill_noise(
             seen.add(identity)
             unique.append(item)
         items[:] = unique
+
+
+def _fill_selected_noise(
+    pool: dict[str, list[dict[str, Any]]],
+    slots: tuple[NoiseSlot, ...],
+    selections: Mapping[str, NoiseSelectionEntry],
+    dropped: list[QueueDropped],
+    overflow: list[QueueOverflow],
+) -> list[QueuedNoise]:
+    """Fill all noise slots from an exact human-reviewed selection."""
+
+    _normalize_noise_pool(pool, dropped)
+    slot_by_id = {slot.noise_id: slot for slot in slots}
+    if set(selections) != set(slot_by_id):
+        missing = sorted(set(slot_by_id) - set(selections))
+        extra = sorted(set(selections) - set(slot_by_id))
+        raise ValueError(
+            f"noise selection must cover every slot; missing={missing}, extra={extra}"
+        )
+    queued: list[QueuedNoise] = []
+    used: set[tuple[str, str, str, str, str | None]] = set()
+    for slot in slots:
+        selection = selections[slot.noise_id]
+        if selection.planned_noise_type != slot.planned_noise_type:
+            raise ValueError(
+                f"noise selection {slot.noise_id} expects "
+                f"{slot.planned_noise_type!r}, got {selection.planned_noise_type!r}"
+            )
+        matches = [
+            item
+            for item in pool.get(slot.planned_noise_type, [])
+            if item["run_id"] == selection.run_id
+            and item["origin_kind"] == selection.origin_kind
+            and item["text"] == selection.extracted_text
+            and item["url"] == selection.source_document_url
+            and item.get("duplicate_of") == selection.duplicate_of_candidate_id
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"noise selection {slot.noise_id} matched {len(matches)} source objects"
+            )
+        item = matches[0]
+        identity = (
+            slot.planned_noise_type,
+            item["run_id"],
+            item["origin_kind"],
+            item["text"],
+            item.get("duplicate_of"),
+        )
+        if identity in used:
+            raise ValueError(f"noise selection reuses one object at {slot.noise_id}")
+        used.add(identity)
+        queued.append(
+            QueuedNoise(
+                noise_id=slot.noise_id,
+                planned_noise_type=slot.planned_noise_type,
+                source_query=item["raw_query"],
+                extracted_text=item["text"],
+                source_document_url=item["url"],
+                domain=item["domain"],
+                analysis_scope_key=_scope_key(item["domain"]),
+                duplicate_of_candidate_id=item.get("duplicate_of"),
+                origin_kind=item["origin_kind"],
+            )
+        )
+    selected_identities = {
+        (
+            item.planned_noise_type,
+            item.run_id,
+            item.origin_kind,
+            item.extracted_text,
+            item.duplicate_of_candidate_id,
+        )
+        for item in selections.values()
+    }
+    for noise_type in sorted(pool):
+        for item in pool[noise_type]:
+            identity = (
+                noise_type,
+                item["run_id"],
+                item["origin_kind"],
+                item["text"],
+                item.get("duplicate_of"),
+            )
+            if identity in selected_identities:
+                continue
+            overflow.append(
+                QueueOverflow(
+                    kind="noise",
+                    key=item["text"],
+                    run_id=item["run_id"],
+                    reason=f"unused reviewed-pool {noise_type}",
+                )
+            )
+    return queued
+
+
+def _fill_noise(
+    pool: dict[str, list[dict[str, Any]]],
+    slots: tuple[NoiseSlot, ...],
+    dropped: list[QueueDropped],
+    overflow: list[QueueOverflow],
+    deficits: list[QueueDeficit],
+) -> list[QueuedNoise]:
+    _normalize_noise_pool(pool, dropped)
     queued: list[QueuedNoise] = []
     by_type: dict[str, list[NoiseSlot]] = {}
     for slot in slots:
@@ -1092,6 +1348,8 @@ def build_labeling_queue(
     candidate_slots: tuple[CandidateSlot, ...] = (),
     noise_slots: tuple[NoiseSlot, ...] = (),
     run_domains: Mapping[str, str] | None = None,
+    selected_group_ids: Mapping[str, str] | None = None,
+    selected_noise: Mapping[str, NoiseSelectionEntry] | None = None,
 ) -> LabelingQueue:
     """Build the deterministic review queue from persisted runs and template slots.
 
@@ -1106,18 +1364,40 @@ def build_labeling_queue(
     dropped: list[QueueDropped] = []
     merged = _merged_groups(ordered_runs, domains)
     merged, duplicate_proposals = _suppress_queue_duplicates(merged, overflow)
-    queued_candidates = _fill_candidates(merged, candidate_slots, overflow, deficits)
+    if selected_group_ids is None:
+        queued_candidates = _fill_candidates(merged, candidate_slots, overflow, deficits)
+    else:
+        queued_candidates = _fill_selected_candidates(
+            merged, candidate_slots, selected_group_ids, overflow
+        )
     pool = _noise_pool(ordered_runs, domains, dropped, overflow)
+    runs_by_id = {run.run_id: run for run in ordered_runs}
     _transfer_candidate_duplicates(
         pool,
         duplicate_proposals,
         {item.group_id: item.candidate_id for item in queued_candidates},
-        {run.run_id: run for run in ordered_runs},
+        runs_by_id,
         noise_slots,
         dropped,
         overflow,
     )
-    queued_noise = _fill_noise(pool, noise_slots, dropped, overflow, deficits)
+    _link_alias_suggestions(
+        pool,
+        {item.group_id: item.candidate_id for item in queued_candidates},
+    )
+    _transfer_candidate_aliases(
+        pool,
+        queued_candidates,
+        merged,
+        runs_by_id,
+        dropped,
+    )
+    if selected_noise is None:
+        queued_noise = _fill_noise(pool, noise_slots, dropped, overflow, deficits)
+    else:
+        queued_noise = _fill_selected_noise(
+            pool, noise_slots, selected_noise, dropped, overflow
+        )
     counters = {"unknown_trust": 0, "missing_date": 0, "future_evidence": 0}
     queued_evidence = _fill_evidence(ordered_runs, queued_candidates, counters)
     return LabelingQueue(

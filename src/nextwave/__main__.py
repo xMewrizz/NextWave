@@ -43,6 +43,7 @@ from .labeling.evidence_llm_run import (
     run_evidence_llm,
 )
 from .labeling.export import export_labeling_bundle
+from .labeling.finalize import LABELING_FINALIZE_VERSION, finalize_labeling_bundle
 from .labeling.media_fetch_run import (
     LABELING_MEDIA_FETCH_RESULT_VERSION,
     run_media_fetch,
@@ -173,6 +174,44 @@ def _build_parser() -> argparse.ArgumentParser:
         help="привязка запуска к контролируемой области "
         "(Edge, Защита ИИ, Индустриальный ИИ, Инфраструктура ИИ, Роботы, Финтех); "
         "нужна, если в сейфе свободный текст вместо области",
+    )
+    labeling_export.add_argument(
+        "--candidate-selection",
+        type=Path,
+        help="reviewed JSON с точным group_id для каждого нейтрального слота",
+    )
+    labeling_export.add_argument(
+        "--noise-selection",
+        type=Path,
+        help="reviewed JSON с точным источником для каждого noise-слота",
+    )
+    labeling_finalize = commands.add_parser(
+        "labeling-finalize",
+        help="проверить решения в книге и выпустить обучающий отрицательный корпус",
+    )
+    labeling_finalize.add_argument(
+        "--bundle",
+        type=Path,
+        required=True,
+        help="исходный каталог labeling-export с кандидатами и noise",
+    )
+    labeling_finalize.add_argument(
+        "--workbook",
+        type=Path,
+        required=True,
+        help="заполненная и проверенная книга разметки",
+    )
+    labeling_finalize.add_argument(
+        "--enrichment-result",
+        type=Path,
+        required=True,
+        help="кандидатский enrichment-result с полным scientific/industry coverage",
+    )
+    labeling_finalize.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "processed" / LABELING_FINALIZE_VERSION,
+        help="новый каталог проверенного корпуса",
     )
     enrichment_plan = commands.add_parser(
         "labeling-enrichment-plan",
@@ -530,7 +569,12 @@ def _parse_domain_map(entries: list[str]) -> dict[str, str]:
 
 
 def _run_labeling_export(
-    runs: list[str], template: Path, output: Path, domain_map: list[str]
+    runs: list[str],
+    template: Path,
+    output: Path,
+    domain_map: list[str],
+    candidate_selection: Path | None,
+    noise_selection: Path | None,
 ) -> int:
     try:
         paths = export_labeling_bundle(
@@ -538,6 +582,8 @@ def _run_labeling_export(
             template_path=template,
             output_dir=output,
             run_domains=_parse_domain_map(domain_map),
+            candidate_selection_path=candidate_selection,
+            noise_selection_path=noise_selection,
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"Не удалось экспортировать очередь: {error}", file=sys.stderr)
@@ -566,6 +612,28 @@ def _run_labeling_enrichment_plan(
 
     print("План enrichment успешно построен.")
     print(f"План: {paths.plan}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_labeling_finalize(
+    bundle: Path, workbook: Path, enrichment_result: Path, output: Path
+) -> int:
+    try:
+        paths = finalize_labeling_bundle(
+            bundle_dir=bundle,
+            workbook_path=workbook,
+            enrichment_result_dir=enrichment_result,
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось финализировать разметку: {error}", file=sys.stderr)
+        return 1
+
+    print("Проверенный корпус успешно собран.")
+    print(f"Кандидаты: {paths.candidates}")
+    print(f"Решения: {paths.decisions}")
+    print(f"Шум: {paths.noise}")
     print(f"Manifest: {paths.manifest}")
     return 0
 
@@ -747,6 +815,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.template,
             arguments.output,
             arguments.domain_map,
+            arguments.candidate_selection,
+            arguments.noise_selection,
+        )
+    if arguments.command == "labeling-finalize":
+        return _run_labeling_finalize(
+            arguments.bundle,
+            arguments.workbook,
+            arguments.enrichment_result,
+            arguments.output,
         )
     if arguments.command == "labeling-enrichment-plan":
         return _run_labeling_enrichment_plan(
