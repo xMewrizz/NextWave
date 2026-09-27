@@ -34,6 +34,7 @@ from nextwave.sources import publish_staging
 from . import evidence_llm_plan as plan_module
 from .contracts import LABELING_CUTOFF_DATE
 from .evidence_llm_plan import (
+    EVIDENCE_CLAIM_SCOPES,
     LABELING_EVIDENCE_LLM_PLAN_VERSION,
     MAX_CLAIMS_PER_DOCUMENT,
     MAX_DOCUMENTS_PER_TASK,
@@ -41,14 +42,14 @@ from .evidence_llm_plan import (
 )
 from .evidence_term_policy import text_supports_matched_term
 
-LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v7"
-LABELING_EVIDENCE_LLM_WORK_VERSION = "labeling-evidence-llm-work-v1"
-LABELING_EVIDENCE_LLM_CACHE_VERSION = "labeling-evidence-llm-cache-v1"
-LABELING_EVIDENCE_LLM_RESULT_VERSION = "labeling-evidence-llm-result-v1"
+LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v11"
+LABELING_EVIDENCE_LLM_WORK_VERSION = "labeling-evidence-llm-work-v5"
+LABELING_EVIDENCE_LLM_CACHE_VERSION = "labeling-evidence-llm-cache-v5"
+LABELING_EVIDENCE_LLM_RESULT_VERSION = "labeling-evidence-llm-result-v5"
 
 EVIDENCE_MAX_OUTPUT_TOKENS = 2000
 EVIDENCE_CONCURRENCY = 3
-EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v6"
+EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v10-specific-core"
 EVIDENCE_RESPONSE_JSON_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -72,7 +73,14 @@ EVIDENCE_RESPONSE_JSON_SCHEMA = {
                         "items": {
                             "type": "object",
                             "additionalProperties": False,
-                            "required": ["quote", "kind", "direction"],
+                            "required": [
+                                "quote",
+                                "kind",
+                                "direction",
+                                "scope",
+                                "explanation_ru",
+                                "missing_components",
+                            ],
                             "properties": {
                                 "quote": {
                                     "type": "string",
@@ -86,6 +94,19 @@ EVIDENCE_RESPONSE_JSON_SCHEMA = {
                                 "direction": {
                                     "type": "string",
                                     "enum": [item.value for item in EvidenceDirection],
+                                },
+                                "scope": {
+                                    "type": "string",
+                                    "enum": list(EVIDENCE_CLAIM_SCOPES),
+                                },
+                                "explanation_ru": {
+                                    "type": "string",
+                                    "minLength": 10,
+                                    "maxLength": 500,
+                                },
+                                "missing_components": {
+                                    "type": "string",
+                                    "maxLength": 300,
                                 },
                             },
                         },
@@ -610,12 +631,142 @@ def _init_or_check_work(work_dir: str | Path, fingerprint: Mapping[str, Any]) ->
     return work
 
 
-def _claim_id(candidate_id: str, document_id: str, kind: str, direction: str, quote: str) -> str:
-    identity = "|".join((candidate_id, document_id, kind, direction, quote))
+def _claim_id(
+    candidate_id: str,
+    document_id: str,
+    kind: str,
+    direction: str,
+    scope: str,
+    quote: str,
+) -> str:
+    identity = "|".join((candidate_id, document_id, kind, direction, scope, quote))
     return "claim-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:20]
 
 
+def _valid_russian_explanation(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and 10 <= len(value) <= 500
+        and any("а" <= char.casefold() <= "я" or char.casefold() == "ё" for char in value)
+    )
+
+
+def _component_tokens(value: str) -> list[str]:
+    return "".join(
+        char if char.isalnum() else " " for char in value.casefold()
+    ).split()
+
+
+def _contains_component(term: str, component: str) -> bool:
+    term_tokens = _component_tokens(term)
+    component_tokens = _component_tokens(component)
+    if not component_tokens or len(component_tokens) > len(term_tokens):
+        return False
+    width = len(component_tokens)
+    return any(
+        term_tokens[index:index + width] == component_tokens
+        for index in range(len(term_tokens) - width + 1)
+    )
+
+
+def _validated_missing_components(
+    value: Any, *, scope: str, matched_term: str
+) -> list[str] | None:
+    if not isinstance(value, str) or len(value) > 300:
+        return None
+    if scope == "full_candidate":
+        return [] if not value.strip() else None
+    if scope != "core_only":
+        return None
+    if not value.strip():
+        return []
+    components = [component.strip() for component in value.split(";")]
+    if not 1 <= len(components) <= 6 or any(not component for component in components):
+        return None
+    seen: set[str] = set()
+    for component in components:
+        if len(component) > 100:
+            return None
+        folded = component.casefold()
+        if folded in seen or not _contains_component(matched_term, component):
+            return None
+        seen.add(folded)
+    return components
+
+
 _claim_match_is_sufficient = text_supports_matched_term
+_CORE_IGNORED_TOKENS = frozenset({
+    "a", "an", "and", "by", "for", "from", "in", "of", "on", "the", "to", "with"
+})
+
+
+def _claim_scope_normalization(
+    quote: str,
+    matched_term: str,
+    *,
+    scope: str,
+    missing_components: list[str],
+) -> tuple[str, list[str]] | None:
+    term_tokens = _component_tokens(matched_term)
+    quote_tokens = _component_tokens(quote)
+    unique_term = frozenset(term_tokens)
+    unique_quote = frozenset(quote_tokens)
+    full_supported = (
+        bool(unique_term)
+        and unique_term <= unique_quote
+        and text_supports_matched_term(quote, matched_term)
+    )
+    if full_supported:
+        if scope == "full_candidate" or not missing_components:
+            return "full_candidate", []
+        return "core_only", missing_components
+
+    meaningful_term_tokens = [
+        token for token in term_tokens if token not in _CORE_IGNORED_TOKENS
+    ]
+    meaningful_quote_tokens = [
+        token for token in quote_tokens if token not in _CORE_IGNORED_TOKENS
+    ]
+    meaningful_term = frozenset(meaningful_term_tokens)
+    meaningful_quote = frozenset(meaningful_quote_tokens)
+    matched = meaningful_term & meaningful_quote
+    minimum_core_tokens = max(2, math.ceil(len(meaningful_term) / 2))
+    quote_pairs = set(
+        zip(meaningful_quote_tokens, meaningful_quote_tokens[1:], strict=False)
+    )
+    term_positions = {
+        token: index for index, token in enumerate(meaningful_term_tokens)
+    }
+    ordered_quote_pair = any(
+        first in term_positions
+        and second in term_positions
+        and term_positions[first] < term_positions[second]
+        for first, second in quote_pairs
+    )
+    declared_missing_tokens = {
+        token
+        for component in missing_components
+        for token in _component_tokens(component)
+    }
+    declared_core = meaningful_term - declared_missing_tokens
+    declared_core_supported = (
+        len(declared_core) >= minimum_core_tokens and declared_core <= meaningful_quote
+    )
+    core_supported = declared_core_supported or (
+        len(matched) >= minimum_core_tokens
+        and (len(matched) >= 3 or ordered_quote_pair)
+    )
+    if not core_supported:
+        return None
+    derived_missing = [
+        token
+        for token in dict.fromkeys(meaningful_term_tokens)
+        if token not in meaningful_quote
+    ]
+    normalized_missing = missing_components or derived_missing
+    if not normalized_missing:
+        return None
+    return "core_only", normalized_missing
 
 
 def _validate_response(
@@ -666,16 +817,28 @@ def _validate_response(
         passage = passages[document_id]
         kept = 0
         doc_issues = 0
-        seen: set[tuple[str, str, str]] = set()
+        seen: set[tuple[str, str, str, str]] = set()
         for raw in raw_claims:
             if (
                 not isinstance(raw, dict)
-                or set(raw) != {"quote", "kind", "direction"}
+                or set(raw) != {
+                    "quote",
+                    "kind",
+                    "direction",
+                    "scope",
+                    "explanation_ru",
+                    "missing_components",
+                }
             ):
                 issues.append(_issue(task, document_id, "invalid_claim"))
                 doc_issues += 1
                 continue
-            quote, kind, direction = raw["quote"], raw["kind"], raw["direction"]
+            quote = raw["quote"]
+            kind = raw["kind"]
+            direction = raw["direction"]
+            scope = raw["scope"]
+            explanation_ru = raw["explanation_ru"]
+            missing_components = raw["missing_components"]
             if (
                 not isinstance(quote, str)
                 or not 20 <= len(quote) <= 500
@@ -683,7 +846,18 @@ def _validate_response(
                 issues.append(_issue(task, document_id, "invalid_claim"))
                 doc_issues += 1
                 continue
-            if kind not in valid_kinds or direction not in valid_directions:
+            validated_missing = _validated_missing_components(
+                missing_components,
+                scope=scope,
+                matched_term=matched_terms[document_id],
+            )
+            if (
+                kind not in valid_kinds
+                or direction not in valid_directions
+                or scope not in EVIDENCE_CLAIM_SCOPES
+                or not _valid_russian_explanation(explanation_ru)
+                or validated_missing is None
+            ):
                 issues.append(_issue(task, document_id, "invalid_claim"))
                 doc_issues += 1
                 continue
@@ -692,11 +866,18 @@ def _validate_response(
                 issues.append(_issue(task, document_id, "non_verbatim"))
                 doc_issues += 1
                 continue
-            if not _claim_match_is_sufficient(quote, matched_terms[document_id]):
+            normalized_scope = _claim_scope_normalization(
+                quote,
+                matched_terms[document_id],
+                scope=scope,
+                missing_components=validated_missing,
+            )
+            if normalized_scope is None:
                 issues.append(_issue(task, document_id, "insufficient_term_match"))
                 doc_issues += 1
                 continue
-            key = (quote, kind, direction)
+            scope, validated_missing = normalized_scope
+            key = (quote, kind, direction, scope)
             if key in seen:
                 issues.append(_issue(task, document_id, "duplicate_claim"))
                 doc_issues += 1
@@ -706,7 +887,7 @@ def _validate_response(
             end = start + len(quote)
             claims.append({
                 "claim_id": _claim_id(
-                    task["candidate_id"], document_id, kind, direction, quote
+                    task["candidate_id"], document_id, kind, direction, scope, quote
                 ),
                 "candidate_id": task["candidate_id"],
                 "task_id": task["task_id"],
@@ -714,6 +895,9 @@ def _validate_response(
                 "quote": quote,
                 "kind": kind,
                 "direction": direction,
+                "scope": scope,
+                "explanation_ru": explanation_ru,
+                "missing_components": validated_missing,
                 "locator_start": start,
                 "locator_end": end,
                 "locator": f"excerpt[{start}:{end}]",
@@ -736,7 +920,7 @@ def _issue(task: Mapping[str, Any], document_id: str | None, code: str) -> dict[
         "non_verbatim": "claim dropped: quote is not verbatim in the passage",
         "duplicate_claim": "claim dropped: repeated claim kept once",
         "insufficient_term_match": (
-            "claim dropped: quote does not locally name enough of matched_term"
+            "claim dropped: quote does not support the declared matched_term scope"
         ),
         "model_error": "model call failed: transport or provider error",
         "invalid_response": "model answer failed structural validation",

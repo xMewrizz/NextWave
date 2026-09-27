@@ -43,6 +43,7 @@ from .evidence_input_plan import (
     score_media_document,
 )
 from .evidence_llm_plan import (
+    EVIDENCE_CLAIM_SCOPES,
     LABELING_EVIDENCE_LLM_PLAN_VERSION,
     LabelingEvidenceLlmPlanPaths,
     build_evidence_llm_plan,
@@ -105,6 +106,7 @@ __all__ = [
     "LABELING_ENRICHMENT_PLAN_VERSION",
     "LABELING_EVIDENCE_INPUT_PLAN_VERSION",
     "LABELING_EVIDENCE_LLM_CACHE_VERSION",
+    "EVIDENCE_CLAIM_SCOPES",
     "LABELING_EVIDENCE_LLM_EXECUTOR_VERSION",
     "LABELING_EVIDENCE_LLM_PLAN_VERSION",
     "LABELING_EVIDENCE_LLM_RESULT_VERSION",

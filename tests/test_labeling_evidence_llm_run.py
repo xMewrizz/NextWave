@@ -220,7 +220,14 @@ def answer(candidate: str, entries: list[tuple[str, list[tuple[str, str, str]]]]
             {
                 "document_id": document_id,
                 "claims": [
-                    {"quote": quote, "kind": kind, "direction": direction}
+                    {
+                        "quote": quote,
+                        "kind": kind,
+                        "direction": direction,
+                        "scope": "full_candidate",
+                        "explanation_ru": "Цитата полностью подтверждает проверяемую технологию.",
+                        "missing_components": "",
+                    }
                     for quote, kind, direction in claims
                 ],
             }
@@ -408,7 +415,17 @@ class EvidenceSchemaContractTests(unittest.TestCase):
         self.assertEqual(document["required"], ["document_id", "claims"])
         self.assertEqual((claims["minItems"], claims["maxItems"]), (0, 1))
         self.assertFalse(claim["additionalProperties"])
-        self.assertEqual(claim["required"], ["quote", "kind", "direction"])
+        self.assertEqual(
+            claim["required"],
+            [
+                "quote",
+                "kind",
+                "direction",
+                "scope",
+                "explanation_ru",
+                "missing_components",
+            ],
+        )
         self.assertEqual((quote["minLength"], quote["maxLength"]), (20, 500))
         self.assertEqual(
             claim["properties"]["kind"]["enum"],
@@ -421,17 +438,17 @@ class EvidenceSchemaContractTests(unittest.TestCase):
 
     def test_versions_change_only_executor_and_extractor_policy(self) -> None:
         self.assertEqual(EVIDENCE_MAX_OUTPUT_TOKENS, 2000)
-        self.assertEqual(EVIDENCE_EXTRACTOR_VERSION, "evidence-llm-v6")
+        self.assertEqual(EVIDENCE_EXTRACTOR_VERSION, "evidence-llm-v10-specific-core")
         self.assertEqual(
             LABELING_EVIDENCE_LLM_EXECUTOR_VERSION,
-            "labeling-evidence-llm-executor-v7",
+            "labeling-evidence-llm-executor-v11",
         )
-        self.assertEqual(LABELING_EVIDENCE_LLM_WORK_VERSION, "labeling-evidence-llm-work-v1")
-        self.assertEqual(LABELING_EVIDENCE_LLM_CACHE_VERSION, "labeling-evidence-llm-cache-v1")
-        self.assertEqual(LABELING_EVIDENCE_LLM_RESULT_VERSION, "labeling-evidence-llm-result-v1")
+        self.assertEqual(LABELING_EVIDENCE_LLM_WORK_VERSION, "labeling-evidence-llm-work-v5")
+        self.assertEqual(LABELING_EVIDENCE_LLM_CACHE_VERSION, "labeling-evidence-llm-cache-v5")
+        self.assertEqual(LABELING_EVIDENCE_LLM_RESULT_VERSION, "labeling-evidence-llm-result-v5")
         self.assertEqual(
             _extractor_id("yandex", "YandexGPT Lite 5"),
-            "yandex-yandexgpt-lite-5-evidence-llm-v6",
+            "yandex-yandexgpt-lite-5-evidence-llm-v10-specific-core",
         )
 
 
@@ -462,10 +479,318 @@ class ClaimValidationTests(unittest.TestCase):
         self.assertEqual(claim["locator"], f"excerpt[{start}:{start + len(QUOTE)}]")
         self.assertEqual(documents[0]["claim_count"], 1)
         self.assertEqual(documents[0]["issue_count"], 0)
+        self.assertEqual(claim["scope"], "full_candidate")
+        self.assertEqual(claim["missing_components"], [])
+        self.assertIn("подтверждает", claim["explanation_ru"])
         expected = "claim-" + hashlib.sha256(
-            f"c1|document-c1-1|research|support|{QUOTE}".encode()
+            f"c1|document-c1-1|research|support|full_candidate|{QUOTE}".encode()
         ).hexdigest()[:20]
         self.assertEqual(claim["claim_id"], expected)
+
+    def test_core_only_claim_preserves_missing_components_and_russian_explanation(self) -> None:
+        excerpt = (
+            "A virtual power plant coordinates distributed batteries and responds "
+            "to changes in electricity demand across the grid."
+        )
+        quote = excerpt
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row(
+                "c1",
+                1,
+                "openalex",
+                1,
+                matched_term="AI virtual power plant trading",
+                excerpt=excerpt,
+            )]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            response = json.dumps({
+                "candidate_id": "c1",
+                "documents": [{
+                    "document_id": docs[0]["document_id"],
+                    "claims": [{
+                        "quote": quote,
+                        "kind": "research",
+                        "direction": "support",
+                        "scope": "core_only",
+                        "explanation_ru": (
+                            "Цитата подтверждает виртуальную электростанцию, "
+                            "но не подтверждает ИИ и торговлю."
+                        ),
+                        "missing_components": "AI; trading",
+                    }],
+                }],
+            })
+            paths = run_with_fake(
+                plan,
+                root / "work",
+                root / "out",
+                scripted({"c1": response}),
+            )
+            claims = read_jsonl(paths.claims)
+
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["scope"], "core_only")
+        self.assertEqual(claims[0]["missing_components"], ["AI", "trading"])
+        self.assertIn("не подтверждает", claims[0]["explanation_ru"])
+
+    def test_core_only_empty_missing_is_reconstructed_from_quote(self) -> None:
+        quote = "This 3D analog compute-in-memory architecture reduces energy overheads."
+        excerpt = "A 3D stacked compute-in-memory DRAM system is evaluated. " + quote
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row(
+                "c1",
+                1,
+                "openalex",
+                1,
+                matched_term="3D stacked compute-in-memory DRAM",
+                excerpt=excerpt,
+            )]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            response = json.dumps({
+                "candidate_id": "c1",
+                "documents": [{
+                    "document_id": docs[0]["document_id"],
+                    "claims": [{
+                        "quote": quote,
+                        "kind": "research",
+                        "direction": "support",
+                        "scope": "core_only",
+                        "explanation_ru": "Цитата подтверждает только ядро технологии.",
+                        "missing_components": "",
+                    }],
+                }],
+            })
+            paths = run_with_fake(
+                plan, root / "work", root / "out", scripted({"c1": response})
+            )
+            claims = read_jsonl(paths.claims)
+            issues = read_jsonl(paths.issues)
+
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["scope"], "core_only")
+        self.assertEqual(claims[0]["missing_components"], ["stacked", "dram"])
+        self.assertEqual(issues, [])
+
+    def test_generic_minority_of_long_term_is_not_a_core(self) -> None:
+        quote = "Dynamic random access memory (DRAM) improves density and retention."
+        excerpt = "A 3D stacked compute-in-memory DRAM system is evaluated. " + quote
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row(
+                "c1",
+                1,
+                "openalex",
+                1,
+                matched_term="3D stacked compute-in-memory DRAM",
+                excerpt=excerpt,
+            )]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            response = json.dumps({
+                "candidate_id": "c1",
+                "documents": [{
+                    "document_id": docs[0]["document_id"],
+                    "claims": [{
+                        "quote": quote,
+                        "kind": "research",
+                        "direction": "support",
+                        "scope": "core_only",
+                        "explanation_ru": "Цитата подтверждает только обычную DRAM-память.",
+                        "missing_components": "3D; stacked; compute",
+                    }],
+                }],
+            })
+            paths = run_with_fake(
+                plan, root / "work", root / "out", scripted({"c1": response})
+            )
+            claims = read_jsonl(paths.claims)
+            issues = read_jsonl(paths.issues)
+
+        self.assertEqual(claims, [])
+        self.assertEqual([issue["code"] for issue in issues], ["insufficient_term_match"])
+
+    def test_full_candidate_with_missing_components_is_dropped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row("c1", 1, "openalex", 1)]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            response = json.dumps({
+                "candidate_id": "c1",
+                "documents": [{
+                    "document_id": docs[0]["document_id"],
+                    "claims": [{
+                        "quote": QUOTE,
+                        "kind": "research",
+                        "direction": "support",
+                        "scope": "full_candidate",
+                        "explanation_ru": "Цитата полностью подтверждает технологию.",
+                        "missing_components": "error correction",
+                    }],
+                }],
+            })
+            paths = run_with_fake(
+                plan,
+                root / "work",
+                root / "out",
+                scripted({"c1": response}),
+            )
+            claims = read_jsonl(paths.claims)
+            issues = read_jsonl(paths.issues)
+
+        self.assertEqual(claims, [])
+        self.assertEqual(issues[0]["code"], "invalid_claim")
+
+    def test_partial_full_candidate_is_safely_downgraded(self) -> None:
+        quote = "The camera performs in-sensor computing for low-light recognition."
+        excerpt = (
+            "The reviewed in-sensor processing-in-pixel computing system is evaluated. "
+            + quote
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row(
+                "c1",
+                1,
+                "openalex",
+                1,
+                matched_term="in-sensor processing-in-pixel computing",
+                excerpt=excerpt,
+            )]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            response = json.dumps({
+                "candidate_id": "c1",
+                "documents": [{
+                    "document_id": docs[0]["document_id"],
+                    "claims": [{
+                        "quote": quote,
+                        "kind": "research",
+                        "direction": "support",
+                        "scope": "full_candidate",
+                        "explanation_ru": "Цитата подтверждает только часть полного термина.",
+                        "missing_components": "",
+                    }],
+                }],
+            })
+            paths = run_with_fake(
+                plan, root / "work", root / "out", scripted({"c1": response})
+            )
+            claims = read_jsonl(paths.claims)
+            issues = read_jsonl(paths.issues)
+
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["scope"], "core_only")
+        self.assertEqual(claims[0]["missing_components"], ["processing", "pixel"])
+        self.assertEqual(issues, [])
+
+    def test_core_only_is_checked_against_remaining_term(self) -> None:
+        quote = "A confidential TEE protects private workloads during deployment."
+        excerpt = "Confidential AI inference TEE is evaluated. " + quote
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row(
+                "c1",
+                1,
+                "openalex",
+                1,
+                matched_term="confidential AI inference TEE",
+                excerpt=excerpt,
+            )]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            response = json.dumps({
+                "candidate_id": "c1",
+                "documents": [{
+                    "document_id": docs[0]["document_id"],
+                    "claims": [{
+                        "quote": quote,
+                        "kind": "prototype",
+                        "direction": "support",
+                        "scope": "core_only",
+                        "explanation_ru": "Цитата подтверждает TEE, но не AI inference.",
+                        "missing_components": "AI; inference",
+                    }],
+                }],
+            })
+            paths = run_with_fake(
+                plan, root / "work", root / "out", scripted({"c1": response})
+            )
+            claims = read_jsonl(paths.claims)
+            issues = read_jsonl(paths.issues)
+
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(claims[0]["missing_components"], ["AI", "inference"])
+        self.assertEqual(issues, [])
+
+    def test_core_only_requires_at_least_two_remaining_tokens(self) -> None:
+        quote = "Inference is deployed in a protected production environment."
+        excerpt = "AI inference is evaluated. " + quote
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row(
+                "c1", 1, "openalex", 1, matched_term="AI inference", excerpt=excerpt
+            )]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            response = json.dumps({
+                "candidate_id": "c1",
+                "documents": [{
+                    "document_id": docs[0]["document_id"],
+                    "claims": [{
+                        "quote": quote,
+                        "kind": "prototype",
+                        "direction": "support",
+                        "scope": "core_only",
+                        "explanation_ru": "Цитата подтверждает только слишком общее ядро.",
+                        "missing_components": "AI",
+                    }],
+                }],
+            })
+            paths = run_with_fake(
+                plan, root / "work", root / "out", scripted({"c1": response})
+            )
+            claims = read_jsonl(paths.claims)
+            issues = read_jsonl(paths.issues)
+
+        self.assertEqual(claims, [])
+        self.assertEqual([issue["code"] for issue in issues], ["insufficient_term_match"])
+
+    def test_english_only_explanation_is_dropped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row("c1", 1, "openalex", 1)]
+            task = make_task_row("c1", docs)
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            response = json.dumps({
+                "candidate_id": "c1",
+                "documents": [{
+                    "document_id": docs[0]["document_id"],
+                    "claims": [{
+                        "quote": QUOTE,
+                        "kind": "research",
+                        "direction": "support",
+                        "scope": "full_candidate",
+                        "explanation_ru": "This is not a Russian explanation.",
+                        "missing_components": "",
+                    }],
+                }],
+            })
+            paths = run_with_fake(
+                plan,
+                root / "work",
+                root / "out",
+                scripted({"c1": response}),
+            )
+            claims = read_jsonl(paths.claims)
+            issues = read_jsonl(paths.issues)
+
+        self.assertEqual(claims, [])
+        self.assertEqual(issues[0]["code"], "invalid_claim")
 
     def test_title_only_quote_is_non_verbatim(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -794,7 +1119,7 @@ class ResumeTests(unittest.TestCase):
             manifest_path = root / "work" / "work_manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["extractor_id"] = manifest["extractor_id"].replace(
-                "evidence-llm-v6", "evidence-llm-v5"
+                "evidence-llm-v10-specific-core", "evidence-llm-v6"
             )
             manifest_path.write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -1117,13 +1442,16 @@ class PromptContractTests(unittest.TestCase):
             "annotation",
         ):
             self.assertNotIn(forbidden, lowered)
-        self.assertIn("empty claims", lowered)
-        self.assertIn("title is not evidence", lowered)
-        self.assertIn("untrusted", lowered)
+        self.assertIn("[] означает", lowered)
+        self.assertIn("title не является доказательством", lowered)
+        self.assertIn("недоверенными данными", lowered)
         self.assertIn("promotional_claim", lowered)
         self.assertIn("support", lowered)
         self.assertIn("counter", lowered)
-        self.assertIn("only json", lowered)
+        self.assertIn("только json", lowered)
+        self.assertIn("scope=full_candidate", lowered)
+        self.assertIn("scope=core_only", lowered)
+        self.assertIn("explanation_ru", lowered)
 
     def test_schema_uses_existing_enums(self) -> None:
         prompt = build_evidence_prompt(self._task())
