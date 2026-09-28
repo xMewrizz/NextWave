@@ -26,6 +26,12 @@ from .decision_policy import (
     PolicyReason,
     apply_decision_policy,
 )
+from .exa_enrichment_plan import (
+    EXA_ENRICHMENT_PLAN_VERSION,
+    ExaEnrichmentPlanPaths,
+    build_exa_enrichment_plan,
+    export_exa_enrichment_plan,
+)
 from .feature_table import (
     FEATURE_TABLE_VERSION,
     FeatureTablePaths,
@@ -84,6 +90,10 @@ __all__ = [
     "DecisionPolicyResult",
     "PolicyReason",
     "apply_decision_policy",
+    "EXA_ENRICHMENT_PLAN_VERSION",
+    "ExaEnrichmentPlanPaths",
+    "build_exa_enrichment_plan",
+    "export_exa_enrichment_plan",
     "FEATURE_TABLE_VERSION",
     "FeatureTablePaths",
     "build_feature_table",

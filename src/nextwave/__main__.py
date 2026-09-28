@@ -25,6 +25,7 @@ from .evaluation import (
     ANALYSIS_FEATURE_TABLE_VERSION,
     ANALYSIS_INFERENCE_VERSION,
     ANALYSIS_SHORTLIST_VERSION,
+    EXA_ENRICHMENT_PLAN_VERSION,
     FEATURE_TABLE_VERSION,
     GATE_NOISE_EVALUATION_VERSION,
     IDENTITY_REVIEW_VERSION,
@@ -35,6 +36,7 @@ from .evaluation import (
     export_analysis_inference,
     export_analysis_shortlist,
     export_analysis_temporal_count_plan,
+    export_exa_enrichment_plan,
     export_feature_table,
     export_gate_noise_evaluation,
     export_identity_review,
@@ -294,6 +296,22 @@ def _build_parser() -> argparse.ArgumentParser:
             / f"analysis-{LABELING_ENRICHMENT_PLAN_VERSION}"
         ),
         help="новый каталог query-specific enrichment-плана",
+    )
+    exa_enrichment_plan = commands.add_parser(
+        "analysis-exa-enrichment-plan",
+        help="построить быстрый Exa media enrichment для всех кандидатов анализа",
+    )
+    exa_enrichment_plan.add_argument(
+        "--analysis-plan",
+        type=Path,
+        required=True,
+        help="каталог query-specific enrichment-плана с кандидатами",
+    )
+    exa_enrichment_plan.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / EXA_ENRICHMENT_PLAN_VERSION,
+        help="новый каталог Exa-плана",
     )
     target_enrichment_plan = commands.add_parser(
         "labeling-target-enrichment-plan",
@@ -1294,6 +1312,20 @@ def _run_analysis_enrichment_plan(run: Path, output: Path) -> int:
     return 0
 
 
+def _run_analysis_exa_enrichment_plan(analysis_plan: Path, output: Path) -> int:
+    try:
+        paths = export_exa_enrichment_plan(
+            analysis_plan_dir=analysis_plan, output_dir=output
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось построить Exa enrichment-план: {error}", file=sys.stderr)
+        return 1
+    print("Exa enrichment-план успешно построен без фильтрации кандидатов.")
+    print(f"План: {paths.plan}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def _run_evaluation_identity_review(
     positive_plan: Path,
     negative_plan: Path,
@@ -1526,6 +1558,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if arguments.command == "analysis-enrichment-plan":
         return _run_analysis_enrichment_plan(arguments.run, arguments.output)
+    if arguments.command == "analysis-exa-enrichment-plan":
+        return _run_analysis_exa_enrichment_plan(
+            arguments.analysis_plan, arguments.output
+        )
     if arguments.command == "evaluation-gate-noise":
         return _run_evaluation_gate_noise(
             arguments.selection, arguments.discovery_root, arguments.output
