@@ -24,13 +24,14 @@ def make_plan(root: Path):
             ("previous", date(2024, 9, 15), date(2025, 9, 14)),
             ("recent", date(2025, 9, 15), date(2026, 9, 15)),
         ):
+            retrieval_query = "News coverage and industry reporting about AI accelerator"
             query = SourceQuery(
                 query_id=f"query-{hashlib.sha256(f'{candidate_id}-{window}'.encode()).hexdigest()[:16]}",
                 analysis_scope_id=f"scope-{hashlib.sha256(candidate_id.encode()).hexdigest()[:16]}",
                 purpose=QueryPurpose.HISTORICAL_ENRICHMENT,
-                raw_query="AI accelerator",
-                normalized_query="ai accelerator",
-                search_texts=("AI accelerator",),
+                raw_query=retrieval_query,
+                normalized_query=retrieval_query.casefold(),
+                search_texts=(retrieval_query,),
                 published_from=start,
                 published_until=end,
                 cutoff_date=date(2026, 9, 15),
@@ -40,8 +41,9 @@ def make_plan(root: Path):
                 {
                     "candidate_id": candidate_id,
                     "request": build_exa_news_request(
-                        query, search_text="AI accelerator", num_results=10
+                        query, search_text=retrieval_query, num_results=10
                     ).to_dict(),
+                    "retrieval_query": retrieval_query,
                     "search_text": "AI accelerator",
                     "term_rank": 1,
                     "window": window,

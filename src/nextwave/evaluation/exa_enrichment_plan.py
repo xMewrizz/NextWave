@@ -12,12 +12,13 @@ from typing import Any
 from nextwave.datasets.artifacts import publish_artifact_bundle
 from nextwave.sources import QueryPurpose, SourceQuery, build_exa_news_request
 
-EXA_ENRICHMENT_PLAN_VERSION = "analysis-exa-enrichment-plan-v1"
+EXA_ENRICHMENT_PLAN_VERSION = "analysis-exa-enrichment-plan-v2"
 EXA_ENRICHMENT_PLAN_FILENAME = "plan.json"
 EXA_ENRICHMENT_MANIFEST_FILENAME = "manifest.json"
 _BASE_PLAN_VERSION = "labeling-enrichment-plan-v2"
 _BASE_MANIFEST_VERSION = "labeling-enrichment-plan-v2"
 _NUM_RESULTS = 10
+_QUERY_PREFIX = "News coverage and industry reporting about "
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,26 +107,31 @@ def build_exa_enrichment_plan(
             if window_name == "previous":
                 published_until = date.fromordinal(published_until.toordinal() - 1)
             for term_index, term in enumerate(terms, 1):
-                query_id = f"query-{_stable_id(candidate_id, window_name, str(term_index), term)}"
+                retrieval_query = f"{_QUERY_PREFIX}{term}"
+                query_digest = _stable_id(
+                    candidate_id, window_name, str(term_index), retrieval_query
+                )
+                query_id = f"query-{query_digest}"
                 query = SourceQuery(
                     query_id=query_id,
                     analysis_scope_id=f"scope-{_stable_id(candidate_id)}",
                     purpose=QueryPurpose.HISTORICAL_ENRICHMENT,
-                    raw_query=term,
-                    normalized_query=term.casefold(),
-                    search_texts=(term,),
+                    raw_query=retrieval_query,
+                    normalized_query=retrieval_query.casefold(),
+                    search_texts=(retrieval_query,),
                     published_from=published_from,
                     published_until=published_until,
                     cutoff_date=cutoff,
                     languages=("en", "ru"),
                 )
                 request = build_exa_news_request(
-                    query, search_text=term, num_results=_NUM_RESULTS
+                    query, search_text=retrieval_query, num_results=_NUM_RESULTS
                 )
                 tasks.append(
                     {
                         "candidate_id": candidate_id,
                         "request": request.to_dict(),
+                        "retrieval_query": retrieval_query,
                         "search_text": term,
                         "term_rank": term_index,
                         "window": window_name,
@@ -147,6 +153,7 @@ def build_exa_enrichment_plan(
             "category": "news",
             "contents": "highlights",
             "num_results_per_term_window": _NUM_RESULTS,
+            "query_template": f"{_QUERY_PREFIX}<term>",
             "windows": ["previous", "recent"],
         },
         "totals": {"candidates": len(candidates), "requests": len(tasks)},

@@ -30,9 +30,9 @@ from nextwave.sources import (
 
 from .exa_enrichment_plan import EXA_ENRICHMENT_PLAN_VERSION
 
-EXA_ENRICHMENT_EXECUTOR_VERSION = "analysis-exa-enrichment-executor-v1"
-EXA_ENRICHMENT_WORK_VERSION = "analysis-exa-enrichment-work-v1"
-EXA_ENRICHMENT_RESULT_VERSION = "analysis-exa-enrichment-result-v1"
+EXA_ENRICHMENT_EXECUTOR_VERSION = "analysis-exa-enrichment-executor-v2"
+EXA_ENRICHMENT_WORK_VERSION = "analysis-exa-enrichment-work-v2"
+EXA_ENRICHMENT_RESULT_VERSION = "analysis-exa-enrichment-result-v2"
 _BACKOFF = (1.0, 3.0)
 _MAX_RETRY_AFTER = 120.0
 
@@ -102,10 +102,17 @@ def _load_plan(root: Path) -> tuple[dict[str, Any], bytes, dict[str, Any]]:
         candidate_id = task.get("candidate_id")
         window = task.get("window")
         term = task.get("search_text")
+        retrieval_query = task.get("retrieval_query")
         request = task.get("request")
         if not isinstance(candidate_id, str) or window not in {"previous", "recent"}:
             raise ValueError(f"Exa task {index} identity is invalid")
-        if not isinstance(term, str) or not term.strip() or not isinstance(request, dict):
+        if (
+            not isinstance(term, str)
+            or not term.strip()
+            or not isinstance(retrieval_query, str)
+            or not retrieval_query.endswith(term)
+            or not isinstance(request, dict)
+        ):
             raise ValueError(f"Exa task {index} request is invalid")
         request_id = request.get("request_id")
         if not isinstance(request_id, str) or request_id in seen:
@@ -113,7 +120,9 @@ def _load_plan(root: Path) -> tuple[dict[str, Any], bytes, dict[str, Any]]:
         seen.add(request_id)
         candidates.add(candidate_id)
         query = _source_query(task, date.fromisoformat(cutoff))
-        expected = build_exa_news_request(query, search_text=term, num_results=10)
+        expected = build_exa_news_request(
+            query, search_text=retrieval_query, num_results=10
+        )
         if expected.to_dict() != request:
             raise ValueError(f"Exa task {request_id!r} does not match its request")
     if totals.get("candidates") != len(candidates):
@@ -125,7 +134,7 @@ def _source_query(task: Mapping[str, Any], cutoff: date) -> SourceQuery:
     request = task["request"]
     parameters = {item["name"]: item["value"] for item in request["parameters"]}
     candidate_id = task["candidate_id"]
-    term = task["search_text"]
+    term = task["retrieval_query"]
     return SourceQuery(
         query_id=request["query_id"],
         analysis_scope_id=f"scope-{_stable_id(candidate_id)}",
@@ -238,7 +247,7 @@ def _execute_one(
         run = connector.run_search(
             query,
             writer,
-            search_text=task["search_text"],
+            search_text=task["retrieval_query"],
             num_results=10,
             attempt=attempt,
         )
@@ -309,6 +318,7 @@ def _execute_one(
         "window": task["window"],
         "term_rank": task["term_rank"],
         "search_text": task["search_text"],
+        "retrieval_query": task["retrieval_query"],
         "status": status,
         "reused": False,
         "attempts": attempts,
@@ -379,6 +389,7 @@ def run_exa_enrichment(
                     "window": task["window"],
                     "term_rank": task["term_rank"],
                     "search_text": task["search_text"],
+                    "retrieval_query": task["retrieval_query"],
                     "status": "not_run",
                     "reused": False,
                     "attempts": [],

@@ -56,6 +56,16 @@ class ExaEnrichmentPlanTests(unittest.TestCase):
         self.assertEqual(plan["schema_version"], EXA_ENRICHMENT_PLAN_VERSION)
         self.assertEqual(plan["totals"], {"candidates": 2, "requests": 6})
         self.assertFalse(plan["policy"]["candidate_pruning"])
+        self.assertEqual(
+            plan["policy"]["query_template"],
+            "News coverage and industry reporting about <term>",
+        )
+        self.assertTrue(
+            all(
+                item["retrieval_query"].endswith(item["search_text"])
+                for item in plan["tasks"]
+            )
+        )
         self.assertEqual({item["window"] for item in plan["tasks"]}, {"previous", "recent"})
         self.assertEqual(provenance["candidate_count"], 2)
 
