@@ -37,6 +37,8 @@ from .contracts import (
 from .export import LABELING_EXPORT_MANIFEST_VERSION
 
 LABELING_ENRICHMENT_PLAN_VERSION = "labeling-enrichment-plan-v2"
+LABELING_TARGET_ENRICHMENT_PLAN_VERSION = "labeling-target-enrichment-plan-v1"
+TARGET_CANDIDATES_VERSION = "labeling-target-candidates-v1"
 ENRICHMENT_PLAN_FILENAME = "plan.json"
 ENRICHMENT_MANIFEST_FILENAME = "manifest.json"
 NEGATIVE_CANDIDATES_FILENAME = "negative_candidates.jsonl"
@@ -66,6 +68,23 @@ MEDIACLOUD_RETRIEVAL_POLICY: dict[str, Any] = {
     "min_interval_seconds": 30,
 }
 COMPLETION_RULE = "all_planned_requests_successful"
+
+_TARGET_DOMAINS = {
+    "Edge",
+    "Защита ИИ",
+    "Индустриальный ИИ",
+    "Инфраструктура ИИ",
+    "Роботы",
+    "Финтех",
+}
+_TARGET_CANDIDATE_KEYS = {
+    "candidate_id",
+    "canonical_name",
+    "aliases",
+    "domain",
+    "analysis_scope_key",
+    "source_query",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -865,6 +884,132 @@ def export_enrichment_plan(
         json.dumps(
             {
                 "schema_version": LABELING_ENRICHMENT_PLAN_VERSION,
+                "bundle_id": provenance["bundle_id"],
+                "candidate_count": provenance["candidate_count"],
+                "inputs": provenance["inputs"],
+                "outputs": {ENRICHMENT_PLAN_FILENAME: provenance["plan_digest"]},
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
+    paths = publish_artifact_bundle(
+        {
+            ENRICHMENT_PLAN_FILENAME: plan_bytes,
+            ENRICHMENT_MANIFEST_FILENAME: manifest_bytes,
+        },
+        output_dir,
+    )
+    return LabelingEnrichmentPlanPaths(
+        plan=paths[ENRICHMENT_PLAN_FILENAME],
+        manifest=paths[ENRICHMENT_MANIFEST_FILENAME],
+    )
+
+
+def build_target_enrichment_plan(
+    candidates_file: str | Path,
+) -> tuple[bytes, dict[str, Any]]:
+    """Build retrieval for neutral targets used to repair a class deficit.
+
+    This is not a labeling shortcut. The input cannot carry a class, target,
+    review decision, or evidence verdict. Its output still has to pass a
+    grounded Candidate Gate before a target can enter the labeling bundle.
+    """
+
+    path = Path(candidates_file)
+    try:
+        raw = path.read_bytes()
+    except OSError as error:
+        raise ValueError(f"cannot read target candidates: {path}") from error
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("target candidates must be valid UTF-8 JSON") from error
+    if not isinstance(payload, dict):
+        raise ValueError("target candidates must be a JSON object")
+    if set(payload) != {"schema_version", "cutoff_date", "candidates"}:
+        raise ValueError("target candidates contain unexpected or missing fields")
+    if payload.get("schema_version") != TARGET_CANDIDATES_VERSION:
+        raise ValueError(
+            f"target candidates schema {payload.get('schema_version')!r} does not "
+            f"match {TARGET_CANDIDATES_VERSION!r}"
+        )
+    if payload.get("cutoff_date") != LABELING_CUTOFF_DATE.isoformat():
+        raise ValueError(
+            f"target candidates cutoff {payload.get('cutoff_date')!r} does not "
+            f"match {LABELING_CUTOFF_DATE.isoformat()!r}"
+        )
+    entries = payload.get("candidates")
+    if not isinstance(entries, list) or not 1 <= len(entries) <= 20:
+        raise ValueError("target candidates must contain 1 to 20 entries")
+
+    records: list[_EnrichmentCandidateRecord] = []
+    identities: set[tuple[str, str]] = set()
+    for index, entry in enumerate(entries, start=1):
+        if not isinstance(entry, dict) or set(entry) != _TARGET_CANDIDATE_KEYS:
+            raise ValueError(
+                f"target candidate {index} contains unexpected or missing fields"
+            )
+        aliases = entry.get("aliases")
+        if not isinstance(aliases, list) or any(
+            not isinstance(alias, str) for alias in aliases
+        ):
+            raise ValueError(f"target candidate {index} aliases must be strings")
+        for field in _TARGET_CANDIDATE_KEYS - {"aliases"}:
+            if not isinstance(entry.get(field), str):
+                raise ValueError(
+                    f"target candidate {index} field {field!r} must be a string"
+                )
+        domain = entry["domain"].strip()
+        if domain not in _TARGET_DOMAINS:
+            raise ValueError(f"target candidate {index} has unsupported domain")
+        canonical_name = _clean_term(entry["canonical_name"])
+        identity = (domain.casefold(), canonical_name.casefold())
+        if identity in identities:
+            raise ValueError("target candidates contain duplicate domain/name identity")
+        identities.add(identity)
+        try:
+            records.append(
+                _EnrichmentCandidateRecord(
+                    candidate_id=entry["candidate_id"].strip(),
+                    canonical_name=canonical_name,
+                    aliases=tuple(_clean_term(alias) for alias in aliases),
+                    group_id="target-group-" + _stable_id(domain, identity[1]),
+                    source_query=entry["source_query"].strip(),
+                    domain=domain,
+                    analysis_scope_key=entry["analysis_scope_key"].strip(),
+                    cutoff_date=LABELING_CUTOFF_DATE,
+                )
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"target candidate {index} is invalid: {error}") from error
+
+    candidate_ids = [record.candidate_id for record in records]
+    if len(set(candidate_ids)) != len(candidate_ids):
+        raise ValueError("target candidates contain duplicate candidate_id")
+    plan_bytes, provenance = _render_plan(
+        records,
+        manifest_path=path,
+        candidates_bytes=raw,
+        candidates_input_key="target_candidates",
+    )
+    provenance["inputs"] = {"target_candidates": _digest(raw)}
+    return plan_bytes, provenance
+
+
+def export_target_enrichment_plan(
+    *, candidates_file: str | Path, output_dir: str | Path
+) -> LabelingEnrichmentPlanPaths:
+    """Publish an ordinary enrichment-plan-v2 for neutral targets."""
+
+    plan_bytes, provenance = build_target_enrichment_plan(candidates_file)
+    manifest_bytes = (
+        json.dumps(
+            {
+                "schema_version": LABELING_ENRICHMENT_PLAN_VERSION,
+                "planner_version": LABELING_TARGET_ENRICHMENT_PLAN_VERSION,
                 "bundle_id": provenance["bundle_id"],
                 "candidate_count": provenance["candidate_count"],
                 "inputs": provenance["inputs"],

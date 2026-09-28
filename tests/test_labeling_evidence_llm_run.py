@@ -22,6 +22,7 @@ from nextwave.discovery.llm import (
 )
 from nextwave.labeling import evidence_llm_plan as plan_module
 from nextwave.labeling.evidence_llm_plan import (
+    EVIDENCE_PURPOSE_MATURITY,
     LABELING_EVIDENCE_LLM_PLAN_VERSION,
     build_evidence_prompt,
 )
@@ -35,6 +36,7 @@ from nextwave.labeling.evidence_llm_run import (
     LABELING_EVIDENCE_LLM_WORK_VERSION,
     _claim_match_is_sufficient,
     _extractor_id,
+    _maturity_quote_supports_kind,
     run_evidence_llm,
 )
 from nextwave.sources import HttpResponse
@@ -98,7 +100,9 @@ def task_doc_row(candidate: str, number: int, connector: str, rank: int, **overr
     return payload
 
 
-def make_task_row(candidate: str, docs: list[dict]) -> dict:
+def make_task_row(
+    candidate: str, docs: list[dict], *, purpose: str | None = None
+) -> dict:
     """Build a genuine task row with real prompt SHA and task ID."""
     from nextwave.labeling.evidence_llm_plan import select_passage
 
@@ -127,9 +131,10 @@ def make_task_row(candidate: str, docs: list[dict]) -> dict:
             "source_excerpt_sha256": source_sha,
             "passage_sha256": passage_sha,
         })
-    prompt = build_evidence_prompt(
-        {"candidate_id": candidate, "documents": task_documents}
-    )
+    prompt_task = {"candidate_id": candidate, "documents": task_documents}
+    if purpose is not None:
+        prompt_task["purpose"] = purpose
+    prompt = build_evidence_prompt(prompt_task)
     prompt_sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
     task_id = plan_module._task_id(
         INPUT_MANIFEST_SHA,
@@ -139,7 +144,7 @@ def make_task_row(candidate: str, docs: list[dict]) -> dict:
         sorted((doc["passage_start"], doc["passage_end"]) for doc in task_documents),
         prompt_sha,
     )
-    return {
+    task = {
         "task_id": task_id,
         "candidate_id": candidate,
         "documents": task_documents,
@@ -149,6 +154,9 @@ def make_task_row(candidate: str, docs: list[dict]) -> dict:
         "input_manifest_sha256": INPUT_MANIFEST_SHA,
         "prompt_sha256": prompt_sha,
     }
+    if purpose is not None:
+        task["purpose"] = purpose
+    return task
 
 
 def run_coverage_row(candidate: str, task: dict | None) -> dict:
@@ -468,17 +476,20 @@ class EvidenceSchemaContractTests(unittest.TestCase):
 
     def test_versions_change_only_executor_and_extractor_policy(self) -> None:
         self.assertEqual(EVIDENCE_MAX_OUTPUT_TOKENS, 2000)
-        self.assertEqual(EVIDENCE_EXTRACTOR_VERSION, "evidence-llm-v10-specific-core")
+        self.assertEqual(
+            EVIDENCE_EXTRACTOR_VERSION,
+            "evidence-llm-v11-general-maturity-relation",
+        )
         self.assertEqual(
             LABELING_EVIDENCE_LLM_EXECUTOR_VERSION,
-            "labeling-evidence-llm-executor-v11",
+            "labeling-evidence-llm-executor-v12",
         )
         self.assertEqual(LABELING_EVIDENCE_LLM_WORK_VERSION, "labeling-evidence-llm-work-v5")
         self.assertEqual(LABELING_EVIDENCE_LLM_CACHE_VERSION, "labeling-evidence-llm-cache-v5")
         self.assertEqual(LABELING_EVIDENCE_LLM_RESULT_VERSION, "labeling-evidence-llm-result-v5")
         self.assertEqual(
             _extractor_id("yandex", "YandexGPT Lite 5"),
-            "yandex-yandexgpt-lite-5-evidence-llm-v10-specific-core",
+            "yandex-yandexgpt-lite-5-evidence-llm-v11-general-maturity-relation",
         )
 
 
@@ -1210,7 +1221,8 @@ class ResumeTests(unittest.TestCase):
             manifest_path = root / "work" / "work_manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["extractor_id"] = manifest["extractor_id"].replace(
-                "evidence-llm-v10-specific-core", "evidence-llm-v6"
+                "evidence-llm-v11-general-maturity-relation",
+                "evidence-llm-v10-specific-core",
             )
             manifest_path.write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
@@ -2135,6 +2147,203 @@ class CoverageUniquenessTests(unittest.TestCase):
                 )
             self.assertFalse((root / "work").exists())
             self.assertFalse((root / "out").exists())
+
+
+class MaturityPurposeExecutionTests(unittest.TestCase):
+    def _run_claim(
+        self,
+        root: Path,
+        kind: str,
+        direction: str,
+        *,
+        quote: str = QUOTE,
+        excerpt: str = EXCERPT,
+    ):
+        docs = [task_doc_row(
+            "c1", 1, "openalex", 1, excerpt=excerpt
+        )]
+        task = make_task_row(
+            "c1", docs, purpose=EVIDENCE_PURPOSE_MATURITY
+        )
+        plan = build_input(root, [task], [run_coverage_row("c1", task)])
+        generator = success_handler({
+            "c1": [(docs[0]["document_id"], [(quote, kind, direction)])]
+        })
+        paths = run_with_fake(plan, root / "work", root / "out", generator)
+        return read_jsonl(paths.claims), read_jsonl(paths.issues)
+
+    def test_maturity_accepts_adoption_counter(self) -> None:
+        quote = (
+            "Quantum error correction with surface codes has been widely adopted "
+            "in production systems across hospitals."
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            claims, issues = self._run_claim(
+                Path(directory),
+                "adoption",
+                "counter",
+                quote=quote,
+                excerpt=quote,
+            )
+
+        self.assertEqual(len(claims), 1)
+        self.assertEqual(issues, [])
+
+    def test_maturity_rejects_research_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            claims, issues = self._run_claim(Path(directory), "research", "counter")
+
+        self.assertEqual(claims, [])
+        self.assertEqual([issue["code"] for issue in issues], ["invalid_claim"])
+
+    def test_maturity_rejects_standard_without_standard_fact(self) -> None:
+        quote = (
+            "Quantum error correction with surface codes outperformed traditional "
+            "methods in laboratory measurements."
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            claims, issues = self._run_claim(
+                Path(directory),
+                "standard",
+                "counter",
+                quote=quote,
+                excerpt=quote,
+            )
+
+        self.assertEqual(claims, [])
+        self.assertEqual(
+            [issue["code"] for issue in issues],
+            ["insufficient_maturity_evidence"],
+        )
+
+    def test_maturity_quote_cues_are_kind_specific(self) -> None:
+        self.assertTrue(
+            _maturity_quote_supports_kind(
+                "standard", "The IEEE standard was published and adopted."
+            )
+        )
+        self.assertFalse(
+            _maturity_quote_supports_kind(
+                "standard", "The standard GPU was evaluated in a laboratory."
+            )
+        )
+        self.assertTrue(
+            _maturity_quote_supports_kind(
+                "market", "Multiple vendors offer commercial products."
+            )
+        )
+        self.assertTrue(
+            _maturity_quote_supports_kind(
+                "adoption", "GPUs are the go-to accelerator for HPC workloads."
+            )
+        )
+        self.assertFalse(
+            _maturity_quote_supports_kind(
+                "standard", "Standardization remains a pressing challenge."
+            )
+        )
+        self.assertFalse(
+            _maturity_quote_supports_kind(
+                "adoption",
+                "The deployment of 5G networks expanded applications for IoT.",
+                "Internet of Things (IoT)",
+            )
+        )
+        self.assertFalse(
+            _maturity_quote_supports_kind(
+                "adoption",
+                "NVIDIA GPUs' built-in power sensor is widely used in research.",
+                "GPUs",
+            )
+        )
+        self.assertTrue(
+            _maturity_quote_supports_kind(
+                "adoption",
+                "Case studies document successful IoT implementations in utilities.",
+                "Internet of Things (IoT)",
+            )
+        )
+        self.assertTrue(
+            _maturity_quote_supports_kind(
+                "adoption",
+                "Internet banking has an essential role in modern financial services.",
+                "Internet banking",
+            )
+        )
+        self.assertTrue(
+            _maturity_quote_supports_kind(
+                "adoption",
+                "GPU has emerged as the go-to accelerator for HPC workloads.",
+                "GPUs",
+            )
+        )
+
+    def test_maturity_accepts_general_present_tense_adoption_relations(self) -> None:
+        examples = (
+            (
+                "Industrial plants integrate digital twins into maintenance workflows.",
+                "digital twins",
+            ),
+            (
+                "Flexible sensors underpin commercial wearable devices.",
+                "flexible sensors",
+            ),
+            (
+                "Additive manufacturing is applied in aerospace and healthcare.",
+                "additive manufacturing",
+            ),
+            (
+                "Collaborative robots are used for assembly and warehouse logistics.",
+                "collaborative robots",
+            ),
+        )
+        for quote, term in examples:
+            with self.subTest(quote=quote):
+                self.assertTrue(
+                    _maturity_quote_supports_kind("adoption", quote, term)
+                )
+
+    def test_maturity_rejects_general_prospective_relations(self) -> None:
+        for modal in ("can", "could", "may", "will"):
+            quote = f"Digital twins {modal} be deployed across industrial plants."
+            with self.subTest(modal=modal):
+                self.assertFalse(
+                    _maturity_quote_supports_kind(
+                        "adoption", quote, "digital twins"
+                    )
+                )
+
+    def test_maturity_rejects_negated_widespread_adoption(self) -> None:
+        self.assertFalse(
+            _maturity_quote_supports_kind(
+                "adoption",
+                "Social robots are not widely deployed in clinical environments.",
+                "social robots",
+            )
+        )
+
+    def test_maturity_rejects_support_direction(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            claims, issues = self._run_claim(Path(directory), "adoption", "support")
+
+        self.assertEqual(claims, [])
+        self.assertEqual([issue["code"] for issue in issues], ["invalid_claim"])
+
+    def test_unknown_purpose_is_rejected_before_work(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row("c1", 1, "openalex", 1)]
+            task = make_task_row(
+                "c1", docs, purpose=EVIDENCE_PURPOSE_MATURITY
+            )
+            task["purpose"] = "unknown-purpose"
+            plan = build_input(root, [task], [run_coverage_row("c1", task)])
+            with self.assertRaisesRegex(ValueError, "unsupported evidence purpose"):
+                run_with_fake(
+                    plan, root / "work", root / "out",
+                    FakeGenerator(lambda prompt: "{}"),
+                )
+            self.assertFalse((root / "work").exists())
 
 
 if __name__ == "__main__":

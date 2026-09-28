@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -30,9 +31,12 @@ from .evidence_input_plan import (
 from .evidence_term_policy import text_supports_matched_term
 
 LABELING_EVIDENCE_LLM_PLAN_VERSION = "labeling-evidence-llm-plan-v8"
+EVIDENCE_PURPOSE_GENERAL = "general_evidence"
+EVIDENCE_PURPOSE_MATURITY = "maturity_rubric"
 
 CUTOFF_ISO = LABELING_CUTOFF_DATE.isoformat()
 MAX_PASSAGE_CHARS = 3000
+MATURITY_PASSAGE_MAX_CHARS = 1200
 CHUNK_OVERLAP_CHARS = 500
 CHUNK_STEP_CHARS = MAX_PASSAGE_CHARS - CHUNK_OVERLAP_CHARS
 MAX_DOCUMENTS_PER_TASK = 6
@@ -46,6 +50,42 @@ COVERAGE_FILENAME = "coverage.jsonl"
 LLM_PLAN_MANIFEST_FILENAME = "manifest.json"
 
 _CONNECTOR_BY_CLASS = {"scientific": "openalex", "industry": "mediacloud"}
+_MATURITY_STRONG_PASSAGE_CUES = (
+    "adopted", "adoption", "deployed", "deployment", "widely used",
+    "widespread", "in production", "production use", "industrial use",
+    "commercially available", "market share", "multiple vendors",
+    "multiple suppliers", "adopted standard", "published standard",
+    "successful implementation", "primary driver of uptake",
+    "go to accelerator", "commonly used", "used across",
+    "critical role", "essential role",
+)
+_MATURITY_CONTEXT_PASSAGE_CUES = (
+    "implementation", "infrastructure", "operational", "commercial",
+    "standardized", "standardised", "uptake", "penetration",
+    "integral component", "rely heavily",
+)
+_MATURITY_PASSAGE_CUE_WEIGHTS = {
+    "successful implementation": 12,
+    "primary driver of uptake": 12,
+    "go to accelerator": 12,
+    "widely used": 10,
+    "widespread": 10,
+    "adopted": 9,
+    "adoption": 9,
+    "deployed": 9,
+    "deployment": 9,
+    "in production": 9,
+    "production use": 9,
+    "industrial use": 9,
+    "commercially available": 9,
+    "penetration": 8,
+    "critical role": 8,
+    "essential role": 8,
+}
+_MATURITY_PASSAGE_NEGATIVE_CUES = (
+    "aim of", "can ensure", "challenge", "discussed", "future prospect",
+    "future", "influence", "objective", "potential", "promising", "proposed",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,6 +430,119 @@ def select_passage(
     return text, offset, offset + len(text), True, source_sha, passage_sha
 
 
+def maturity_text_supports_term(text: str, matched_term: str) -> bool:
+    """Allow only aliases explicitly written in parentheses in reviewed term."""
+
+    if text_supports_matched_term(text, matched_term):
+        return True
+    text_tokens = frozenset(_normalize_text(text).split())
+    term_tokens = _normalize_text(re.sub(r"\([^)]*\)", " ", matched_term)).split()
+    if len(term_tokens) == 1:
+        token = term_tokens[0]
+        if (
+            len(token) > 3
+            and token.endswith("s")
+            and (
+                not token.endswith(("ss", "us", "is"))
+                or token in {"apus", "cpus", "gpus", "npus", "tpus"}
+            )
+            and token[:-1] in text_tokens
+        ):
+            return True
+    aliases = re.findall(r"\(([A-Za-zА-Яа-я0-9][A-Za-zА-Яа-я0-9-]{1,14})\)", matched_term)
+    return any(_normalize_text(alias) in text_tokens for alias in aliases)
+
+
+def select_maturity_passage(
+    excerpt: str, matched_term: str
+) -> tuple[str, int, int, bool, str, str]:
+    """Pick a compact verbatim window around an explicit maturity cue."""
+
+    source_sha = hashlib.sha256(excerpt.encode("utf-8")).hexdigest()
+    boundaries = [0]
+    boundaries.extend(
+        match.end() for match in re.finditer(r"(?<=[.!?])\s+", excerpt)
+    )
+    if boundaries[-1] != len(excerpt):
+        boundaries.append(len(excerpt))
+    spans: list[tuple[int, int]] = []
+    for start, end in zip(boundaries, boundaries[1:], strict=False):
+        while start < end and excerpt[start].isspace():
+            start += 1
+        while end > start and excerpt[end - 1].isspace():
+            end -= 1
+        if start < end:
+            spans.append((start, end))
+
+    candidates: list[tuple[tuple[int, int, int, int, int], int, int]] = []
+    for cue_index, (cue_start, cue_end) in enumerate(spans):
+        sentence = _normalize_text(excerpt[cue_start:cue_end])
+        strong = sum(cue in sentence for cue in _MATURITY_STRONG_PASSAGE_CUES)
+        context = sum(cue in sentence for cue in _MATURITY_CONTEXT_PASSAGE_CUES)
+        if not strong and not context:
+            continue
+        for radius in range(4):
+            first = max(0, cue_index - radius)
+            last = min(len(spans) - 1, cue_index + radius)
+            start = spans[first][0]
+            end = spans[last][1]
+            text = excerpt[start:end]
+            if len(text) > MATURITY_PASSAGE_MAX_CHARS:
+                continue
+            if not maturity_text_supports_term(text, matched_term):
+                continue
+            normalized = _normalize_text(text)
+            total_strong = sum(
+                cue in normalized for cue in _MATURITY_STRONG_PASSAGE_CUES
+            )
+            total_context = sum(
+                cue in normalized for cue in _MATURITY_CONTEXT_PASSAGE_CUES
+            )
+            maturity_weight = max(
+                (
+                    weight
+                    for cue, weight in _MATURITY_PASSAGE_CUE_WEIGHTS.items()
+                    if cue in normalized
+                ),
+                default=0,
+            )
+            if (
+                "successful" in normalized
+                and (
+                    "implementation" in normalized
+                    or "implementations" in normalized
+                )
+            ):
+                maturity_weight = max(maturity_weight, 12)
+            maturity_weight -= 6 * sum(
+                cue in normalized for cue in _MATURITY_PASSAGE_NEGATIVE_CUES
+            )
+            candidates.append((
+                (
+                    -maturity_weight,
+                    len(text),
+                    -total_strong,
+                    -total_context,
+                    start,
+                ),
+                start,
+                end,
+            ))
+    if not candidates:
+        return select_passage(excerpt, matched_term)
+    candidates.sort(key=lambda item: item[0])
+    _, start, end = candidates[0]
+    passage = excerpt[start:end]
+    return (
+        passage,
+        start,
+        end,
+        start != 0 or end != len(excerpt),
+        source_sha,
+        hashlib.sha256(passage.encode("utf-8")).hexdigest(),
+    )
+
+
 def _claim_schema() -> dict[str, Any]:
     kinds = sorted(item.value for item in ClaimType)
     directions = sorted(item.value for item in EvidenceDirection)
@@ -453,8 +606,16 @@ def build_evidence_prompt(task: Mapping[str, Any]) -> str:
     """Render the exact bilingual Evidence LLM prompt for one task."""
 
     documents = task["documents"]
+    purpose = task.get("purpose", EVIDENCE_PURPOSE_GENERAL)
+    if purpose not in (EVIDENCE_PURPOSE_GENERAL, EVIDENCE_PURPOSE_MATURITY):
+        raise ValueError(f"unsupported evidence purpose {purpose!r}")
     lines = [
-        "Найди проверяемые факты о технологии в приведённых ниже фрагментах.",
+        (
+            "Найди только проверяемые факты зрелости технологии в приведённых "
+            "ниже фрагментах."
+            if purpose == EVIDENCE_PURPOSE_MATURITY
+            else "Найди проверяемые факты о технологии в приведённых ниже фрагментах."
+        ),
         f"candidate_id: {task['candidate_id']}",
         "",
         "Правила:",
@@ -483,6 +644,36 @@ def build_evidence_prompt(task: Mapping[str, Any]) -> str:
         "- Маркетинговое утверждение получает kind=promotional_claim.",
         "- direction=support означает evidence слабого сигнала; direction=counter",
         "  означает evidence зрелости, хайпа или шума.",
+    ]
+    if purpose == EVIDENCE_PURPOSE_MATURITY:
+        lines.extend([
+            "- Для этой задачи разрешены только kind=standard, adoption или market",
+            "  и только direction=counter.",
+            "- standard означает действующий или опубликованный применяемый стандарт;",
+            "  предложение стандарта, roadmap или framework без принятия не подходит.",
+            "- adoption означает фактическое промышленное, серийное, массовое или",
+            "  производственное внедрение. Исследование намерений, потенциала,",
+            "  симуляция, лабораторный прототип или единичный pilot не подходят.",
+            "- market означает сформированный рынок или несколько независимых",
+            "  поставщиков. Прогноз, market opportunity или ожидаемый рост не подходят.",
+            "- Факт только об исследовании, прототипе, pilot, proposal или возможном",
+            "  применении не доказывает зрелость: для такого документа верни [].",
+            "- Сама quote обязана прямо содержать принятый стандарт, adoption/deployment,",
+            "  production/commercial use или сформированный рынок. Нельзя выводить",
+            "  зрелость только из результатов эксперимента или общих преимуществ.",
+            "- Признак зрелости должен относиться к самому matched_term. Deployment",
+            "  соседней технологии, использование компонента, датчика или приложения",
+            "  на базе matched_term не доказывает зрелость matched_term: верни [].",
+            "- Предпочитай форму «matched_term is used/deployed/adopted»,",
+            "  «adoption/deployment of matched_term» или измеренные penetration/uptake",
+            "  самого matched_term. Не подменяй субъект факта близким существительным.",
+            "- Измеренные penetration, uptake, active users или фактическое регулярное",
+            "  использование matched_term подтверждают adoption, даже если показатель",
+            "  ниже среднего. Прогноз и намерение использовать не подтверждают его.",
+            "- Если explanation_ru говорит, что зрелость, внедрение, стандарт или рынок",
+            "  не подтверждены, claims для этого документа обязан быть [].",
+        ])
+    lines.extend([
         "- Верни только JSON по схеме, без пояснений вокруг JSON.",
         "",
         "Output JSON schema:",
@@ -492,7 +683,7 @@ def build_evidence_prompt(task: Mapping[str, Any]) -> str:
         + "; ".join(
             f"{doc['document_id']}: {doc['matched_term']}" for doc in documents
         ),
-    ]
+    ])
     for doc in documents:
         lines.extend([
             "",
@@ -540,6 +731,13 @@ def build_evidence_llm_plan(
     path = Path(input_dir)
     manifest, documents, coverage, digests = _load_input(path)
     bundle_id = manifest["bundle_id"]
+    selection_policy = manifest.get("selection_policy")
+    purpose = (
+        EVIDENCE_PURPOSE_MATURITY
+        if isinstance(selection_policy, dict)
+        and selection_policy.get("mode") == "maturity-rubric-input-v1"
+        else EVIDENCE_PURPOSE_GENERAL
+    )
     by_candidate = _validate(documents, coverage)
     coverage_by_id = {row["candidate_id"]: row for row in coverage}
 
@@ -583,7 +781,12 @@ def build_evidence_llm_plan(
         task_documents = []
         for row in rows:
             excerpt = row["excerpt"]
-            passage, start, end, truncated, source_sha, passage_sha = select_passage(
+            selector = (
+                select_maturity_passage
+                if purpose == EVIDENCE_PURPOSE_MATURITY
+                else select_passage
+            )
+            passage, start, end, truncated, source_sha, passage_sha = selector(
                 excerpt, row["matched_term"]
             )
             if excerpt[start:end] != passage:
@@ -591,7 +794,12 @@ def build_evidence_llm_plan(
                     f"candidate {candidate_id!r} passage offsets do not restore "
                     f"document {row['document_id']!r}"
                 )
-            if not text_supports_matched_term(passage, row["matched_term"]):
+            term_supported = (
+                maturity_text_supports_term(passage, row["matched_term"])
+                if purpose == EVIDENCE_PURPOSE_MATURITY
+                else text_supports_matched_term(passage, row["matched_term"])
+            )
+            if not term_supported:
                 totals["excluded_ineligible_passages"] += 1
                 continue
             task_documents.append({
@@ -632,7 +840,11 @@ def build_evidence_llm_plan(
             })
             totals["no_input_candidates"] += 1
             continue
-        stub = {"candidate_id": candidate_id, "documents": task_documents}
+        stub = {
+            "candidate_id": candidate_id,
+            "documents": task_documents,
+            "purpose": purpose,
+        }
         prompt = build_evidence_prompt(stub)
         prompt_chars = len(prompt)
         prompt_sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
@@ -645,7 +857,7 @@ def build_evidence_llm_plan(
             [(doc["passage_start"], doc["passage_end"]) for doc in task_documents],
             prompt_sha,
         )
-        task_rows.append({
+        task_row = {
             "task_id": task_id,
             "candidate_id": candidate_id,
             "documents": task_documents,
@@ -654,7 +866,10 @@ def build_evidence_llm_plan(
             "estimated_input_tokens": estimate,
             "input_manifest_sha256": digests["manifest.json"]["sha256"],
             "prompt_sha256": prompt_sha,
-        })
+        }
+        if purpose == EVIDENCE_PURPOSE_MATURITY:
+            task_row["purpose"] = purpose
+        task_rows.append(task_row)
         scientific = sum(1 for doc in task_documents if doc["source_class"] == "scientific")
         industry = len(task_documents) - scientific
         coverage_rows.append({
@@ -720,6 +935,8 @@ def build_evidence_llm_plan(
             for name, payload in files.items()
         },
     }
+    if purpose == EVIDENCE_PURPOSE_MATURITY:
+        manifest_out["purpose"] = purpose
     files[LLM_PLAN_MANIFEST_FILENAME] = (
         json.dumps(manifest_out, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")

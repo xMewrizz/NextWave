@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import shutil
 import tempfile
 from collections.abc import Callable, Mapping
@@ -35,6 +36,8 @@ from . import evidence_llm_plan as plan_module
 from .contracts import LABELING_CUTOFF_DATE
 from .evidence_llm_plan import (
     EVIDENCE_CLAIM_SCOPES,
+    EVIDENCE_PURPOSE_GENERAL,
+    EVIDENCE_PURPOSE_MATURITY,
     LABELING_EVIDENCE_LLM_PLAN_VERSION,
     MAX_CLAIMS_PER_DOCUMENT,
     MAX_DOCUMENTS_PER_TASK,
@@ -42,14 +45,14 @@ from .evidence_llm_plan import (
 )
 from .evidence_term_policy import text_supports_matched_term
 
-LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v11"
+LABELING_EVIDENCE_LLM_EXECUTOR_VERSION = "labeling-evidence-llm-executor-v12"
 LABELING_EVIDENCE_LLM_WORK_VERSION = "labeling-evidence-llm-work-v5"
 LABELING_EVIDENCE_LLM_CACHE_VERSION = "labeling-evidence-llm-cache-v5"
 LABELING_EVIDENCE_LLM_RESULT_VERSION = "labeling-evidence-llm-result-v5"
 
 EVIDENCE_MAX_OUTPUT_TOKENS = 2000
 EVIDENCE_CONCURRENCY = 3
-EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v10-specific-core"
+EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v11-general-maturity-relation"
 QUALIFICATION_EVIDENCE_PROVIDER = "yandex"
 QUALIFICATION_EVIDENCE_MODEL = "YandexGPT Pro 5.1"
 EVIDENCE_RESPONSE_JSON_SCHEMA = {
@@ -316,6 +319,7 @@ _TASK_KEYS = frozenset({
     "input_manifest_sha256",
     "prompt_sha256",
 })
+_TASK_KEYS_WITH_PURPOSE = _TASK_KEYS | {"purpose"}
 
 _TASK_DOCUMENT_KEYS = frozenset({
     "document_id",
@@ -347,8 +351,11 @@ def _validate_task(
     label = f"tasks.jsonl line {lineno}"
     if not isinstance(task, dict):
         raise ValueError(f"{label} must be an object")
-    if set(task) != set(_TASK_KEYS):
+    if set(task) not in (set(_TASK_KEYS), set(_TASK_KEYS_WITH_PURPOSE)):
         raise ValueError(f"{label} holds unexpected task keys")
+    purpose = task.get("purpose", EVIDENCE_PURPOSE_GENERAL)
+    if purpose not in (EVIDENCE_PURPOSE_GENERAL, EVIDENCE_PURPOSE_MATURITY):
+        raise ValueError(f"{label} has an unsupported evidence purpose")
     task_id = _require_text(task.get("task_id"), f"{label} task_id")
     candidate_id = _require_text(task.get("candidate_id"), f"{label} candidate_id")
     documents = task.get("documents")
@@ -389,7 +396,12 @@ def _validate_task(
             raise ValueError(f"{label} passage must be a non-empty string")
         if len(passage) > 3000:
             raise ValueError(f"{label} passage exceeds 3000 characters")
-        if not text_supports_matched_term(passage, doc["matched_term"]):
+        term_supported = (
+            plan_module.maturity_text_supports_term(passage, doc["matched_term"])
+            if purpose == EVIDENCE_PURPOSE_MATURITY
+            else text_supports_matched_term(passage, doc["matched_term"])
+        )
+        if not term_supported:
             raise ValueError(
                 f"{label} passage cannot satisfy the claim lexical gate "
                 f"for {document_id!r}"
@@ -416,7 +428,11 @@ def _validate_task(
         _check_date(doc.get("published_at"), label)
     if ordered != list(range(1, len(documents) + 1)):
         raise ValueError(f"{label} final_rank must form 1..N without gaps")
-    prompt = build_evidence_prompt({"candidate_id": candidate_id, "documents": documents})
+    prompt = build_evidence_prompt({
+        "candidate_id": candidate_id,
+        "documents": documents,
+        "purpose": purpose,
+    })
     if len(prompt) != task.get("prompt_chars"):
         raise ValueError(f"{label} prompt_chars diverges from the rebuilt prompt")
     prompt_sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
@@ -436,7 +452,14 @@ def _validate_task(
     )
     if expected_id != task_id:
         raise ValueError(f"{label} task_id does not recompute")
-    return {"task_id": task_id, "candidate_id": candidate_id, "documents": documents}
+    validated = {
+        "task_id": task_id,
+        "candidate_id": candidate_id,
+        "documents": documents,
+    }
+    if purpose == EVIDENCE_PURPOSE_MATURITY:
+        validated["purpose"] = purpose
+    return validated
 
 
 def _validate(
@@ -696,6 +719,254 @@ def _validated_missing_components(
     return components
 
 
+_MATURITY_QUOTE_CUES = {
+    "standard": (
+        "adopted standard",
+        "approved standard",
+        "published standard",
+        "ratified standard",
+        "standardized",
+        "standardised",
+        "standardization",
+        "standardisation",
+        "iso standard",
+        "iec standard",
+        "ieee standard",
+        "3gpp standard",
+        "rfc standard",
+    ),
+    "adoption": (
+        "adopted",
+        "adoption",
+        "deployed",
+        "deployment",
+        "in production",
+        "production deployment",
+        "industrial deployment",
+        "commercial deployment",
+        "commercially available",
+        "widely used",
+        "used in practice",
+        "currently used",
+        "operational use",
+        "implemented across",
+        "used across",
+        "employed by",
+        "successful implementation",
+        "successful implementations",
+        "primary driver of uptake",
+        "go to accelerator",
+        "integral component",
+        "integral components",
+        "relies heavily on",
+        "rely heavily on",
+        "penetration",
+        "uptake",
+        "critical role",
+        "essential role",
+    ),
+    "market": (
+        "established market",
+        "commercial market",
+        "market share",
+        "multiple vendors",
+        "multiple suppliers",
+        "vendors offer",
+        "commercial products",
+        "commercially available",
+    ),
+}
+
+_ADOPTION_RELATION_PREFIXES = (
+    "adopt",
+    "commercial",
+    "deploy",
+    "employ",
+    "implement",
+    "integrat",
+    "operat",
+    "standardiz",
+    "standardis",
+    "transform",
+    "utiliz",
+    "utilis",
+)
+_ADOPTION_RELATION_FORMS = frozenset({
+    "applied",
+    "applies",
+    "apply",
+    "applying",
+    "based",
+    "embedded",
+    "revolutionized",
+    "revolutionised",
+    "underpin",
+    "underpins",
+    "use",
+    "used",
+    "uses",
+    "using",
+})
+_PROSPECTIVE_ADOPTION_PHRASES = (
+    "can be adopted",
+    "can be applied",
+    "can be deployed",
+    "can be implemented",
+    "can be integrated",
+    "can be used",
+    "could be adopted",
+    "could be applied",
+    "could be deployed",
+    "could be implemented",
+    "could be integrated",
+    "could be used",
+    "future adoption",
+    "future deployment",
+    "may be adopted",
+    "may be applied",
+    "may be deployed",
+    "may be implemented",
+    "may be integrated",
+    "may be used",
+    "potential adoption",
+    "potential deployment",
+    "proposed adoption",
+    "proposed deployment",
+    "will be adopted",
+    "will be applied",
+    "will be deployed",
+    "will be implemented",
+    "will be integrated",
+    "will be used",
+)
+
+
+def _term_alias_token_sequences(matched_term: str) -> list[list[str]]:
+    sequences: list[list[str]] = []
+    full_without_parentheses = re.sub(r"\([^)]*\)", " ", matched_term)
+    full_tokens = _component_tokens(full_without_parentheses)
+    if full_tokens:
+        sequences.append(full_tokens)
+    for alias in re.findall(
+        r"\(([A-Za-zА-Яа-я0-9][A-Za-zА-Яа-я0-9-]{1,14})\)", matched_term
+    ):
+        tokens = _component_tokens(alias)
+        if tokens and tokens not in sequences:
+            sequences.append(tokens)
+    for sequence in list(sequences):
+        last = sequence[-1]
+        if (
+            len(last) > 3
+            and last.endswith("s")
+            and (
+                not last.endswith(("ss", "us", "is"))
+                or last in {"apus", "cpus", "gpus", "npus", "tpus"}
+            )
+        ):
+            singular = [*sequence[:-1], last[:-1]]
+            if singular not in sequences:
+                sequences.append(singular)
+    return sequences
+
+
+def _sequence_positions(tokens: list[str], sequence: list[str]) -> list[tuple[int, int]]:
+    width = len(sequence)
+    return [
+        (index, index + width)
+        for index in range(len(tokens) - width + 1)
+        if tokens[index:index + width] == sequence
+    ]
+
+
+def _adoption_relation_is_explicit(quote: str, matched_term: str) -> bool:
+    tokens = _component_tokens(quote)
+    aliases = _term_alias_token_sequences(matched_term)
+    alias_spans = [
+        span for alias in aliases for span in _sequence_positions(tokens, alias)
+    ]
+    if not alias_spans:
+        return False
+    cue_sequences = [
+        _component_tokens(cue) for cue in _MATURITY_QUOTE_CUES["adoption"]
+    ]
+    cue_spans = [
+        span for cue in cue_sequences for span in _sequence_positions(tokens, cue)
+    ]
+    cue_spans.extend(
+        (index, index + 1)
+        for index, token in enumerate(tokens)
+        if token in _ADOPTION_RELATION_FORMS
+        or any(token.startswith(prefix) for prefix in _ADOPTION_RELATION_PREFIXES)
+    )
+    blockers = {
+        "application", "applications", "component", "components", "device",
+        "devices", "method", "methods", "network", "networks", "sensor",
+        "sensors", "system", "systems", "tool", "tools",
+    }
+    for alias_start, alias_end in alias_spans:
+        if (
+            alias_start > 0
+            and tokens[alias_start - 1] == "successful"
+            and alias_end < len(tokens)
+            and tokens[alias_end] in {"implementation", "implementations"}
+        ):
+            return True
+        for cue_start, cue_end in cue_spans:
+            if cue_end <= alias_start:
+                between = tokens[cue_end:alias_start]
+            elif alias_end <= cue_start:
+                between = tokens[alias_end:cue_start]
+            else:
+                between = []
+            if len(between) <= 6 and not blockers.intersection(between):
+                return True
+        following = tokens[alias_end:alias_end + 8]
+        if following[:4] == ["has", "emerged", "as", "the"] and (
+            "accelerator" in following or "infrastructure" in following
+        ):
+            return True
+        sentence_tail = tokens[alias_end:alias_end + 25]
+        if "its" in sentence_tail and (
+            "adoption" in sentence_tail
+            or "penetration" in sentence_tail
+            or "uptake" in sentence_tail
+        ):
+            return True
+        joined_tail = " ".join(sentence_tail)
+        if (
+            "critical role" in joined_tail or "essential role" in joined_tail
+        ) and ("modern" in sentence_tail or "infrastructure" in sentence_tail):
+            return True
+    return False
+
+
+def _maturity_quote_supports_kind(
+    kind: str, quote: str, matched_term: str | None = None
+) -> bool:
+    normalized = " ".join(_component_tokens(quote))
+    negative = {
+        "standard": (
+            "proposed standard", "proposal for a standard", "lack of standard",
+            "need for standard", "standardization remain", "standardisation remain",
+        ),
+        "adoption": (
+            "potential for adoption", "adoption still needs", "adoption is not up",
+            "not widely adopted", "not widely deployed", "not widely used",
+            "adoption remains limited", "deployment remains limited",
+            *_PROSPECTIVE_ADOPTION_PHRASES,
+        ),
+        "market": (
+            "market forecast", "market opportunity", "future market",
+        ),
+    }
+    if any(cue in normalized for cue in negative.get(kind, ())):
+        return False
+    has_cue = any(cue in normalized for cue in _MATURITY_QUOTE_CUES.get(kind, ()))
+    if kind == "adoption" and matched_term is not None:
+        return _adoption_relation_is_explicit(quote, matched_term)
+    return has_cue
+
+
 _claim_match_is_sufficient = text_supports_matched_term
 _CORE_IGNORED_TOKENS = frozenset({
     "a", "an", "and", "by", "for", "from", "in", "of", "on", "the", "to", "with"
@@ -708,6 +979,7 @@ def _claim_scope_normalization(
     *,
     scope: str,
     missing_components: list[str],
+    allow_explicit_alias: bool = False,
 ) -> tuple[str, list[str]] | None:
     term_tokens = _component_tokens(matched_term)
     quote_tokens = _component_tokens(quote)
@@ -718,6 +990,12 @@ def _claim_scope_normalization(
         and unique_term <= unique_quote
         and text_supports_matched_term(quote, matched_term)
     )
+    if (
+        allow_explicit_alias
+        and not full_supported
+        and plan_module.maturity_text_supports_term(quote, matched_term)
+    ):
+        full_supported = True
     if full_supported:
         if scope == "full_candidate" or not missing_components:
             return "full_candidate", []
@@ -834,8 +1112,13 @@ def _validate_response(
     claims: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
     document_rows: list[dict[str, Any]] = []
-    valid_kinds = {item.value for item in ClaimType}
-    valid_directions = {item.value for item in EvidenceDirection}
+    purpose = task.get("purpose", EVIDENCE_PURPOSE_GENERAL)
+    if purpose == EVIDENCE_PURPOSE_MATURITY:
+        valid_kinds = {"standard", "adoption", "market"}
+        valid_directions = {"counter"}
+    else:
+        valid_kinds = {item.value for item in ClaimType}
+        valid_directions = {item.value for item in EvidenceDirection}
     for record in records:
         document_id = record["document_id"]
         if set(record) != {"document_id", "claims"}:
@@ -892,6 +1175,17 @@ def _validate_response(
                 issues.append(_issue(task, document_id, "invalid_claim"))
                 doc_issues += 1
                 continue
+            if (
+                purpose == EVIDENCE_PURPOSE_MATURITY
+                and not _maturity_quote_supports_kind(
+                    kind, quote, matched_terms[document_id]
+                )
+            ):
+                issues.append(
+                    _issue(task, document_id, "insufficient_maturity_evidence")
+                )
+                doc_issues += 1
+                continue
             local = passage.find(quote)
             if local < 0:
                 issues.append(_issue(task, document_id, "non_verbatim"))
@@ -902,6 +1196,7 @@ def _validate_response(
                 matched_terms[document_id],
                 scope=scope,
                 missing_components=validated_missing,
+                allow_explicit_alias=purpose == EVIDENCE_PURPOSE_MATURITY,
             )
             if normalized_scope is None:
                 issues.append(_issue(task, document_id, "insufficient_term_match"))
@@ -952,6 +1247,9 @@ def _issue(task: Mapping[str, Any], document_id: str | None, code: str) -> dict[
         "duplicate_claim": "claim dropped: repeated claim kept once",
         "insufficient_term_match": (
             "claim dropped: quote does not support the declared matched_term scope"
+        ),
+        "insufficient_maturity_evidence": (
+            "claim dropped: quote lacks an explicit maturity fact"
         ),
         "model_error": "model call failed: transport or provider error",
         "invalid_response": "model answer failed structural validation",

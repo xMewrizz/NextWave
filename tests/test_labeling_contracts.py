@@ -203,6 +203,72 @@ class LabelingContractTests(unittest.TestCase):
 
         self.assertEqual(decision.to_dict()["label"], "marketing_hype")
 
+    def test_reviewed_hype_rejects_single_ab_serial_deployment(self) -> None:
+        with self.assertRaisesRegex(ValueError, "pilot or deployment evidence"):
+            ModelLabelDecision(
+                decision_id="decision-hype-001",
+                candidate_id="team-negative-001",
+                review_round=ReviewRound.PRIMARY,
+                status=ReviewStatus.REVIEWED,
+                label=NegativeClass.MARKETING_HYPE,
+                rationale="Публичная волна, но найдено внедрение.",
+                reviewer_id="reviewer-1",
+                annotated_at=date(2026, 9, 19),
+                cutoff_date=LABELING_CUTOFF_DATE,
+                evidence=(
+                    *hype_evidence(),
+                    make_evidence(4, kind=EvidenceKind.SERIAL_DEPLOYMENT),
+                ),
+                search_coverage=complete_coverage(),
+            )
+
+    def test_counter_pilot_does_not_block_hype(self) -> None:
+        decision = ModelLabelDecision(
+            decision_id="decision-hype-001",
+            candidate_id="team-negative-001",
+            review_round=ReviewRound.PRIMARY,
+            status=ReviewStatus.REVIEWED,
+            label=NegativeClass.MARKETING_HYPE,
+            rationale="Публичная волна; источник прямо отрицает наличие пилота.",
+            reviewer_id="reviewer-1",
+            annotated_at=date(2026, 9, 19),
+            cutoff_date=LABELING_CUTOFF_DATE,
+            evidence=(
+                *hype_evidence(),
+                make_evidence(
+                    4,
+                    kind=EvidenceKind.PILOT,
+                    direction=EvidenceDirection.COUNTER,
+                ),
+            ),
+            search_coverage=complete_coverage(),
+        )
+
+        self.assertEqual(decision.to_dict()["label"], "marketing_hype")
+
+    def test_reviewed_hype_rejects_low_trust_pilot(self) -> None:
+        with self.assertRaisesRegex(ValueError, "pilot or deployment evidence"):
+            ModelLabelDecision(
+                decision_id="decision-hype-001",
+                candidate_id="team-negative-001",
+                review_round=ReviewRound.PRIMARY,
+                status=ReviewStatus.REVIEWED,
+                label=NegativeClass.MARKETING_HYPE,
+                rationale="Публичная волна, но найден пилот.",
+                reviewer_id="reviewer-1",
+                annotated_at=date(2026, 9, 19),
+                cutoff_date=LABELING_CUTOFF_DATE,
+                evidence=(
+                    *hype_evidence(),
+                    make_evidence(
+                        4,
+                        kind=EvidenceKind.PILOT,
+                        trust_level=TrustLevel.D,
+                    ),
+                ),
+                search_coverage=complete_coverage(),
+            )
+
     def test_evidence_after_cutoff_is_rejected(self) -> None:
         future = make_evidence(
             1,

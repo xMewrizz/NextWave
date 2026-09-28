@@ -354,18 +354,25 @@ class ModelLabelDecision:
             )
         technical_origins = {
             item.origin_id
-            for item in self.evidence
+            for item in supporting
             if item.kind in _TECHNICAL_EVIDENCE_KINDS
             and item.trust_level in {TrustLevel.A, TrustLevel.B}
         }
         if len(technical_origins) >= 2:
             raise ValueError("marketing_hype cannot have two independent A/B technical origins")
         if any(
-            item.kind is EvidenceKind.PILOT
-            and item.trust_level in {TrustLevel.A, TrustLevel.B}
-            for item in self.evidence
+            item.kind in {EvidenceKind.PILOT, EvidenceKind.SERIAL_DEPLOYMENT}
+            for item in supporting
         ):
-            raise ValueError("marketing_hype cannot have a confirmed A/B pilot")
+            raise ValueError(
+                "marketing_hype cannot have confirmed pilot or deployment evidence"
+            )
+        if any(
+            item.kind in _MATURE_EVIDENCE_KINDS
+            and item.trust_level in {TrustLevel.A, TrustLevel.B}
+            for item in supporting
+        ):
+            raise ValueError("marketing_hype cannot have confirmed A/B maturity evidence")
 
     def to_dict(self) -> dict[str, Any]:
         return _json_value(asdict(self))

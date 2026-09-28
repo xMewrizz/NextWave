@@ -12,9 +12,12 @@ from pathlib import Path
 from nextwave.contracts import ClaimType
 from nextwave.labeling.contracts import EvidenceDirection
 from nextwave.labeling.evidence_llm_plan import (
+    EVIDENCE_PURPOSE_MATURITY,
     LABELING_EVIDENCE_LLM_PLAN_VERSION,
     build_evidence_prompt,
     export_evidence_llm_plan,
+    maturity_text_supports_term,
+    select_maturity_passage,
     select_passage,
 )
 from nextwave.labeling.evidence_term_policy import text_supports_matched_term
@@ -83,7 +86,11 @@ def coverage_row(candidate: str, count: int, **overrides) -> dict:
 
 
 def build_input(
-    root: Path, documents: list[dict], coverage: list[dict]
+    root: Path,
+    documents: list[dict],
+    coverage: list[dict],
+    *,
+    selection_policy: dict | None = None,
 ) -> Path:
     input_dir = root / "input"
     input_dir.mkdir(parents=True)
@@ -104,6 +111,8 @@ def build_input(
             "coverage.jsonl": digest(coverage_bytes),
         },
     }
+    if selection_policy is not None:
+        manifest["selection_policy"] = selection_policy
     (input_dir / "manifest.json").write_bytes(dump_json(manifest))
     return input_dir
 
@@ -176,6 +185,52 @@ class PassageSelectionTests(unittest.TestCase):
         )
         self.assertEqual(
             source_sha, hashlib.sha256(excerpt.encode("utf-8")).hexdigest()
+        )
+
+    def test_maturity_passage_focuses_on_adoption_sentence(self) -> None:
+        excerpt = (
+            "Internet of Things (IoT) is studied in many papers. "
+            "The method may improve future systems. "
+            "Successful IoT implementations are deployed across energy utilities. "
+            "The deployments reduce downtime in production infrastructure. "
+            "Further research is required."
+        )
+        passage, start, end, truncated, source_sha, passage_sha = (
+            select_maturity_passage(excerpt, "Internet of Things (IoT)")
+        )
+
+        self.assertIn("Successful IoT implementations", passage)
+        self.assertIn("IoT", passage)
+        self.assertLess(len(passage), len(excerpt))
+        self.assertTrue(truncated)
+        self.assertEqual(excerpt[start:end], passage)
+        self.assertEqual(source_sha, hashlib.sha256(excerpt.encode()).hexdigest())
+        self.assertEqual(passage_sha, hashlib.sha256(passage.encode()).hexdigest())
+
+    def test_maturity_passage_falls_back_without_cue(self) -> None:
+        excerpt = "Quantum error correction improves devices in laboratory tests."
+        self.assertEqual(
+            select_maturity_passage(excerpt, "quantum error correction"),
+            select_passage(excerpt, "quantum error correction"),
+        )
+
+    def test_maturity_supports_only_explicit_parenthesized_alias(self) -> None:
+        self.assertTrue(
+            maturity_text_supports_term(
+                "Successful IoT implementations are deployed.",
+                "Internet of Things (IoT)",
+            )
+        )
+        self.assertFalse(
+            maturity_text_supports_term(
+                "Successful IoT implementations are deployed.",
+                "Internet of Things",
+            )
+        )
+        self.assertTrue(
+            maturity_text_supports_term(
+                "GPU has emerged as the go-to accelerator.", "GPUs"
+            )
         )
 
     def test_relevant_tail_beats_generic_head(self) -> None:
@@ -732,6 +787,64 @@ class TaskProvenanceTests(unittest.TestCase):
         self.assertNotIn(
             "labeling.contracts", module_path.read_text(encoding="utf-8")
         )
+
+
+class MaturityPurposeTests(unittest.TestCase):
+    def test_maturity_prompt_rejects_research_as_maturity(self) -> None:
+        prompt = build_evidence_prompt({
+            "candidate_id": "c1",
+            "purpose": EVIDENCE_PURPOSE_MATURITY,
+            "documents": [{
+                "document_id": "d1",
+                "source_class": "scientific",
+                "title": "T",
+                "url": "https://example.org/x",
+                "passage": "Quantum error correction was evaluated in a simulation.",
+                "matched_term": "quantum error correction",
+            }],
+        })
+
+        self.assertIn("только проверяемые факты зрелости", prompt)
+        self.assertIn("kind=standard, adoption или market", prompt)
+        self.assertIn("лабораторный прототип или единичный pilot не подходят", prompt)
+        self.assertIn("только direction=counter", prompt)
+        self.assertIn("Признак зрелости должен относиться к самому matched_term", prompt)
+        self.assertIn("измеренные penetration/uptake", prompt)
+
+    def test_general_prompt_remains_general(self) -> None:
+        prompt = build_evidence_prompt({
+            "candidate_id": "c1",
+            "documents": [{
+                "document_id": "d1",
+                "source_class": "scientific",
+                "title": "T",
+                "url": "https://example.org/x",
+                "passage": "Quantum error correction was evaluated in a simulation.",
+                "matched_term": "quantum error correction",
+            }],
+        })
+
+        self.assertIn("Найди проверяемые факты о технологии", prompt)
+        self.assertNotIn("только проверяемые факты зрелости", prompt)
+
+    def test_maturity_input_marks_tasks_and_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [doc_row("c1", 1, "openalex", 1)]
+            input_dir = build_input(
+                root,
+                docs,
+                [coverage_row("c1", 1)],
+                selection_policy={"mode": "maturity-rubric-input-v1"},
+            )
+            paths = export_evidence_llm_plan(
+                input_dir=input_dir, output_dir=root / "out"
+            )
+            task = read_jsonl(paths.tasks)[0]
+            manifest = json.loads(paths.manifest.read_text(encoding="utf-8"))
+
+        self.assertEqual(task["purpose"], EVIDENCE_PURPOSE_MATURITY)
+        self.assertEqual(manifest["purpose"], EVIDENCE_PURPOSE_MATURITY)
 
 
 if __name__ == "__main__":

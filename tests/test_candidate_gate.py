@@ -233,6 +233,10 @@ class CandidateGateTests(unittest.TestCase):
         result = gate(generate).evaluate(scope, batch, documents)
         self.assertEqual(result.decisions[0].decision, GateDecision.REVIEW)
         self.assertEqual(result.issues[0].code, GateIssueCode.MODEL_ERROR)
+        self.assertEqual(
+            result.issues[0].message, "candidate gate model request failed"
+        )
+        self.assertNotIn("provider unavailable", result.issues[0].message)
         self.assertEqual(result.accepted_proposal_ids, ())
 
     def test_malformed_response_cannot_accept_proposals(self) -> None:

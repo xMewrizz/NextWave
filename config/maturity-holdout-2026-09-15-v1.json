@@ -1,0 +1,32 @@
+{
+  "schema_version": "maturity-holdout-selection-v1",
+  "cutoff_date": "2026-09-15",
+  "selection_seed": "maturity-holdout-v1",
+  "selection_rule": "two lowest sha256(seed|candidate_id) values per domain after excluding development candidates and candidates without maturity tasks",
+  "development_candidate_ids": [
+    "team-negative-003",
+    "team-negative-005",
+    "team-negative-019",
+    "team-negative-024",
+    "team-negative-033",
+    "team-negative-035",
+    "team-negative-050",
+    "team-negative-054",
+    "team-negative-070",
+    "team-negative-084"
+  ],
+  "holdout": [
+    {"candidate_id": "team-negative-010", "domain": "Edge", "selection_hash_prefix": "2c28f918abad"},
+    {"candidate_id": "team-negative-013", "domain": "Edge", "selection_hash_prefix": "30868391e8e0"},
+    {"candidate_id": "team-negative-022", "domain": "Защита ИИ", "selection_hash_prefix": "00283fda0e54"},
+    {"candidate_id": "team-negative-031", "domain": "Защита ИИ", "selection_hash_prefix": "0c02f0830780"},
+    {"candidate_id": "team-negative-049", "domain": "Индустриальный ИИ", "selection_hash_prefix": "05e91544906f"},
+    {"candidate_id": "team-negative-037", "domain": "Индустриальный ИИ", "selection_hash_prefix": "1a80ea756821"},
+    {"candidate_id": "team-negative-061", "domain": "Инфраструктура ИИ", "selection_hash_prefix": "14b2ddc279ff"},
+    {"candidate_id": "team-negative-062", "domain": "Инфраструктура ИИ", "selection_hash_prefix": "1a2ca68cd145"},
+    {"candidate_id": "team-negative-071", "domain": "Роботы", "selection_hash_prefix": "143f4b2cd1d1"},
+    {"candidate_id": "team-negative-069", "domain": "Роботы", "selection_hash_prefix": "1e046d466d09"},
+    {"candidate_id": "team-negative-097", "domain": "Финтех", "selection_hash_prefix": "032a54e98d1f"},
+    {"candidate_id": "team-negative-096", "domain": "Финтех", "selection_hash_prefix": "07392f91e48d"}
+  ]
+}

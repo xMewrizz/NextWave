@@ -1,0 +1,80 @@
+{
+  "schema_version": "maturity-holdout-gold-v2",
+  "cutoff_date": "2026-09-15",
+  "selection": "config/maturity-holdout-2026-09-15-v2.json",
+  "purpose": "Frozen diagnostic labels created before any model run on this holdout. Verdicts refer only to the fixed passages and are not training labels or global claims about a technology.",
+  "items": [
+    {
+      "candidate_id": "team-negative-002",
+      "verdict": "absent",
+      "rationale": "The passages describe remaining practical-use barriers and directions toward future deployment of in-sensor computing."
+    },
+    {
+      "candidate_id": "team-negative-016",
+      "verdict": "absent",
+      "rationale": "A single chip implementation is described as a step toward future infrastructure and does not establish mature adoption of analogue in-memory computing chips."
+    },
+    {
+      "candidate_id": "team-negative-029",
+      "verdict": "absent",
+      "rationale": "The only passage proposes and studies a new ECTI model rather than proving established use."
+    },
+    {
+      "candidate_id": "team-negative-032",
+      "verdict": "present",
+      "document_id": "document-openalex-d172471748c2617f",
+      "evidence_kind": "adoption",
+      "quote": "This paper presents a real-world implementation and evaluation of an AI-powered cybersecurity mesh deployed across a digital financial ecosystem.",
+      "rationale": "A trust-tier A passage directly reports a six-month real-world deployment of the candidate architecture."
+    },
+    {
+      "candidate_id": "team-negative-046",
+      "verdict": "absent",
+      "rationale": "The passage proposes a new monitoring model in an intelligent-factory setting but does not establish maturity of intelligent factories themselves."
+    },
+    {
+      "candidate_id": "team-negative-048",
+      "verdict": "present",
+      "document_id": "document-openalex-07aa96fb73bf1e3c",
+      "evidence_kind": "adoption",
+      "quote": "The results showed that the use of AI in inventory management systems enhances its accuracy in ordering order itself and overall patient care.",
+      "rationale": "A trust-tier A passage directly discusses observed use and adoption of AI inventory-management systems."
+    },
+    {
+      "candidate_id": "team-negative-051",
+      "verdict": "absent",
+      "rationale": "The passages use optical networks as an experimental environment or discuss proposed AI-agent deployment; they do not directly prove the candidate's market, standard, or adoption maturity."
+    },
+    {
+      "candidate_id": "team-negative-058",
+      "verdict": "absent",
+      "rationale": "The passages use CSI in research methods but do not establish broad operational adoption, a standard, or a formed market for the candidate."
+    },
+    {
+      "candidate_id": "team-negative-075",
+      "verdict": "absent",
+      "rationale": "The passages describe an emerging frontier, a proposed architecture, one validation case, and unexplored deployment rather than mature embodied intelligence."
+    },
+    {
+      "candidate_id": "team-negative-081",
+      "verdict": "absent",
+      "rationale": "The passages describe research frameworks, models, and possible integration rather than established affective-computing adoption."
+    },
+    {
+      "candidate_id": "team-negative-086",
+      "verdict": "present",
+      "document_id": "document-openalex-e2e1067e1c7b9170",
+      "evidence_kind": "adoption",
+      "quote": "This study critically examines UPI adoption patterns, its impact on the retail payment sector, and its influence on consumer buying power through comprehensive data analysis from the National Payments Corporation of India (NPCI).",
+      "rationale": "A trust-tier A passage reports observed adoption patterns and payment-sector impact using operator data."
+    },
+    {
+      "candidate_id": "team-negative-098",
+      "verdict": "present",
+      "document_id": "document-openalex-fe07b6aa83f0ade6",
+      "evidence_kind": "adoption",
+      "quote": "The integration of algorithmic trading with reinforcement learning, termed AI-powered trading, is transforming financial markets.",
+      "rationale": "A trust-tier A passage directly states that the candidate integration is operating at market level."
+    }
+  ]
+}

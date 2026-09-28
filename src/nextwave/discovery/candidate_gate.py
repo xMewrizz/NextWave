@@ -218,6 +218,12 @@ class StructuredCandidateGate:
         model_id = re.sub(r"[^a-z0-9]+", "-", selection.model.casefold()).strip("-")
         self._gate_id = f"{selection.provider.value}-{model_id}-{version}"
 
+    @property
+    def gate_id(self) -> str:
+        """Public immutable identity for preflight checks before a paid call."""
+
+        return self._gate_id
+
     def evaluate(
         self,
         scope: AnalysisScope,
@@ -292,9 +298,9 @@ class StructuredCandidateGate:
         )
         try:
             raw = json.loads(self._generate(prompt))
-        except (RuntimeError, ValueError, TypeError, OSError) as error:
+        except (RuntimeError, ValueError, TypeError, OSError):
             issue = CandidateGateIssue(
-                GateIssueCode.MODEL_ERROR, None, f"{type(error).__name__}: {error}"
+                GateIssueCode.MODEL_ERROR, None, "candidate gate model request failed"
             )
             return _review_all(proposals), (issue,)
         if (

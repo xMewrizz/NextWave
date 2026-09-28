@@ -21,9 +21,25 @@ from .discovery import (
     build_query_resolver_from_environment,
     save_discovery_run,
 )
+from .evaluation import (
+    FEATURE_TABLE_VERSION,
+    MODEL_REPORT_VERSION,
+    TEMPORAL_COUNT_PLAN_VERSION,
+    TEMPORAL_COUNT_RESULT_VERSION,
+    export_feature_table,
+    export_model_report,
+    export_temporal_count_plan,
+    run_temporal_counts,
+)
+from .labeling.corpus_readiness import (
+    LABELING_CORPUS_READINESS_VERSION,
+    export_corpus_readiness,
+)
 from .labeling.enrichment_plan import (
     LABELING_ENRICHMENT_PLAN_VERSION,
+    LABELING_TARGET_ENRICHMENT_PLAN_VERSION,
     export_enrichment_plan,
+    export_target_enrichment_plan,
 )
 from .labeling.enrichment_run import ENRICHMENT_RESULT_VERSION, run_enrichment
 from .labeling.evidence_input_plan import (
@@ -44,6 +60,14 @@ from .labeling.evidence_llm_run import (
 )
 from .labeling.export import export_labeling_bundle
 from .labeling.finalize import LABELING_FINALIZE_VERSION, finalize_labeling_bundle
+from .labeling.hype_input_plan import (
+    HYPE_INPUT_POLICY_VERSION,
+    export_hype_evidence_input,
+)
+from .labeling.maturity_input_plan import (
+    MATURITY_INPUT_POLICY_VERSION,
+    export_maturity_evidence_input,
+)
 from .labeling.media_fetch_run import (
     LABELING_MEDIA_FETCH_RESULT_VERSION,
     run_media_fetch,
@@ -52,6 +76,11 @@ from .labeling.relevance_plan import (
     LABELING_RELEVANCE_PLAN_VERSION,
     export_relevance_plan,
 )
+from .labeling.rubric_audit import (
+    LABELING_RUBRIC_AUDIT_VERSION,
+    export_rubric_audit,
+)
+from .labeling.target_gate import LABELING_TARGET_GATE_VERSION, run_target_gate
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -234,6 +263,22 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="проверенный JSON с короткими поисковыми терминами для organizer positives",
     )
+    target_enrichment_plan = commands.add_parser(
+        "labeling-target-enrichment-plan",
+        help="построить enrichment для нейтральных целевых кандидатов дефицита",
+    )
+    target_enrichment_plan.add_argument(
+        "--candidates",
+        type=Path,
+        required=True,
+        help="JSON labeling-target-candidates-v1 без меток и вердиктов",
+    )
+    target_enrichment_plan.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / LABELING_TARGET_ENRICHMENT_PLAN_VERSION,
+        help="новый каталог target enrichment plan",
+    )
     enrichment_run = commands.add_parser(
         "labeling-enrichment-run",
         help="выполнить план enrichment с возобновляемым work-хранилищем",
@@ -257,6 +302,34 @@ def _build_parser() -> argparse.ArgumentParser:
         help="новый каталог результата",
     )
     enrichment_run.add_argument(
+        "--env-file",
+        type=Path,
+        default=Path("config") / "hackathon.env",
+        help="файл runtime-настроек; переменные процесса имеют приоритет",
+    )
+    target_gate = commands.add_parser(
+        "labeling-target-gate-run",
+        help="проверить grounding нейтральных целей и выполнить Candidate Gate",
+    )
+    target_gate.add_argument(
+        "--plan",
+        type=Path,
+        required=True,
+        help="каталог target enrichment plan",
+    )
+    target_gate.add_argument(
+        "--result",
+        type=Path,
+        required=True,
+        help="полный результат target enrichment",
+    )
+    target_gate.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / LABELING_TARGET_GATE_VERSION,
+        help="новый каталог решений target Gate",
+    )
+    target_gate.add_argument(
         "--env-file",
         type=Path,
         default=Path("config") / "hackathon.env",
@@ -416,11 +489,122 @@ def _build_parser() -> argparse.ArgumentParser:
     evidence_llm_merge.add_argument(
         "--output",
         type=Path,
-        default=Path("data")
-        / "development"
-        / LABELING_EVIDENCE_LLM_MERGED_RESULT_VERSION,
+        default=Path("data") / "development" / LABELING_EVIDENCE_LLM_MERGED_RESULT_VERSION,
         help="новый каталог объединённого результата",
     )
+    rubric_audit = commands.add_parser(
+        "labeling-rubric-audit",
+        help="проверить доказуемость mature/hype без присвоения меток",
+    )
+    rubric_audit.add_argument("--plan", type=Path, required=True)
+    rubric_audit.add_argument("--enrichment-result", type=Path, required=True)
+    rubric_audit.add_argument("--evidence-input", type=Path, required=True)
+    rubric_audit.add_argument("--evidence-result", type=Path, required=True)
+    rubric_audit.add_argument("--relevance", type=Path, required=True)
+    rubric_audit.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / LABELING_RUBRIC_AUDIT_VERSION,
+        help="новый каталог результата",
+    )
+    corpus_readiness = commands.add_parser(
+        "labeling-corpus-readiness",
+        help="проверить готовность корпуса без изменения экспертных меток",
+    )
+    corpus_readiness.add_argument("--adjudication", type=Path, required=True)
+    corpus_readiness.add_argument("--review-queue", type=Path, required=True)
+    corpus_readiness.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / LABELING_CORPUS_READINESS_VERSION,
+        help="новый каталог результата",
+    )
+    maturity_input = commands.add_parser(
+        "labeling-maturity-evidence-input",
+        help="собрать специальный Evidence-вход для проверки зрелости",
+    )
+    maturity_input.add_argument("--plan", type=Path, required=True)
+    maturity_input.add_argument("--audit", type=Path, required=True)
+    maturity_input.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / MATURITY_INPUT_POLICY_VERSION,
+        help="новый каталог результата",
+    )
+    hype_input = commands.add_parser(
+        "labeling-hype-evidence-input",
+        help="собрать Gate-aware Evidence-вход для проверки marketing hype",
+    )
+    hype_input.add_argument("--plan", type=Path, required=True)
+    hype_input.add_argument("--gate", type=Path, required=True)
+    hype_input.add_argument("--evidence-input", type=Path, required=True)
+    hype_input.add_argument("--media-result", type=Path, required=True)
+    hype_input.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / HYPE_INPUT_POLICY_VERSION,
+        help="новый каталог результата",
+    )
+    feature_table = commands.add_parser(
+        "evaluation-feature-table",
+        help="собрать leakage-safe таблицу признаков из frozen corpus",
+    )
+    feature_table.add_argument("--positive", type=Path, required=True)
+    feature_table.add_argument("--positive-enrichment", type=Path, required=True)
+    feature_table.add_argument("--negative-plan", type=Path, required=True)
+    feature_table.add_argument("--negative-enrichment", type=Path, required=True)
+    feature_table.add_argument("--adjudication", type=Path, required=True)
+    feature_table.add_argument(
+        "--temporal-counts",
+        type=Path,
+        default=None,
+        help="complete openalex-temporal-count-result-v4",
+    )
+    feature_table.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / FEATURE_TABLE_VERSION,
+        help="новый каталог таблицы признаков",
+    )
+    model_report = commands.add_parser(
+        "evaluation-model-report",
+        help="обучить baseline/LogReg и выпустить grouped OOF отчёт",
+    )
+    model_report.add_argument("--features", type=Path, required=True)
+    model_report.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / MODEL_REPORT_VERSION,
+        help="новый каталог диагностического отчёта",
+    )
+    count_plan = commands.add_parser(
+        "evaluation-temporal-count-plan",
+        help="собрать offline-план uncapped OpenAlex temporal counts",
+    )
+    count_plan.add_argument("--positive-plan", type=Path, required=True)
+    count_plan.add_argument("--negative-plan", type=Path, required=True)
+    count_plan.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / TEMPORAL_COUNT_PLAN_VERSION,
+    )
+    count_run = commands.add_parser(
+        "evaluation-temporal-count-run",
+        help="выполнить OpenAlex temporal counts с resume и raw snapshots",
+    )
+    count_run.add_argument("--plan", type=Path, required=True)
+    count_run.add_argument("--work", type=Path, required=True)
+    count_run.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / TEMPORAL_COUNT_RESULT_VERSION,
+    )
+    count_run.add_argument(
+        "--env-file",
+        type=Path,
+        default=Path("config") / "hackathon.env",
+    )
+    count_run.add_argument("--max-new-tasks", type=int, default=None)
     return parser
 
 
@@ -561,9 +745,7 @@ def _parse_domain_map(entries: list[str]) -> dict[str, str]:
     for entry in entries:
         run_id, separator, domain = entry.partition("=")
         if not separator or not run_id.strip() or not domain.strip():
-            raise ValueError(
-                f"invalid --domain-map entry {entry!r}; expected RUN_ID=Domain"
-            )
+            raise ValueError(f"invalid --domain-map entry {entry!r}; expected RUN_ID=Domain")
         mapping[run_id.strip()] = domain.strip()
     return mapping
 
@@ -597,9 +779,7 @@ def _run_labeling_export(
     return 0
 
 
-def _run_labeling_enrichment_plan(
-    bundle: Path, output: Path, search_terms: Path | None
-) -> int:
+def _run_labeling_enrichment_plan(bundle: Path, output: Path, search_terms: Path | None) -> int:
     try:
         paths = export_enrichment_plan(
             bundle_dir=bundle,
@@ -611,6 +791,22 @@ def _run_labeling_enrichment_plan(
         return 1
 
     print("План enrichment успешно построен.")
+    print(f"План: {paths.plan}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_labeling_target_enrichment_plan(candidates: Path, output: Path) -> int:
+    try:
+        paths = export_target_enrichment_plan(
+            candidates_file=candidates,
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось построить target enrichment plan: {error}", file=sys.stderr)
+        return 1
+
+    print("Target enrichment plan успешно построен.")
     print(f"План: {paths.plan}")
     print(f"Manifest: {paths.manifest}")
     return 0
@@ -638,9 +834,7 @@ def _run_labeling_finalize(
     return 0
 
 
-def _run_labeling_enrichment_run(
-    plan: Path, work: Path, output: Path, env_file: Path
-) -> int:
+def _run_labeling_enrichment_run(plan: Path, work: Path, output: Path, env_file: Path) -> int:
     try:
         environment = _runtime_environment(env_file)
         paths = run_enrichment(
@@ -658,6 +852,27 @@ def _run_labeling_enrichment_run(
     print(f"Запросы: {paths.request_results}")
     print(f"Документы: {paths.documents}")
     print(f"Покрытие: {paths.coverage}")
+    return 0
+
+
+def _run_labeling_target_gate(plan: Path, result: Path, output: Path, env_file: Path) -> int:
+    try:
+        environment = _runtime_environment(env_file)
+        paths = run_target_gate(
+            plan_dir=plan,
+            result_dir=result,
+            output_dir=output,
+            environment=environment,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось выполнить target Candidate Gate: {error}", file=sys.stderr)
+        return 1
+
+    print("Target Candidate Gate успешно выполнен.")
+    print(f"Решения: {paths.gate_results}")
+    print(f"Grounding: {paths.groundings}")
+    print(f"Проблемы: {paths.issues}")
+    print(f"Manifest: {paths.manifest}")
     return 0
 
 
@@ -681,9 +896,7 @@ def _run_labeling_relevance_plan(plan: Path, result: Path, output: Path) -> int:
     return 0
 
 
-def _run_labeling_media_fetch_run(
-    relevance: Path, result: Path, work: Path, output: Path
-) -> int:
+def _run_labeling_media_fetch_run(relevance: Path, result: Path, work: Path, output: Path) -> int:
     try:
         paths = run_media_fetch(
             relevance_dir=relevance,
@@ -773,13 +986,9 @@ def _run_labeling_evidence_llm_run(
     return 0
 
 
-def _run_labeling_evidence_llm_merge(
-    primary: Path, retry: Path, output: Path
-) -> int:
+def _run_labeling_evidence_llm_merge(primary: Path, retry: Path, output: Path) -> int:
     try:
-        paths = merge_evidence_llm_results(
-            primary_dir=primary, retry_dir=retry, output_dir=output
-        )
+        paths = merge_evidence_llm_results(primary_dir=primary, retry_dir=retry, output_dir=output)
     except (OSError, ValueError) as error:
         print(f"Не удалось объединить Evidence-результаты: {error}", file=sys.stderr)
         return 1
@@ -788,6 +997,179 @@ def _run_labeling_evidence_llm_merge(
     print(f"Утверждения: {paths.claims}")
     print(f"Покрытие: {paths.coverage}")
     print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_labeling_rubric_audit(
+    plan: Path,
+    enrichment_result: Path,
+    evidence_input: Path,
+    evidence_result: Path,
+    relevance: Path,
+    output: Path,
+) -> int:
+    try:
+        paths = export_rubric_audit(
+            plan_dir=plan,
+            enrichment_result_dir=enrichment_result,
+            evidence_input_dir=evidence_input,
+            evidence_result_dir=evidence_result,
+            relevance_dir=relevance,
+            output_dir=output,
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось построить rubric audit: {error}", file=sys.stderr)
+        return 1
+
+    print("Rubric audit успешно построен.")
+    print(f"Кандидаты: {paths.candidates}")
+    print(f"Очередь maturity evidence: {paths.maturity_queue}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_labeling_corpus_readiness(
+    adjudication: Path, review_queue: Path, output: Path
+) -> int:
+    try:
+        paths = export_corpus_readiness(
+            adjudication_dir=adjudication,
+            review_queue_dir=review_queue,
+            output_dir=output,
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось проверить готовность корпуса: {error}", file=sys.stderr)
+        return 1
+
+    print("Готовность корпуса проверена.")
+    print(f"Статусы кандидатов: {paths.candidate_status}")
+    print(f"Дефициты: {paths.deficits}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_labeling_maturity_evidence_input(plan: Path, audit: Path, output: Path) -> int:
+    try:
+        paths = export_maturity_evidence_input(plan_dir=plan, audit_dir=audit, output_dir=output)
+    except (OSError, ValueError) as error:
+        print(f"Не удалось построить maturity evidence input: {error}", file=sys.stderr)
+        return 1
+
+    print("Maturity evidence input успешно построен.")
+    print(f"Документы: {paths.documents}")
+    print(f"Покрытие: {paths.coverage}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_labeling_hype_evidence_input(
+    plan: Path,
+    gate: Path,
+    evidence_input: Path,
+    media_result: Path,
+    output: Path,
+) -> int:
+    try:
+        paths = export_hype_evidence_input(
+            plan_dir=plan,
+            gate_dir=gate,
+            evidence_input_dir=evidence_input,
+            media_result_dir=media_result,
+            output_dir=output,
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось построить hype evidence input: {error}", file=sys.stderr)
+        return 1
+
+    print("Hype evidence input успешно построен.")
+    print(f"Документы: {paths.documents}")
+    print(f"Покрытие: {paths.coverage}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_evaluation_feature_table(
+    positive: Path,
+    positive_enrichment: Path,
+    negative_plan: Path,
+    negative_enrichment: Path,
+    adjudication: Path,
+    temporal_counts: Path | None,
+    output: Path,
+) -> int:
+    try:
+        paths = export_feature_table(
+            positive_dir=positive,
+            positive_enrichment_dir=positive_enrichment,
+            negative_plan_dir=negative_plan,
+            negative_enrichment_dir=negative_enrichment,
+            adjudication_dir=adjudication,
+            temporal_count_dir=temporal_counts,
+            output_dir=output,
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось собрать таблицу признаков: {error}", file=sys.stderr)
+        return 1
+    print("Таблица признаков успешно собрана.")
+    print(f"Признаки: {paths.features}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_evaluation_model_report(features: Path, output: Path) -> int:
+    try:
+        paths = export_model_report(feature_dir=features, output_dir=output)
+    except (OSError, ValueError) as error:
+        print(f"Не удалось построить отчёт модели: {error}", file=sys.stderr)
+        return 1
+    print("Диагностический отчёт модели успешно построен.")
+    print(f"OOF predictions: {paths.predictions}")
+    print(f"Ошибки: {paths.errors}")
+    print(f"Метрики: {paths.report}")
+    print(f"Модель: {paths.model}")
+    return 0
+
+
+def _run_evaluation_temporal_count_plan(
+    positive_plan: Path, negative_plan: Path, output: Path
+) -> int:
+    try:
+        paths = export_temporal_count_plan(
+            positive_plan_dir=positive_plan,
+            negative_plan_dir=negative_plan,
+            output_dir=output,
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось собрать temporal count plan: {error}", file=sys.stderr)
+        return 1
+    print("Temporal count plan успешно собран.")
+    print(f"План: {paths.plan}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_evaluation_temporal_count_run(
+    plan: Path,
+    work: Path,
+    output: Path,
+    env_file: Path,
+    max_new_tasks: int | None,
+) -> int:
+    try:
+        paths = run_temporal_counts(
+            plan_dir=plan,
+            work_dir=work,
+            output_dir=output,
+            environment=_runtime_environment(env_file),
+            max_new_tasks=max_new_tasks,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось выполнить temporal counts: {error}", file=sys.stderr)
+        return 1
+    print("Temporal counts выполнены.")
+    print(f"Counts: {paths['count_results.jsonl']}")
+    print(f"Признаки: {paths['candidate_temporal_features.jsonl']}")
+    print(f"Manifest: {paths['manifest.json']}")
     return 0
 
 
@@ -829,14 +1211,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_labeling_enrichment_plan(
             arguments.bundle, arguments.output, arguments.search_terms
         )
+    if arguments.command == "labeling-target-enrichment-plan":
+        return _run_labeling_target_enrichment_plan(arguments.candidates, arguments.output)
     if arguments.command == "labeling-enrichment-run":
         return _run_labeling_enrichment_run(
             arguments.plan, arguments.work, arguments.output, arguments.env_file
         )
-    if arguments.command == "labeling-relevance-plan":
-        return _run_labeling_relevance_plan(
-            arguments.plan, arguments.result, arguments.output
+    if arguments.command == "labeling-target-gate-run":
+        return _run_labeling_target_gate(
+            arguments.plan,
+            arguments.result,
+            arguments.output,
+            arguments.env_file,
         )
+    if arguments.command == "labeling-relevance-plan":
+        return _run_labeling_relevance_plan(arguments.plan, arguments.result, arguments.output)
     if arguments.command == "labeling-media-fetch-run":
         return _run_labeling_media_fetch_run(
             arguments.relevance, arguments.result, arguments.work, arguments.output
@@ -866,6 +1255,57 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "labeling-evidence-llm-merge":
         return _run_labeling_evidence_llm_merge(
             arguments.primary, arguments.retry, arguments.output
+        )
+    if arguments.command == "labeling-rubric-audit":
+        return _run_labeling_rubric_audit(
+            arguments.plan,
+            arguments.enrichment_result,
+            arguments.evidence_input,
+            arguments.evidence_result,
+            arguments.relevance,
+            arguments.output,
+        )
+    if arguments.command == "labeling-corpus-readiness":
+        return _run_labeling_corpus_readiness(
+            arguments.adjudication,
+            arguments.review_queue,
+            arguments.output,
+        )
+    if arguments.command == "labeling-maturity-evidence-input":
+        return _run_labeling_maturity_evidence_input(
+            arguments.plan, arguments.audit, arguments.output
+        )
+    if arguments.command == "labeling-hype-evidence-input":
+        return _run_labeling_hype_evidence_input(
+            arguments.plan,
+            arguments.gate,
+            arguments.evidence_input,
+            arguments.media_result,
+            arguments.output,
+        )
+    if arguments.command == "evaluation-feature-table":
+        return _run_evaluation_feature_table(
+            arguments.positive,
+            arguments.positive_enrichment,
+            arguments.negative_plan,
+            arguments.negative_enrichment,
+            arguments.adjudication,
+            arguments.temporal_counts,
+            arguments.output,
+        )
+    if arguments.command == "evaluation-model-report":
+        return _run_evaluation_model_report(arguments.features, arguments.output)
+    if arguments.command == "evaluation-temporal-count-plan":
+        return _run_evaluation_temporal_count_plan(
+            arguments.positive_plan, arguments.negative_plan, arguments.output
+        )
+    if arguments.command == "evaluation-temporal-count-run":
+        return _run_evaluation_temporal_count_run(
+            arguments.plan,
+            arguments.work,
+            arguments.output,
+            arguments.env_file,
+            arguments.max_new_tasks,
         )
     parser.print_help()
     return 0

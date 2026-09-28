@@ -23,9 +23,7 @@ class CommandLineTests(unittest.TestCase):
         stdout = io.StringIO()
 
         with redirect_stdout(stdout):
-            exit_code = main(
-                ["dataset-build", "--input", "data/raw/organizer_signals.xlsx"]
-            )
+            exit_code = main(["dataset-build", "--input", "data/raw/organizer_signals.xlsx"])
 
         self.assertEqual(exit_code, 0)
         build.assert_called_once_with(Path("data/raw/organizer_signals.xlsx"), output)
@@ -156,9 +154,7 @@ class CommandLineTests(unittest.TestCase):
 
     @patch("nextwave.__main__.build_discovery_pipeline_from_environment")
     @patch("nextwave.__main__.build_query_resolver_from_environment")
-    def test_discovery_run_saves_run_directory(
-        self, build_resolver, build_pipeline
-    ) -> None:
+    def test_discovery_run_saves_run_directory(self, build_resolver, build_pipeline) -> None:
         from types import SimpleNamespace
 
         from nextwave.discovery import build_analysis_scope
@@ -199,8 +195,8 @@ class CommandLineTests(unittest.TestCase):
                     "verification": {"results": []},
                 }
 
-        build_pipeline.return_value.execute.side_effect = (
-            lambda plan, **kwargs: StubResult(plan.plan_id)
+        build_pipeline.return_value.execute.side_effect = lambda plan, **kwargs: StubResult(
+            plan.plan_id
         )
 
         with tempfile.TemporaryDirectory() as directory:
@@ -238,9 +234,7 @@ class CommandLineTests(unittest.TestCase):
         build_resolver.return_value.resolve.assert_called_once_with("Технологии в ИИ")
 
     @patch("nextwave.__main__.build_query_resolver_from_environment")
-    def test_discovery_run_reports_error_without_traceback(
-        self, build_resolver
-    ) -> None:
+    def test_discovery_run_reports_error_without_traceback(self, build_resolver) -> None:
         build_resolver.side_effect = ValueError("NEXTWAVE_LLM_API_KEY must not be blank")
         stderr = io.StringIO()
 
@@ -338,9 +332,7 @@ class CommandLineTests(unittest.TestCase):
             self.assertEqual(kwargs["domain"], "Технологии в ИИ")
 
     @patch("nextwave.__main__.export_enrichment_plan")
-    def test_labeling_enrichment_plan_uses_versioned_default_output(
-        self, export
-    ) -> None:
+    def test_labeling_enrichment_plan_uses_versioned_default_output(self, export) -> None:
         from nextwave.labeling.enrichment_plan import LABELING_ENRICHMENT_PLAN_VERSION
 
         stdout = io.StringIO()
@@ -359,9 +351,7 @@ class CommandLineTests(unittest.TestCase):
         )
 
     @patch("nextwave.__main__.run_enrichment")
-    def test_labeling_enrichment_run_uses_versioned_default_output(
-        self, run
-    ) -> None:
+    def test_labeling_enrichment_run_uses_versioned_default_output(self, run) -> None:
         from nextwave.labeling.enrichment_run import (
             ENRICHMENT_RESULT_VERSION,
             LabelingEnrichmentRunPaths,
@@ -375,9 +365,7 @@ class CommandLineTests(unittest.TestCase):
         )
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            exit_code = main(
-                ["labeling-enrichment-run", "--plan", "plan", "--work", "work"]
-            )
+            exit_code = main(["labeling-enrichment-run", "--plan", "plan", "--work", "work"])
 
         self.assertEqual(exit_code, 0)
         _, kwargs = run.call_args
@@ -397,10 +385,65 @@ class CommandLineTests(unittest.TestCase):
         self.assertNotIn("labeling-enrichment-plan-v1", help_text)
         self.assertNotIn("labeling-enrichment-result-v1", help_text)
 
+    @patch("nextwave.__main__.export_target_enrichment_plan")
+    def test_target_enrichment_plan_uses_versioned_default_output(self, export) -> None:
+        from nextwave.labeling.enrichment_plan import (
+            LABELING_TARGET_ENRICHMENT_PLAN_VERSION,
+            LabelingEnrichmentPlanPaths,
+        )
+
+        export.return_value = LabelingEnrichmentPlanPaths(
+            plan=Path("out/plan.json"), manifest=Path("out/manifest.json")
+        )
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(["labeling-target-enrichment-plan", "--candidates", "targets.json"])
+
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(kwargs["candidates_file"], Path("targets.json"))
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / LABELING_TARGET_ENRICHMENT_PLAN_VERSION,
+        )
+
+    @patch("nextwave.__main__._runtime_environment", return_value={})
+    @patch("nextwave.__main__.run_target_gate")
+    def test_target_gate_uses_versioned_default_output(self, run_gate, _environment) -> None:
+        from nextwave.labeling.target_gate import (
+            LABELING_TARGET_GATE_VERSION,
+            LabelingTargetGatePaths,
+        )
+
+        run_gate.return_value = LabelingTargetGatePaths(
+            gate_results=Path("out/gate_results.jsonl"),
+            groundings=Path("out/groundings.jsonl"),
+            issues=Path("out/issues.jsonl"),
+            manifest=Path("out/manifest.json"),
+        )
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(
+                [
+                    "labeling-target-gate-run",
+                    "--plan",
+                    "plan",
+                    "--result",
+                    "result",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        _, kwargs = run_gate.call_args
+        self.assertEqual(kwargs["plan_dir"], Path("plan"))
+        self.assertEqual(kwargs["result_dir"], Path("result"))
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / LABELING_TARGET_GATE_VERSION,
+        )
+
     @patch("nextwave.__main__.export_evidence_input_plan")
-    def test_evidence_input_plan_uses_versioned_default_output(
-        self, export
-    ) -> None:
+    def test_evidence_input_plan_uses_versioned_default_output(self, export) -> None:
         from nextwave.__main__ import _build_parser
         from nextwave.labeling.evidence_input_plan import (
             LABELING_EVIDENCE_INPUT_PLAN_VERSION,
@@ -415,13 +458,19 @@ class CommandLineTests(unittest.TestCase):
         )
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            exit_code = main([
-                "labeling-evidence-input-plan",
-                "--plan", "plan",
-                "--result", "result",
-                "--relevance", "relevance",
-                "--media", "media",
-            ])
+            exit_code = main(
+                [
+                    "labeling-evidence-input-plan",
+                    "--plan",
+                    "plan",
+                    "--result",
+                    "result",
+                    "--relevance",
+                    "relevance",
+                    "--media",
+                    "media",
+                ]
+            )
 
         self.assertEqual(exit_code, 0)
         _, kwargs = export.call_args
@@ -437,9 +486,7 @@ class CommandLineTests(unittest.TestCase):
         self.assertNotIn("labeling-evidence-input-plan-v1", help_text)
 
     @patch("nextwave.__main__.export_evidence_llm_plan")
-    def test_evidence_llm_plan_uses_versioned_default_output(
-        self, export
-    ) -> None:
+    def test_evidence_llm_plan_uses_versioned_default_output(self, export) -> None:
         from nextwave.__main__ import _build_parser
         from nextwave.labeling.evidence_llm_plan import (
             LABELING_EVIDENCE_LLM_PLAN_VERSION,
@@ -453,10 +500,13 @@ class CommandLineTests(unittest.TestCase):
         )
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            exit_code = main([
-                "labeling-evidence-llm-plan",
-                "--input", "input",
-            ])
+            exit_code = main(
+                [
+                    "labeling-evidence-llm-plan",
+                    "--input",
+                    "input",
+                ]
+            )
 
         self.assertEqual(exit_code, 0)
         _, kwargs = export.call_args
@@ -486,19 +536,123 @@ class CommandLineTests(unittest.TestCase):
         )
         stdout = io.StringIO()
         with redirect_stdout(stdout):
-            exit_code = main([
-                "labeling-evidence-llm-merge",
-                "--primary", "primary",
-                "--retry", "retry",
-            ])
+            exit_code = main(
+                [
+                    "labeling-evidence-llm-merge",
+                    "--primary",
+                    "primary",
+                    "--retry",
+                    "retry",
+                ]
+            )
 
         self.assertEqual(exit_code, 0)
         _, kwargs = merge.call_args
         self.assertEqual(
             kwargs["output_dir"],
-            Path("data")
-            / "development"
-            / LABELING_EVIDENCE_LLM_MERGED_RESULT_VERSION,
+            Path("data") / "development" / LABELING_EVIDENCE_LLM_MERGED_RESULT_VERSION,
+        )
+
+    @patch("nextwave.__main__.export_feature_table")
+    def test_feature_table_uses_versioned_default_output(self, export) -> None:
+        from nextwave.evaluation import FEATURE_TABLE_VERSION, FeatureTablePaths
+
+        export.return_value = FeatureTablePaths(
+            features=Path("out/features.jsonl"), manifest=Path("out/manifest.json")
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "evaluation-feature-table",
+                    "--positive",
+                    "positive",
+                    "--positive-enrichment",
+                    "positive-result",
+                    "--negative-plan",
+                    "negative-plan",
+                    "--negative-enrichment",
+                    "negative-result",
+                    "--adjudication",
+                    "adjudication",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(kwargs["output_dir"], Path("data") / "development" / FEATURE_TABLE_VERSION)
+
+    @patch("nextwave.__main__.export_model_report")
+    def test_model_report_uses_versioned_default_output(self, export) -> None:
+        from nextwave.evaluation import MODEL_REPORT_VERSION, ModelReportPaths
+
+        export.return_value = ModelReportPaths(
+            predictions=Path("out/oof_predictions.jsonl"),
+            report=Path("out/metrics.json"),
+            model=Path("out/model.json"),
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "evaluation-model-report",
+                    "--features",
+                    "features",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(kwargs["output_dir"], Path("data") / "development" / MODEL_REPORT_VERSION)
+
+    @patch("nextwave.__main__.export_temporal_count_plan")
+    def test_temporal_count_plan_uses_versioned_default_output(self, export) -> None:
+        from nextwave.evaluation import (
+            TEMPORAL_COUNT_PLAN_VERSION,
+            TemporalCountPlanPaths,
+        )
+
+        export.return_value = TemporalCountPlanPaths(
+            plan=Path("out/plan.json"), manifest=Path("out/manifest.json")
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "evaluation-temporal-count-plan",
+                    "--positive-plan",
+                    "positive",
+                    "--negative-plan",
+                    "negative",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / TEMPORAL_COUNT_PLAN_VERSION,
+        )
+
+    @patch("nextwave.__main__._runtime_environment", return_value={})
+    @patch("nextwave.__main__.run_temporal_counts")
+    def test_temporal_count_run_uses_versioned_default_output(self, run, _environment) -> None:
+        from nextwave.evaluation import TEMPORAL_COUNT_RESULT_VERSION
+
+        run.return_value = {
+            "count_results.jsonl": Path("out/count_results.jsonl"),
+            "candidate_temporal_features.jsonl": Path("out/candidate_temporal_features.jsonl"),
+            "manifest.json": Path("out/manifest.json"),
+        }
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "evaluation-temporal-count-run",
+                    "--plan",
+                    "plan",
+                    "--work",
+                    "work",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = run.call_args
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / TEMPORAL_COUNT_RESULT_VERSION,
         )
 
 
