@@ -760,6 +760,7 @@ class CommandLineTests(unittest.TestCase):
 
         export.return_value = AnalysisInferencePaths(
             predictions=Path("out/predictions.jsonl"),
+            feature_importance=Path("out/feature_importance.jsonl"),
             manifest=Path("out/manifest.json"),
         )
         with redirect_stdout(io.StringIO()):

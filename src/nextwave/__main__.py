@@ -1333,6 +1333,7 @@ def _run_analysis_inference(features: Path, model: Path, output: Path) -> int:
         return 1
     print("Query-specific inference успешно выполнен.")
     print(f"Предсказания: {paths.predictions}")
+    print(f"Важность признаков: {paths.feature_importance}")
     print(f"Manifest: {paths.manifest}")
     return 0
 

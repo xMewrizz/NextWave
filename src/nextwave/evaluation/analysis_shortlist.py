@@ -48,7 +48,9 @@ def build_analysis_shortlist(
     manifest_bytes = (directory / MANIFEST_FILENAME).read_bytes()
     manifest = _read_object(directory / MANIFEST_FILENAME, "analysis inference manifest")
     if manifest.get("schema_version") != ANALYSIS_INFERENCE_VERSION:
-        raise ValueError("analysis shortlist requires analysis-inference-v1")
+        raise ValueError(
+            f"analysis shortlist requires {ANALYSIS_INFERENCE_VERSION}"
+        )
     predictions_bytes = (directory / PREDICTIONS_FILENAME).read_bytes()
     if (manifest.get("outputs") or {}).get(PREDICTIONS_FILENAME) != _digest(
         predictions_bytes

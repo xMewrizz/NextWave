@@ -47,7 +47,7 @@ class AnalysisShortlistTests(unittest.TestCase):
         payload = b"".join(_bytes(row) for row in rows)
         (directory / "predictions.jsonl").write_bytes(payload)
         manifest = {
-            "schema_version": "analysis-inference-v1",
+            "schema_version": "analysis-inference-v2",
             "release_status": "development_only",
             "candidate_count": 3,
             "outputs": {"predictions.jsonl": _digest(payload)},
