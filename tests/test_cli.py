@@ -782,6 +782,44 @@ class CommandLineTests(unittest.TestCase):
             Path("data") / "development" / ANALYSIS_INFERENCE_VERSION,
         )
 
+    @patch("nextwave.__main__.export_analysis_result")
+    def test_analysis_result_accepts_all_evidence_pages(self, export) -> None:
+        from nextwave.evaluation import ANALYSIS_RESULT_VERSION, AnalysisResultPaths
+
+        export.return_value = AnalysisResultPaths(
+            candidates=Path("out/candidates.jsonl"),
+            top15=Path("out/top15.json"),
+            summary=Path("out/summary.json"),
+            manifest=Path("out/manifest.json"),
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "analysis-result",
+                    "--analysis-plan",
+                    "plan",
+                    "--combined-result",
+                    "combined",
+                    "--features",
+                    "features",
+                    "--inference",
+                    "inference",
+                    "--evidence-result",
+                    "page-1",
+                    "--evidence-result",
+                    "page-2",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(
+            kwargs["evidence_result_dirs"], (Path("page-1"), Path("page-2"))
+        )
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / ANALYSIS_RESULT_VERSION,
+        )
+
     @patch("nextwave.__main__.export_analysis_shortlist")
     def test_analysis_evidence_shortlist_is_not_final_top15(self, export) -> None:
         from nextwave.evaluation import ANALYSIS_SHORTLIST_VERSION, AnalysisShortlistPaths

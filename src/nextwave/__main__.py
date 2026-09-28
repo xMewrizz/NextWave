@@ -26,6 +26,7 @@ from .evaluation import (
     ANALYSIS_EVIDENCE_INPUT_VERSION,
     ANALYSIS_FEATURE_TABLE_VERSION,
     ANALYSIS_INFERENCE_VERSION,
+    ANALYSIS_RESULT_VERSION,
     ANALYSIS_SHORTLIST_VERSION,
     EXA_ENRICHMENT_PLAN_VERSION,
     EXA_ENRICHMENT_RESULT_VERSION,
@@ -38,6 +39,7 @@ from .evaluation import (
     export_analysis_evidence_input,
     export_analysis_feature_table,
     export_analysis_inference,
+    export_analysis_result,
     export_analysis_shortlist,
     export_analysis_temporal_count_plan,
     export_combined_enrichment,
@@ -735,6 +737,22 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data") / "development" / ANALYSIS_EVIDENCE_INPUT_VERSION,
     )
+    analysis_result = commands.add_parser(
+        "analysis-result",
+        help="собрать единый query-specific результат, policy и финальный TOP-15",
+    )
+    analysis_result.add_argument("--analysis-plan", type=Path, required=True)
+    analysis_result.add_argument("--combined-result", type=Path, required=True)
+    analysis_result.add_argument("--features", type=Path, required=True)
+    analysis_result.add_argument("--inference", type=Path, required=True)
+    analysis_result.add_argument(
+        "--evidence-result", type=Path, action="append", required=True
+    )
+    analysis_result.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / ANALYSIS_RESULT_VERSION,
+    )
     model_report = commands.add_parser(
         "evaluation-model-report",
         help="обучить baseline/LogReg и выпустить grouped OOF отчёт",
@@ -1380,6 +1398,34 @@ def _run_analysis_evidence_input(
     return 0
 
 
+def _run_analysis_result(
+    analysis_plan: Path,
+    combined_result: Path,
+    features: Path,
+    inference: Path,
+    evidence_results: list[Path],
+    output: Path,
+) -> int:
+    try:
+        paths = export_analysis_result(
+            analysis_plan_dir=analysis_plan,
+            combined_result_dir=combined_result,
+            feature_dir=features,
+            inference_dir=inference,
+            evidence_result_dirs=tuple(evidence_results),
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось собрать единый результат анализа: {error}", file=sys.stderr)
+        return 1
+    print("Единый query-specific результат и финальный TOP-15 собраны.")
+    print(f"Кандидаты: {paths.candidates}")
+    print(f"TOP-15: {paths.top15}")
+    print(f"Сводка: {paths.summary}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def _run_analysis_enrichment_plan(run: Path, output: Path) -> int:
     try:
         paths = export_analysis_enrichment_plan(run_dir=run, output_dir=output)
@@ -1750,6 +1796,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.analysis_plan,
             arguments.combined_result,
             arguments.shortlist,
+            arguments.output,
+        )
+    if arguments.command == "analysis-result":
+        return _run_analysis_result(
+            arguments.analysis_plan,
+            arguments.combined_result,
+            arguments.features,
+            arguments.inference,
+            arguments.evidence_result,
             arguments.output,
         )
     if arguments.command == "evaluation-model-report":

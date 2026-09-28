@@ -18,6 +18,12 @@ from .analysis_inference import (
     build_analysis_inference,
     export_analysis_inference,
 )
+from .analysis_result import (
+    ANALYSIS_RESULT_VERSION,
+    AnalysisResultPaths,
+    build_analysis_result,
+    export_analysis_result,
+)
 from .analysis_shortlist import (
     ANALYSIS_SHORTLIST_VERSION,
     DEFAULT_SHORTLIST_SIZE,
@@ -103,6 +109,10 @@ __all__ = [
     "AnalysisInferencePaths",
     "build_analysis_inference",
     "export_analysis_inference",
+    "ANALYSIS_RESULT_VERSION",
+    "AnalysisResultPaths",
+    "build_analysis_result",
+    "export_analysis_result",
     "ANALYSIS_SHORTLIST_VERSION",
     "DEFAULT_SHORTLIST_SIZE",
     "AnalysisShortlistPaths",

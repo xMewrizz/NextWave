@@ -1,0 +1,292 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from nextwave.evaluation.analysis_result import (
+    ANALYSIS_RESULT_VERSION,
+    build_analysis_result,
+    export_analysis_result,
+)
+from nextwave.evaluation.feature_table import _digest
+from nextwave.labeling.evidence_llm_run import LABELING_EVIDENCE_LLM_RESULT_VERSION
+
+
+def _json(value: object) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n").encode()
+
+
+def _jsonl(rows: list[dict[str, object]]) -> bytes:
+    return b"".join(_json(row) for row in rows)
+
+
+class AnalysisResultTests(unittest.TestCase):
+    def _fixture(self, root: Path) -> dict[str, object]:
+        candidate_ids = [
+            "candidate-main",
+            "candidate-mature",
+            "candidate-hype",
+            "candidate-pending",
+        ]
+        plan_dir = root / "plan"
+        plan_dir.mkdir()
+        candidates = [
+            {
+                "candidate_id": candidate_id,
+                "canonical_name": candidate_id,
+                "aliases": [],
+                "domain": "Инфраструктура ИИ",
+                "origin": {
+                    "bundle_id": "bundle-1",
+                    "group_id": candidate_id,
+                    "source_query": "Инфраструктура ИИ",
+                },
+            }
+            for candidate_id in candidate_ids
+        ]
+        plan = _json({"bundle": {"bundle_id": "bundle-1"}, "candidates": candidates})
+        (plan_dir / "plan.json").write_bytes(plan)
+        plan_manifest = {
+            "schema_version": "labeling-enrichment-plan-v2",
+            "bundle_id": "bundle-1",
+            "outputs": {"plan.json": _digest(plan)},
+        }
+        (plan_dir / "manifest.json").write_bytes(_json(plan_manifest))
+
+        combined_dir = root / "combined"
+        combined_dir.mkdir()
+        documents: list[dict[str, object]] = []
+        for candidate_id in candidate_ids:
+            for index in (1, 2):
+                documents.append(
+                    {
+                        "candidate_id": candidate_id,
+                        "document_id": f"{candidate_id}-doc-{index}",
+                        "connector_id": "openalex",
+                        "title": f"Source {index}",
+                        "url": f"https://example.com/{candidate_id}/{index}",
+                        "excerpt": f"verbatim evidence {candidate_id} {index}",
+                        "origin_id": f"{candidate_id}-origin-{index}",
+                        "organizations": [f"Actor {index}"],
+                        "publisher": f"Publisher {index}",
+                        "trust_tier": "A" if index == 1 else "B",
+                    }
+                )
+        document_bytes = _jsonl(documents)
+        (combined_dir / "documents.jsonl").write_bytes(document_bytes)
+        combined_manifest = {
+            "schema_version": "analysis-combined-enrichment-result-v1",
+            "bundle_id": "bundle-1",
+            "plan": _digest(plan),
+            "outputs": {"documents.jsonl": _digest(document_bytes)},
+        }
+        (combined_dir / "manifest.json").write_bytes(_json(combined_manifest))
+
+        feature_dir = root / "features"
+        feature_dir.mkdir()
+        feature_rows = [
+            {
+                "candidate_id": candidate_id,
+                "features": {"temporal_count_coverage_complete": True},
+            }
+            for candidate_id in candidate_ids
+        ]
+        feature_bytes = _jsonl(feature_rows)
+        (feature_dir / "features.jsonl").write_bytes(feature_bytes)
+        feature_manifest = {
+            "schema_version": "analysis-feature-table-v1",
+            "outputs": {"features.jsonl": _digest(feature_bytes)},
+        }
+        feature_manifest_bytes = _json(feature_manifest)
+        (feature_dir / "manifest.json").write_bytes(feature_manifest_bytes)
+
+        inference_dir = root / "inference"
+        inference_dir.mkdir()
+        prediction_rows = [
+            {
+                "candidate_id": candidate_id,
+                "model_score": 0.8,
+                "decision_threshold": 0.5,
+                "prediction": 1,
+                "explanation": {
+                    "top_positive_factors": [{"feature": "recent_growth"}],
+                    "top_negative_factors": [],
+                },
+            }
+            for candidate_id in candidate_ids
+        ]
+        prediction_bytes = _jsonl(prediction_rows)
+        (inference_dir / "predictions.jsonl").write_bytes(prediction_bytes)
+        inference_manifest = {
+            "schema_version": "analysis-inference-v2",
+            "release_status": "development_only",
+            "inputs": {"features": _digest(feature_manifest_bytes)},
+            "outputs": {"predictions.jsonl": _digest(prediction_bytes)},
+        }
+        (inference_dir / "manifest.json").write_bytes(_json(inference_manifest))
+
+        evidence_dir = root / "evidence"
+        evidence_dir.mkdir()
+        coverage = [
+            {"candidate_id": candidate_id, "status": "complete"}
+            for candidate_id in candidate_ids[:-1]
+        ] + [{"candidate_id": "candidate-pending", "status": "failed"}]
+        claims: list[dict[str, object]] = []
+        for index in (1, 2):
+            claims.append(self._claim("candidate-main", index, "research"))
+            claims.append(self._claim("candidate-mature", index, "research"))
+        claims.append(
+            self._claim(
+                "candidate-mature", 1, "adoption", direction="counter", suffix="m"
+            )
+        )
+        claims.append(self._claim("candidate-hype", 1, "promotional_claim"))
+        coverage_bytes = _jsonl(coverage)
+        claims_bytes = _jsonl(claims)
+        (evidence_dir / "coverage.jsonl").write_bytes(coverage_bytes)
+        (evidence_dir / "claims.jsonl").write_bytes(claims_bytes)
+        evidence_manifest = {
+            "schema_version": LABELING_EVIDENCE_LLM_RESULT_VERSION,
+            "bundle_id": "bundle-1",
+            "cutoff_date": "2026-09-15",
+            "outputs": {
+                "coverage.jsonl": _digest(coverage_bytes),
+                "claims.jsonl": _digest(claims_bytes),
+            },
+        }
+        (evidence_dir / "manifest.json").write_bytes(_json(evidence_manifest))
+        return {
+            "plan": plan_dir,
+            "combined": combined_dir,
+            "features": feature_dir,
+            "inference": inference_dir,
+            "evidence": evidence_dir,
+        }
+
+    @staticmethod
+    def _claim(
+        candidate_id: str,
+        document_index: int,
+        kind: str,
+        *,
+        direction: str = "support",
+        suffix: str = "",
+    ) -> dict[str, object]:
+        return {
+            "candidate_id": candidate_id,
+            "document_id": f"{candidate_id}-doc-{document_index}",
+            "claim_id": f"claim-{candidate_id}-{document_index}-{kind}{suffix}",
+            "quote": f"verbatim evidence {candidate_id} {document_index}",
+            "scope": "full_candidate",
+            "direction": direction,
+            "kind": kind,
+            "explanation_ru": f"Проверяемое основание: {kind}",
+        }
+
+    @staticmethod
+    def _build(paths: dict[str, object]) -> dict[str, bytes]:
+        return build_analysis_result(
+            analysis_plan_dir=paths["plan"],
+            combined_result_dir=paths["combined"],
+            feature_dir=paths["features"],
+            inference_dir=paths["inference"],
+            evidence_result_dirs=(paths["evidence"],),
+        )
+
+    def test_builds_policy_result_top15_and_uncalibrated_score(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            files = self._build(self._fixture(Path(tmp)))
+        rows = {
+            row["candidate_id"]: row
+            for row in map(json.loads, files["candidates.jsonl"].splitlines())
+        }
+        self.assertEqual(rows["candidate-main"]["status"], "main")
+        self.assertEqual(rows["candidate-mature"]["reason"], "mature")
+        self.assertEqual(rows["candidate-hype"]["reason"], "marketing_hype")
+        self.assertEqual(rows["candidate-pending"]["reason"], "evidence_review_incomplete")
+        self.assertIsNone(rows["candidate-main"]["model"]["confidence"])
+        self.assertEqual(rows["candidate-main"]["top15_rank"], 1)
+        summary = json.loads(files["summary.json"])
+        self.assertFalse(summary["confidence_available"])
+        self.assertIsNone(summary["high_confidence_weak_signals"])
+
+    def test_maturity_kind_overrides_counter_direction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = self._build(self._fixture(Path(tmp)))["candidates.jsonl"]
+            rows = list(map(json.loads, raw.splitlines()))
+        mature = next(row for row in rows if row["candidate_id"] == "candidate-mature")
+        self.assertEqual(mature["status"], "excluded")
+        self.assertEqual(mature["reason"], "mature")
+
+    def test_promotional_claim_with_independent_ab_support_is_not_hype(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._fixture(Path(tmp))
+            evidence = paths["evidence"]
+            claim_lines = (evidence / "claims.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            claims = [json.loads(line) for line in claim_lines]
+            claims.extend(self._claim("candidate-hype", index, "research") for index in (1, 2))
+            raw = _jsonl(claims)
+            (evidence / "claims.jsonl").write_bytes(raw)
+            manifest = json.loads((evidence / "manifest.json").read_text(encoding="utf-8"))
+            manifest["outputs"]["claims.jsonl"] = _digest(raw)
+            (evidence / "manifest.json").write_bytes(_json(manifest))
+            rows = list(map(json.loads, self._build(paths)["candidates.jsonl"].splitlines()))
+        hype = next(row for row in rows if row["candidate_id"] == "candidate-hype")
+        self.assertEqual(hype["status"], "main")
+
+    def test_rejects_non_verbatim_claim_before_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._fixture(Path(tmp))
+            evidence = paths["evidence"]
+            claim_lines = (evidence / "claims.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+            claims = [json.loads(line) for line in claim_lines]
+            claims[0]["quote"] = "invented quote"
+            raw = _jsonl(claims)
+            (evidence / "claims.jsonl").write_bytes(raw)
+            manifest = json.loads((evidence / "manifest.json").read_text(encoding="utf-8"))
+            manifest["outputs"]["claims.jsonl"] = _digest(raw)
+            (evidence / "manifest.json").write_bytes(_json(manifest))
+            output = Path(tmp) / "output"
+            with self.assertRaisesRegex(ValueError, "not verbatim"):
+                export_analysis_result(
+                    analysis_plan_dir=paths["plan"],
+                    combined_result_dir=paths["combined"],
+                    feature_dir=paths["features"],
+                    inference_dir=paths["inference"],
+                    evidence_result_dirs=(paths["evidence"],),
+                    output_dir=output,
+                )
+            self.assertFalse(output.exists())
+
+    def test_rejects_duplicate_evidence_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._fixture(Path(tmp))
+            with self.assertRaisesRegex(ValueError, "invalid candidate or status"):
+                build_analysis_result(
+                    analysis_plan_dir=paths["plan"],
+                    combined_result_dir=paths["combined"],
+                    feature_dir=paths["features"],
+                    inference_dir=paths["inference"],
+                    evidence_result_dirs=(paths["evidence"], paths["evidence"]),
+                )
+
+    def test_output_is_byte_stable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._fixture(Path(tmp))
+            first = self._build(paths)
+            second = self._build(paths)
+        self.assertEqual(first, second)
+        self.assertEqual(
+            json.loads(first["manifest.json"])["schema_version"],
+            ANALYSIS_RESULT_VERSION,
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
