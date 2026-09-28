@@ -64,6 +64,26 @@ policy. В Docker Compose каталог реального результата
 Старые synthetic `/api/analyses` и `/api/coverage` отключены по умолчанию; они
 доступны только при явном `NEXTWAVE_ENABLE_SYNTHETIC_DEMO=1` для UI-разработки.
 
+## Запуск проверенного web-результата
+
+Сначала должен существовать каталог `analysis-result-v1` с четырьмя файлами:
+`manifest.json`, `summary.json`, `top15.json` и `candidates.jsonl`. Backend при
+старте повторно проверяет их размер и SHA-256; повреждённый или чужой артефакт
+не показывается.
+
+По умолчанию Compose использует
+`data/development/analysis-result-aiinfra-004-v1`. Другой каталог передаётся
+через host-переменную `NEXTWAVE_RESULT_DIR`:
+
+```powershell
+$env:NEXTWAVE_RESULT_DIR = "C:\path\to\analysis-result-v1"
+docker compose up --build
+```
+
+После healthcheck интерфейс доступен на `http://localhost:8080/result`, API —
+на `http://localhost:8000/api/result/current`. Каталог монтируется read-only;
+API не пересчитывает и не меняет model score, policy или Evidence claims.
+
 ## Граница MVP
 
 Квалификационная версия должна воспроизводимо показать:
