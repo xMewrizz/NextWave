@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 import shutil
 import tempfile
 import time
@@ -23,6 +22,7 @@ from nextwave.sources import (
     SnapshotManifest,
     SnapshotWriter,
     SourceQuery,
+    publish_staging,
 )
 
 from .temporal_count_plan import (
@@ -228,7 +228,7 @@ def _prepare_work(work_dir: Path, plan_digest: str, task_count: int) -> None:
         (staging / "completed").mkdir()
         (staging / "failures").mkdir()
         (staging / "work_manifest.json").write_bytes(_canonical_bytes(expected, indent=2))
-        os.replace(staging, work_dir)
+        publish_staging(staging, work_dir)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise
@@ -384,13 +384,13 @@ def _execute_task(
         }
         (staging / "cache_manifest.json").write_bytes(_canonical_bytes(cache, indent=2))
         if count is not None:
-            os.replace(staging, final)
+            publish_staging(staging, final)
         else:
             failure_root = work_dir / "failures" / count_id
             failure_root.mkdir(parents=True, exist_ok=True)
             cycles = [path for path in failure_root.iterdir() if path.name.startswith("cycle-")]
             failure = failure_root / f"cycle-{len(cycles) + 1:03d}"
-            os.replace(staging, failure)
+            publish_staging(staging, failure)
         return result
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)

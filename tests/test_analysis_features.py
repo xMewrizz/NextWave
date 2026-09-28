@@ -42,7 +42,11 @@ class AnalysisFeatureTests(unittest.TestCase):
             "aliases": ["paged-attention"],
             "domain": "Инфраструктура ИИ",
             "analysis_scope_key": "ai-infrastructure-v1",
-            "source_query": "Инфраструктура ИИ",
+            "origin": {
+                "bundle_id": "bundle-analysis",
+                "group_id": "alias-group-001",
+                "source_query": "Инфраструктура ИИ",
+            },
             "cutoff_date": "2026-09-15",
             "search_terms": ["Paged attention", "paged-attention"],
         }
@@ -134,6 +138,7 @@ class AnalysisFeatureTests(unittest.TestCase):
         self.assertEqual(summary["candidate_count"], 1)
         self.assertNotIn("target", row)
         self.assertNotIn("negative_class", row)
+        self.assertEqual(row["source_query"], "Инфраструктура ИИ")
         self.assertTrue(row["features"]["temporal_count_coverage_complete"])
         self.assertAlmostEqual(row["features"]["scientific_recent_count_log1p"], math.log1p(5))
 
@@ -171,6 +176,26 @@ class AnalysisFeatureTests(unittest.TestCase):
             manifest["outputs"]["candidate_temporal_features.jsonl"] = _digest(payload)
             (temporal / "manifest.json").write_bytes(_bytes(manifest))
             with self.assertRaisesRegex(ValueError, "temporal identity differs"):
+                build_analysis_feature_table(
+                    analysis_plan_dir=plan,
+                    enrichment_result_dir=result,
+                    temporal_count_dir=temporal,
+                )
+
+    def test_rejects_missing_origin_source_query(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan, result, temporal = self._fixture(root)
+            path = plan / "plan.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            del value["candidates"][0]["origin"]["source_query"]
+            payload = _bytes(value)
+            path.write_bytes(payload)
+            manifest = json.loads((plan / "manifest.json").read_text(encoding="utf-8"))
+            manifest["outputs"]["plan.json"] = _digest(payload)
+            (plan / "manifest.json").write_bytes(_bytes(manifest))
+
+            with self.assertRaisesRegex(ValueError, "needs origin.source_query"):
                 build_analysis_feature_table(
                     analysis_plan_dir=plan,
                     enrichment_result_dir=result,

@@ -59,7 +59,13 @@ def build_analysis_feature_table(
     if plan_manifest.get("candidate_count") != len(candidates):
         raise ValueError("analysis plan candidate_count does not match candidates")
     scopes = {row.get("analysis_scope_key") for row in candidates.values()}
-    queries = {row.get("source_query") for row in candidates.values()}
+    queries: set[str] = set()
+    for candidate_id, candidate in candidates.items():
+        origin = candidate.get("origin")
+        source_query = origin.get("source_query") if isinstance(origin, dict) else None
+        if not isinstance(source_query, str) or not source_query.strip():
+            raise ValueError(f"analysis candidate {candidate_id} needs origin.source_query")
+        queries.add(source_query.strip())
     domains = {row.get("domain") for row in candidates.values()}
     if len(scopes) != 1 or len(queries) != 1 or len(domains) != 1:
         raise ValueError("analysis candidates must share one query, domain, and scope")
@@ -125,7 +131,7 @@ def build_analysis_feature_table(
                 "aliases": aliases,
                 "domain": candidate["domain"],
                 "analysis_scope_key": candidate["analysis_scope_key"],
-                "source_query": candidate["source_query"],
+                "source_query": candidate["origin"]["source_query"].strip(),
                 "cutoff_date": candidate["cutoff_date"],
                 "model_text": " ; ".join([canonical.strip(), *aliases]),
                 "features": {

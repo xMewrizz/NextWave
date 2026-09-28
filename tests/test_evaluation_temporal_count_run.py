@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
 import unittest
 from collections.abc import Mapping
 from pathlib import Path
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 from nextwave.evaluation.temporal_count_plan import export_temporal_count_plan
@@ -206,6 +208,43 @@ class TemporalCountRunTests(unittest.TestCase):
         self.assertEqual(first_counts, second_counts)
         self.assertEqual(first_features, second_features)
         self.assertEqual(second_manifest["counts"]["reused"], 16)
+
+    def test_completed_cache_publish_retries_transient_windows_lock(self) -> None:
+        real_replace = os.replace
+        failed_once = False
+
+        def flaky_replace(source, target):
+            nonlocal failed_once
+            source_path = Path(source)
+            target_path = Path(target)
+            is_completed_cache = (
+                target_path.parent.name == "completed"
+                and source_path.name.startswith(".count-")
+            )
+            if is_completed_cache and not failed_once:
+                failed_once = True
+                raise PermissionError(13, "transient Windows lock")
+            return real_replace(source, target)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch(
+                "nextwave.sources.snapshots.os.replace",
+                side_effect=flaky_replace,
+            ):
+                paths = run_temporal_counts(
+                    plan_dir=self._plan(root),
+                    work_dir=root / "work",
+                    output_dir=root / "result",
+                    connector=OpenAlexConnector(transport=CountTransport()),
+                    sleeper=lambda _seconds: None,
+                    max_new_tasks=1,
+                )
+            manifest = json.loads(paths["manifest.json"].read_text())
+
+        self.assertTrue(failed_once)
+        self.assertEqual(manifest["counts"]["complete"], 1)
+        self.assertEqual(manifest["counts"]["not_run"], 15)
 
     def test_corrupt_completed_cache_is_rejected_before_network(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
