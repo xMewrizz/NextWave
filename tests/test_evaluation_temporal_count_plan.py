@@ -8,7 +8,9 @@ from pathlib import Path
 
 from nextwave.evaluation.temporal_count_plan import (
     TEMPORAL_COUNT_PLAN_VERSION,
+    build_analysis_temporal_count_plan,
     build_temporal_count_plan,
+    export_analysis_temporal_count_plan,
     export_temporal_count_plan,
 )
 
@@ -29,7 +31,13 @@ def _candidate(candidate_id: str, scope: str, term: str) -> dict:
     }
 
 
-def _write_plan(directory: Path, bundle_id: str, candidates: list[dict]) -> None:
+def _write_plan(
+    directory: Path,
+    bundle_id: str,
+    candidates: list[dict],
+    *,
+    plan_role: str | None = None,
+) -> None:
     directory.mkdir()
     value = {
         "schema_version": "labeling-enrichment-plan-v2",
@@ -44,6 +52,8 @@ def _write_plan(directory: Path, bundle_id: str, candidates: list[dict]) -> None
         "candidate_count": len(candidates),
         "outputs": {"plan.json": _digest(payload)},
     }
+    if plan_role is not None:
+        manifest["plan_role"] = plan_role
     (directory / "manifest.json").write_text(
         json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -176,6 +186,78 @@ class TemporalCountPlanTests(unittest.TestCase):
                     positive_plan_dir=positive,
                     negative_plan_dir=negative,
                     output_dir=output,
+                )
+
+    def test_analysis_plan_uses_only_its_query_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            analysis = root / "analysis"
+            _write_plan(
+                analysis,
+                "analysis-bundle",
+                [
+                    _candidate("alias-group-001", "ai-infrastructure-v1", "paged attention"),
+                    _candidate("alias-group-002", "ai-infrastructure-v1", "AI accelerator"),
+                ],
+                plan_role="analysis_candidates",
+            )
+            plan_bytes, manifest_bytes = build_analysis_temporal_count_plan(
+                analysis_plan_dir=analysis
+            )
+        plan = json.loads(plan_bytes)
+        manifest = json.loads(manifest_bytes)
+        self.assertEqual(set(plan["scope_queries"]), {"ai-infrastructure-v1"})
+        self.assertEqual({row["role"] for row in plan["candidates"]}, {"analysis"})
+        self.assertEqual(
+            manifest["counts"],
+            {
+                "candidate_tasks": 4,
+                "candidates": 2,
+                "scope_tasks": 2,
+                "scopes": 1,
+                "tasks": 6,
+            },
+        )
+
+    def test_analysis_plan_rejects_training_or_multiple_scopes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            training = root / "training"
+            _write_plan(training, "training", [_candidate("one", "edge-v1", "edge")])
+            with self.assertRaisesRegex(ValueError, "analysis_candidates"):
+                build_analysis_temporal_count_plan(analysis_plan_dir=training)
+
+            mixed = root / "mixed"
+            _write_plan(
+                mixed,
+                "mixed",
+                [
+                    _candidate("one", "edge-v1", "edge"),
+                    _candidate("two", "robotics-v1", "robot"),
+                ],
+                plan_role="analysis_candidates",
+            )
+            with self.assertRaisesRegex(ValueError, "exactly one scope"):
+                build_analysis_temporal_count_plan(analysis_plan_dir=mixed)
+
+    def test_analysis_export_is_atomic_and_refuses_existing_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            analysis = root / "analysis"
+            _write_plan(
+                analysis,
+                "analysis",
+                [_candidate("one", "edge-v1", "edge")],
+                plan_role="analysis_candidates",
+            )
+            output = root / "output"
+            paths = export_analysis_temporal_count_plan(
+                analysis_plan_dir=analysis, output_dir=output
+            )
+            self.assertTrue(paths.plan.is_file())
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                export_analysis_temporal_count_plan(
+                    analysis_plan_dir=analysis, output_dir=output
                 )
 
 

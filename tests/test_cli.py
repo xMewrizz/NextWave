@@ -350,6 +350,30 @@ class CommandLineTests(unittest.TestCase):
             Path("data/development/labeling-enrichment-plan-v2"),
         )
 
+    @patch("nextwave.__main__.export_analysis_enrichment_plan")
+    def test_analysis_enrichment_plan_is_query_specific(self, export) -> None:
+        from nextwave.labeling.enrichment_plan import (
+            LABELING_ENRICHMENT_PLAN_VERSION,
+            LabelingEnrichmentPlanPaths,
+        )
+
+        export.return_value = LabelingEnrichmentPlanPaths(
+            plan=Path("out/plan.json"), manifest=Path("out/manifest.json")
+        )
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(["analysis-enrichment-plan", "--run", "one-run"])
+
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(kwargs["run_dir"], Path("one-run"))
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data")
+            / "development"
+            / f"analysis-{LABELING_ENRICHMENT_PLAN_VERSION}",
+        )
+
     @patch("nextwave.__main__.run_enrichment")
     def test_labeling_enrichment_run_uses_versioned_default_output(self, run) -> None:
         from nextwave.labeling.enrichment_run import (
@@ -683,6 +707,34 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(
             kwargs["output_dir"],
             Path("data") / "development" / TEMPORAL_COUNT_PLAN_VERSION,
+        )
+
+    @patch("nextwave.__main__.export_analysis_temporal_count_plan")
+    def test_analysis_temporal_count_plan_uses_one_analysis_plan(self, export) -> None:
+        from nextwave.evaluation import (
+            TEMPORAL_COUNT_PLAN_VERSION,
+            TemporalCountPlanPaths,
+        )
+
+        export.return_value = TemporalCountPlanPaths(
+            plan=Path("out/plan.json"), manifest=Path("out/manifest.json")
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "analysis-temporal-count-plan",
+                    "--analysis-plan",
+                    "analysis-plan",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(kwargs["analysis_plan_dir"], Path("analysis-plan"))
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data")
+            / "development"
+            / f"analysis-{TEMPORAL_COUNT_PLAN_VERSION}",
         )
 
     @patch("nextwave.__main__._runtime_environment", return_value={})

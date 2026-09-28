@@ -120,52 +120,58 @@ def _task(
     return {"count_id": _task_id(spec), **spec}
 
 
-def build_temporal_count_plan(
-    *, positive_plan_dir: str | Path, negative_plan_dir: str | Path
-) -> tuple[bytes, bytes]:
-    plan_inputs: list[dict[str, Any]] = []
-    manifest_inputs: list[dict[str, Any]] = []
-    candidates: dict[str, dict[str, Any]] = {}
-    for role, raw_directory in (
-        ("positive", positive_plan_dir),
-        ("negative", negative_plan_dir),
-    ):
-        directory = Path(raw_directory)
-        manifest, plan, payload = _load_enrichment_plan(directory)
-        if plan.get("cutoff_date") != "2026-09-15":
-            raise ValueError(f"{directory.name} cutoff is not frozen")
-        bundle_id = manifest.get("bundle_id")
-        if not isinstance(bundle_id, str) or not bundle_id:
-            raise ValueError(f"{directory.name} misses bundle_id")
-        logical_input = {
+def _collect_candidates(
+    *, directory: Path, role: str, candidates: dict[str, dict[str, Any]]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    manifest, plan, payload = _load_enrichment_plan(directory)
+    if plan.get("cutoff_date") != "2026-09-15":
+        raise ValueError(f"{directory.name} cutoff is not frozen")
+    bundle_id = manifest.get("bundle_id")
+    if not isinstance(bundle_id, str) or not bundle_id:
+        raise ValueError(f"{directory.name} misses bundle_id")
+    logical_input = {
+        "role": role,
+        "bundle_id": bundle_id,
+        "candidate_count": len(plan["candidates"]),
+    }
+    for raw in plan["candidates"]:
+        if not isinstance(raw, dict):
+            raise ValueError(f"{directory.name} candidate must be an object")
+        candidate_id = raw.get("candidate_id")
+        if not isinstance(candidate_id, str) or not candidate_id:
+            raise ValueError(f"{directory.name} candidate misses candidate_id")
+        if candidate_id in candidates:
+            raise ValueError(f"candidate_id {candidate_id!r} occurs in both plans")
+        scope = raw.get("analysis_scope_key")
+        if scope not in _SCOPE_QUERIES:
+            raise ValueError(f"candidate {candidate_id} has unknown analysis scope")
+        terms = raw.get("search_terms")
+        if not isinstance(terms, list) or not terms:
+            raise ValueError(f"candidate {candidate_id} needs reviewed search terms")
+        search_text = _normalized_term(terms[0], f"candidate {candidate_id} search term")
+        candidates[candidate_id] = {
+            "candidate_id": candidate_id,
             "role": role,
-            "bundle_id": bundle_id,
-            "candidate_count": len(plan["candidates"]),
+            "domain": raw.get("domain"),
+            "analysis_scope_key": scope,
+            "search_text": search_text,
         }
-        plan_inputs.append(logical_input)
-        manifest_inputs.append({**logical_input, "plan": _digest(payload)})
-        for raw in plan["candidates"]:
-            if not isinstance(raw, dict):
-                raise ValueError(f"{directory.name} candidate must be an object")
-            candidate_id = raw.get("candidate_id")
-            if not isinstance(candidate_id, str) or not candidate_id:
-                raise ValueError(f"{directory.name} candidate misses candidate_id")
-            if candidate_id in candidates:
-                raise ValueError(f"candidate_id {candidate_id!r} occurs in both plans")
-            scope = raw.get("analysis_scope_key")
-            if scope not in _SCOPE_QUERIES:
-                raise ValueError(f"candidate {candidate_id} has unknown analysis scope")
-            terms = raw.get("search_terms")
-            if not isinstance(terms, list) or not terms:
-                raise ValueError(f"candidate {candidate_id} needs reviewed search terms")
-            search_text = _normalized_term(terms[0], f"candidate {candidate_id} search term")
-            candidates[candidate_id] = {
-                "candidate_id": candidate_id,
-                "role": role,
-                "domain": raw.get("domain"),
-                "analysis_scope_key": scope,
-                "search_text": search_text,
-            }
+    return logical_input, {**logical_input, "plan": _digest(payload)}
+
+
+def _render_temporal_count_plan(
+    *,
+    plan_inputs: list[dict[str, Any]],
+    manifest_inputs: list[dict[str, Any]],
+    candidates: dict[str, dict[str, Any]],
+    scopes: tuple[str, ...],
+) -> tuple[bytes, bytes]:
+    if not candidates:
+        raise ValueError("temporal count plan requires candidates")
+    if not scopes or any(scope not in _SCOPE_QUERIES for scope in scopes):
+        raise ValueError("temporal count plan requires known scopes")
+    if len(scopes) != len(set(scopes)):
+        raise ValueError("temporal count scopes must be unique")
 
     tasks: list[dict[str, Any]] = []
     for candidate in sorted(candidates.values(), key=lambda row: row["candidate_id"]):
@@ -182,7 +188,8 @@ def build_temporal_count_plan(
                     published_until=end,
                 )
             )
-    for scope, search_text in sorted(_SCOPE_QUERIES.items()):
+    for scope in sorted(scopes):
+        search_text = _SCOPE_QUERIES[scope]
         for window, start, end in _WINDOWS:
             tasks.append(
                 _task(
@@ -206,7 +213,7 @@ def build_temporal_count_plan(
         "windows": {
             name: {"from": start, "until": end, "inclusive": True} for name, start, end in _WINDOWS
         },
-        "scope_queries": _SCOPE_QUERIES,
+        "scope_queries": {scope: _SCOPE_QUERIES[scope] for scope in sorted(scopes)},
         "retrieval_policy": {
             "connector": "openalex",
             "channel": "text",
@@ -231,9 +238,9 @@ def build_temporal_count_plan(
         "cutoff_date": "2026-09-15",
         "counts": {
             "candidates": len(candidates),
-            "scopes": len(_SCOPE_QUERIES),
+            "scopes": len(scopes),
             "candidate_tasks": len(candidates) * len(_WINDOWS),
-            "scope_tasks": len(_SCOPE_QUERIES) * len(_WINDOWS),
+            "scope_tasks": len(scopes) * len(_WINDOWS),
             "tasks": len(tasks),
         },
         "inputs": manifest_inputs,
@@ -243,6 +250,53 @@ def build_temporal_count_plan(
         json.dumps(manifest_value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode()
     return plan_bytes, manifest_bytes
+
+
+def build_temporal_count_plan(
+    *, positive_plan_dir: str | Path, negative_plan_dir: str | Path
+) -> tuple[bytes, bytes]:
+    candidates: dict[str, dict[str, Any]] = {}
+    plan_inputs: list[dict[str, Any]] = []
+    manifest_inputs: list[dict[str, Any]] = []
+    for role, raw_directory in (
+        ("positive", positive_plan_dir),
+        ("negative", negative_plan_dir),
+    ):
+        logical, manifest_input = _collect_candidates(
+            directory=Path(raw_directory), role=role, candidates=candidates
+        )
+        plan_inputs.append(logical)
+        manifest_inputs.append(manifest_input)
+    return _render_temporal_count_plan(
+        plan_inputs=plan_inputs,
+        manifest_inputs=manifest_inputs,
+        candidates=candidates,
+        scopes=tuple(sorted(_SCOPE_QUERIES)),
+    )
+
+
+def build_analysis_temporal_count_plan(
+    *, analysis_plan_dir: str | Path
+) -> tuple[bytes, bytes]:
+    directory = Path(analysis_plan_dir)
+    manifest = _read_json(directory / MANIFEST_FILENAME, f"{directory.name} manifest")
+    if manifest.get("plan_role") != "analysis_candidates":
+        raise ValueError("analysis temporal counts require an analysis_candidates plan")
+    candidates: dict[str, dict[str, Any]] = {}
+    logical, manifest_input = _collect_candidates(
+        directory=directory, role="analysis", candidates=candidates
+    )
+    scopes = tuple(
+        sorted({str(candidate["analysis_scope_key"]) for candidate in candidates.values()})
+    )
+    if len(scopes) != 1:
+        raise ValueError("analysis enrichment plan must contain exactly one scope")
+    return _render_temporal_count_plan(
+        plan_inputs=[logical],
+        manifest_inputs=[manifest_input],
+        candidates=candidates,
+        scopes=scopes,
+    )
 
 
 def export_temporal_count_plan(
@@ -257,3 +311,17 @@ def export_temporal_count_plan(
     )
     paths = publish_artifact_bundle({PLAN_FILENAME: plan, MANIFEST_FILENAME: manifest}, output_dir)
     return TemporalCountPlanPaths(plan=paths[PLAN_FILENAME], manifest=paths[MANIFEST_FILENAME])
+
+
+def export_analysis_temporal_count_plan(
+    *, analysis_plan_dir: str | Path, output_dir: str | Path
+) -> TemporalCountPlanPaths:
+    plan, manifest = build_analysis_temporal_count_plan(
+        analysis_plan_dir=analysis_plan_dir
+    )
+    paths = publish_artifact_bundle(
+        {PLAN_FILENAME: plan, MANIFEST_FILENAME: manifest}, output_dir
+    )
+    return TemporalCountPlanPaths(
+        plan=paths[PLAN_FILENAME], manifest=paths[MANIFEST_FILENAME]
+    )

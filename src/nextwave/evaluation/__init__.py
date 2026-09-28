@@ -35,7 +35,9 @@ from .model import (
 from .temporal_count_plan import (
     TEMPORAL_COUNT_PLAN_VERSION,
     TemporalCountPlanPaths,
+    build_analysis_temporal_count_plan,
     build_temporal_count_plan,
+    export_analysis_temporal_count_plan,
     export_temporal_count_plan,
 )
 from .temporal_count_run import (
@@ -69,7 +71,9 @@ __all__ = [
     "export_model_report",
     "TEMPORAL_COUNT_PLAN_VERSION",
     "TemporalCountPlanPaths",
+    "build_analysis_temporal_count_plan",
     "build_temporal_count_plan",
+    "export_analysis_temporal_count_plan",
     "export_temporal_count_plan",
     "TEMPORAL_COUNT_EXECUTOR_VERSION",
     "TEMPORAL_COUNT_RESULT_VERSION",

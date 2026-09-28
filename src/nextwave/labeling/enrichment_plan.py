@@ -25,9 +25,15 @@ from ..datasets.contracts import (
     MANIFEST_SCHEMA_VERSION as ORGANIZER_MANIFEST_VERSION,
 )
 from ..datasets.contracts import (
+    ORGANIZER_SCOPE_KEYS,
     POSITIVE_SCHEMA_VERSION,
     IdentityStatus,
     PositiveCandidateRecord,
+)
+from ..discovery.run_store import (
+    DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION,
+    assert_run_labeling_eligible,
+    load_discovery_run,
 )
 from .contracts import (
     LABELING_CUTOFF_DATE,
@@ -895,6 +901,161 @@ def export_enrichment_plan(
         )
         + "\n"
     ).encode("utf-8")
+    paths = publish_artifact_bundle(
+        {
+            ENRICHMENT_PLAN_FILENAME: plan_bytes,
+            ENRICHMENT_MANIFEST_FILENAME: manifest_bytes,
+        },
+        output_dir,
+    )
+    return LabelingEnrichmentPlanPaths(
+        plan=paths[ENRICHMENT_PLAN_FILENAME],
+        manifest=paths[ENRICHMENT_MANIFEST_FILENAME],
+    )
+
+
+def build_analysis_enrichment_plan(
+    run_dir: str | Path,
+) -> tuple[bytes, dict[str, Any]]:
+    """Build the shared candidate enrichment plan for one complete discovery run."""
+
+    run = Path(run_dir)
+    manifest_path = run / "manifest.json"
+    try:
+        loaded = load_discovery_run(run)
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot load discovery run: {error}") from error
+    manifest = loaded.manifest
+    result = loaded.result
+    if manifest.get("schema_version") != DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION:
+        raise ValueError("discovery run manifest version is not supported")
+    assert_run_labeling_eligible(loaded)
+    if not isinstance(loaded.run_id, str) or not loaded.run_id.strip():
+        raise ValueError("discovery run_id must not be blank")
+    domain = manifest.get("domain")
+    if domain not in ORGANIZER_SCOPE_KEYS:
+        raise ValueError("analysis domain has no shared feature scope")
+    source_query = (loaded.plan.get("scope") or {}).get("raw_query")
+    if not isinstance(source_query, str) or not source_query.strip():
+        raise ValueError("discovery plan raw_query must not be blank")
+    if manifest.get("raw_query") != source_query:
+        raise ValueError("discovery raw_query differs between plan and manifest")
+    result_bytes = (run / "pipeline_result.json").read_bytes()
+    gate = result.get("candidate_gate")
+    aliases = result.get("alias_resolution")
+    coverage = result.get("gate_coverage")
+    if not isinstance(gate, dict) or not isinstance(aliases, dict):
+        raise ValueError("discovery result misses gate or alias resolution")
+    if not isinstance(coverage, dict) or coverage.get("status") != "complete":
+        raise ValueError("analysis enrichment requires complete Gate coverage")
+    accepted = gate.get("accepted_proposal_ids")
+    gate_inputs = gate.get("input_proposal_ids")
+    decisions = gate.get("decisions")
+    input_ids = aliases.get("input_proposal_ids")
+    groups = aliases.get("groups")
+    if not isinstance(accepted, list) or not isinstance(input_ids, list):
+        raise ValueError("gate and alias proposal IDs must be lists")
+    if not isinstance(gate_inputs, list) or not isinstance(decisions, list):
+        raise ValueError("gate inputs and decisions must be lists")
+    decision_ids: list[str] = []
+    accepted_from_decisions: list[str] = []
+    for index, decision in enumerate(decisions, 1):
+        if not isinstance(decision, dict):
+            raise ValueError(f"gate decision {index} must be an object")
+        proposal_id = decision.get("proposal_id")
+        value = decision.get("decision")
+        if not isinstance(proposal_id, str) or value not in {"accept", "reject", "review"}:
+            raise ValueError(f"gate decision {index} is invalid")
+        decision_ids.append(proposal_id)
+        if value == "accept":
+            accepted_from_decisions.append(proposal_id)
+    if len(decision_ids) != len(set(decision_ids)) or set(decision_ids) != set(gate_inputs):
+        raise ValueError("gate decisions must cover every gate input exactly once")
+    if accepted != accepted_from_decisions:
+        raise ValueError("accepted proposal IDs differ from Gate decisions")
+    if set(accepted) != set(input_ids) or len(accepted) != len(set(accepted)):
+        raise ValueError("alias resolution must cover every accepted proposal exactly once")
+    if not isinstance(groups, list) or not groups:
+        raise ValueError("analysis enrichment requires accepted alias groups")
+    records: list[_EnrichmentCandidateRecord] = []
+    grouped_proposals: list[str] = []
+    for index, group in enumerate(groups, 1):
+        if not isinstance(group, dict):
+            raise ValueError(f"alias group {index} must be an object")
+        group_id = group.get("group_id")
+        canonical = group.get("canonical_name")
+        raw_aliases = group.get("aliases")
+        proposal_ids = group.get("proposal_ids")
+        if not isinstance(group_id, str) or not isinstance(canonical, str):
+            raise ValueError(f"alias group {index} misses identity")
+        if not isinstance(raw_aliases, list) or any(
+            not isinstance(value, str) for value in raw_aliases
+        ):
+            raise ValueError(f"alias group {group_id} aliases must be strings")
+        if not isinstance(proposal_ids, list) or any(
+            not isinstance(value, str) for value in proposal_ids
+        ):
+            raise ValueError(f"alias group {group_id} proposal_ids must be strings")
+        if not proposal_ids:
+            raise ValueError(f"alias group {group_id} proposal_ids must not be empty")
+        canonical_key = _clean_term(canonical).casefold()
+        aliases_for_search: list[str] = []
+        seen_aliases = {canonical_key}
+        for raw_alias in raw_aliases:
+            cleaned_alias = _clean_term(raw_alias)
+            alias_key = cleaned_alias.casefold()
+            if not cleaned_alias or alias_key in seen_aliases:
+                continue
+            seen_aliases.add(alias_key)
+            aliases_for_search.append(cleaned_alias)
+        grouped_proposals.extend(proposal_ids)
+        records.append(
+            _EnrichmentCandidateRecord(
+                candidate_id=group_id,
+                canonical_name=canonical,
+                aliases=tuple(aliases_for_search),
+                group_id=group_id,
+                source_query=source_query,
+                domain=domain,
+                analysis_scope_key=ORGANIZER_SCOPE_KEYS[domain],
+                cutoff_date=LABELING_CUTOFF_DATE,
+            )
+        )
+    if len({record.group_id for record in records}) != len(records):
+        raise ValueError("discovery alias group IDs must be unique")
+    if len(grouped_proposals) != len(set(grouped_proposals)) or set(
+        grouped_proposals
+    ) != set(accepted):
+        raise ValueError("alias groups must partition accepted proposals")
+    return _render_plan(
+        records,
+        manifest_path=manifest_path,
+        candidates_bytes=result_bytes,
+        candidates_input_key="pipeline_result",
+        extra_inputs={"discovery_run": {"run_id": loaded.run_id}},
+    )
+
+
+def export_analysis_enrichment_plan(
+    *, run_dir: str | Path, output_dir: str | Path
+) -> LabelingEnrichmentPlanPaths:
+    plan_bytes, provenance = build_analysis_enrichment_plan(run_dir)
+    manifest_bytes = (
+        json.dumps(
+            {
+                "schema_version": LABELING_ENRICHMENT_PLAN_VERSION,
+                "plan_role": "analysis_candidates",
+                "bundle_id": provenance["bundle_id"],
+                "candidate_count": provenance["candidate_count"],
+                "inputs": provenance["inputs"],
+                "outputs": {ENRICHMENT_PLAN_FILENAME: provenance["plan_digest"]},
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode()
     paths = publish_artifact_bundle(
         {
             ENRICHMENT_PLAN_FILENAME: plan_bytes,

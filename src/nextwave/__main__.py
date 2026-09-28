@@ -28,6 +28,7 @@ from .evaluation import (
     MODEL_REPORT_VERSION,
     TEMPORAL_COUNT_PLAN_VERSION,
     TEMPORAL_COUNT_RESULT_VERSION,
+    export_analysis_temporal_count_plan,
     export_feature_table,
     export_gate_noise_evaluation,
     export_identity_review,
@@ -42,6 +43,7 @@ from .labeling.corpus_readiness import (
 from .labeling.enrichment_plan import (
     LABELING_ENRICHMENT_PLAN_VERSION,
     LABELING_TARGET_ENRICHMENT_PLAN_VERSION,
+    export_analysis_enrichment_plan,
     export_enrichment_plan,
     export_target_enrichment_plan,
 )
@@ -266,6 +268,26 @@ def _build_parser() -> argparse.ArgumentParser:
         "--search-terms",
         type=Path,
         help="проверенный JSON с короткими поисковыми терминами для organizer positives",
+    )
+    analysis_enrichment_plan = commands.add_parser(
+        "analysis-enrichment-plan",
+        help="построить enrichment-план кандидатов одного discovery-запроса",
+    )
+    analysis_enrichment_plan.add_argument(
+        "--run",
+        type=Path,
+        required=True,
+        help="каталог одного полного discovery-run",
+    )
+    analysis_enrichment_plan.add_argument(
+        "--output",
+        type=Path,
+        default=(
+            Path("data")
+            / "development"
+            / f"analysis-{LABELING_ENRICHMENT_PLAN_VERSION}"
+        ),
+        help="новый каталог query-specific enrichment-плана",
     )
     target_enrichment_plan = commands.add_parser(
         "labeling-target-enrichment-plan",
@@ -622,6 +644,20 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=Path("data") / "development" / TEMPORAL_COUNT_PLAN_VERSION,
+    )
+    analysis_count_plan = commands.add_parser(
+        "analysis-temporal-count-plan",
+        help="собрать temporal counts для кандидатов одного пользовательского запроса",
+    )
+    analysis_count_plan.add_argument("--analysis-plan", type=Path, required=True)
+    analysis_count_plan.add_argument(
+        "--output",
+        type=Path,
+        default=(
+            Path("data")
+            / "development"
+            / f"analysis-{TEMPORAL_COUNT_PLAN_VERSION}"
+        ),
     )
     count_run = commands.add_parser(
         "evaluation-temporal-count-run",
@@ -1153,6 +1189,19 @@ def _run_evaluation_feature_table(
     return 0
 
 
+def _run_analysis_enrichment_plan(run: Path, output: Path) -> int:
+    try:
+        paths = export_analysis_enrichment_plan(run_dir=run, output_dir=output)
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось построить query-specific enrichment-план: {error}", file=sys.stderr)
+        return 1
+
+    print("Query-specific enrichment-план успешно построен.")
+    print(f"План: {paths.plan}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def _run_evaluation_identity_review(
     positive_plan: Path,
     negative_plan: Path,
@@ -1222,6 +1271,20 @@ def _run_evaluation_temporal_count_plan(
         print(f"Не удалось собрать temporal count plan: {error}", file=sys.stderr)
         return 1
     print("Temporal count plan успешно собран.")
+    print(f"План: {paths.plan}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_analysis_temporal_count_plan(analysis_plan: Path, output: Path) -> int:
+    try:
+        paths = export_analysis_temporal_count_plan(
+            analysis_plan_dir=analysis_plan, output_dir=output
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось собрать query-specific temporal count plan: {error}", file=sys.stderr)
+        return 1
+    print("Query-specific temporal count plan успешно собран.")
     print(f"План: {paths.plan}")
     print(f"Manifest: {paths.manifest}")
     return 0
@@ -1369,6 +1432,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.decisions,
             arguments.output,
         )
+    if arguments.command == "analysis-enrichment-plan":
+        return _run_analysis_enrichment_plan(arguments.run, arguments.output)
     if arguments.command == "evaluation-gate-noise":
         return _run_evaluation_gate_noise(
             arguments.selection, arguments.discovery_root, arguments.output
@@ -1389,6 +1454,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "evaluation-temporal-count-plan":
         return _run_evaluation_temporal_count_plan(
             arguments.positive_plan, arguments.negative_plan, arguments.output
+        )
+    if arguments.command == "analysis-temporal-count-plan":
+        return _run_analysis_temporal_count_plan(
+            arguments.analysis_plan, arguments.output
         )
     if arguments.command == "evaluation-temporal-count-run":
         return _run_evaluation_temporal_count_run(
