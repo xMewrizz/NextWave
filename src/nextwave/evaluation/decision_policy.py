@@ -8,7 +8,7 @@ from typing import Any
 
 from nextwave.contracts import CandidateStatus
 
-DECISION_POLICY_VERSION = "decision-policy-v1"
+DECISION_POLICY_VERSION = "decision-policy-v2"
 
 
 class PolicyReason(StrEnum):
@@ -16,6 +16,7 @@ class PolicyReason(StrEnum):
     GATE_REVIEW = "gate_review"
     DUPLICATE = "duplicate"
     NOT_SUBSTANTIVE = "not_substantive"
+    EVIDENCE_REVIEW_INCOMPLETE = "evidence_review_incomplete"
     MATURE = "mature"
     MARKETING_HYPE = "marketing_hype"
     TEMPORAL_COVERAGE_INCOMPLETE = "temporal_coverage_incomplete"
@@ -33,6 +34,7 @@ class DecisionPolicyInput:
     gate_decision: str
     duplicate: bool
     substantive: bool
+    evidence_review_complete: bool
     mature: bool
     marketing_hype: bool
     temporal_coverage_complete: bool
@@ -50,6 +52,7 @@ class DecisionPolicyInput:
         for name in (
             "duplicate",
             "substantive",
+            "evidence_review_complete",
             "mature",
             "marketing_hype",
             "temporal_coverage_complete",
@@ -99,6 +102,12 @@ def apply_decision_policy(value: DecisionPolicyInput) -> DecisionPolicyResult:
         return _result(value, CandidateStatus.EXCLUDED, PolicyReason.NOT_SUBSTANTIVE)
     if value.gate_decision == "review":
         return _result(value, CandidateStatus.WATCHLIST, PolicyReason.GATE_REVIEW)
+    if not value.evidence_review_complete:
+        return _result(
+            value,
+            CandidateStatus.WATCHLIST,
+            PolicyReason.EVIDENCE_REVIEW_INCOMPLETE,
+        )
     if value.mature:
         return _result(value, CandidateStatus.EXCLUDED, PolicyReason.MATURE)
     if value.marketing_hype:

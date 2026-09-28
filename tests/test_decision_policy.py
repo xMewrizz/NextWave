@@ -18,6 +18,7 @@ def eligible() -> DecisionPolicyInput:
         gate_decision="accept",
         duplicate=False,
         substantive=True,
+        evidence_review_complete=True,
         mature=False,
         marketing_hype=False,
         temporal_coverage_complete=True,
@@ -56,6 +57,26 @@ class DecisionPolicyTests(unittest.TestCase):
         result = apply_decision_policy(replace(eligible(), mature=True, model_score=1.0))
         self.assertEqual(result.reason, PolicyReason.MATURE)
         self.assertEqual(result.status, CandidateStatus.EXCLUDED)
+
+    def test_pending_evidence_cannot_become_main(self) -> None:
+        result = apply_decision_policy(
+            replace(
+                eligible(),
+                evidence_review_complete=False,
+                mature=False,
+                marketing_hype=False,
+                grounded_ab_support=True,
+                model_score=1.0,
+            )
+        )
+        self.assertEqual(result.reason, PolicyReason.EVIDENCE_REVIEW_INCOMPLETE)
+        self.assertEqual(result.status, CandidateStatus.WATCHLIST)
+
+    def test_gate_review_precedes_incomplete_evidence(self) -> None:
+        result = apply_decision_policy(
+            replace(eligible(), gate_decision="review", evidence_review_complete=False)
+        )
+        self.assertEqual(result.reason, PolicyReason.GATE_REVIEW)
 
     def test_marketing_hype_is_excluded(self) -> None:
         result = apply_decision_policy(replace(eligible(), marketing_hype=True))
