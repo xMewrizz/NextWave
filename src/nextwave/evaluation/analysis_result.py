@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,7 +26,7 @@ from .decision_policy import (
 from .exa_enrichment_merge import ANALYSIS_COMBINED_ENRICHMENT_VERSION
 from .feature_table import FEATURES_FILENAME, MANIFEST_FILENAME, _digest
 
-ANALYSIS_RESULT_VERSION = "analysis-result-v1"
+ANALYSIS_RESULT_VERSION = "analysis-result-v2"
 CANDIDATES_FILENAME = "candidates.jsonl"
 TOP15_FILENAME = "top15.json"
 SUMMARY_FILENAME = "summary.json"
@@ -42,6 +44,7 @@ _SUPPORT_KINDS = {
 _MATURITY_KINDS = {"adoption", "standard", "market"}
 _CASE_KINDS = ("pilot", "prototype", "adoption", "investment", "research")
 _REASON_RU = {
+    "duplicate": "тот же технологический объект уже представлен основной карточкой",
     "evidence_review_incomplete": "Evidence-проверка не завершена",
     "mature": "найдены признаки зрелости, внедрения, стандарта или рынка",
     "marketing_hype": "маркетинговое утверждение не подтверждено независимыми основаниями",
@@ -52,6 +55,8 @@ _REASON_RU = {
     "model_below_threshold": "оценка модели ниже зафиксированного порога",
     "passed": "пройдены модельный порог и обязательные проверки evidence",
 }
+_TRAILING_ACRONYM = re.compile(r"\s*\(([^()]*)\)\s*$")
+_IDENTITY_SEPARATORS = re.compile(r"[-‐‑‒–—−_]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +159,109 @@ def _best_claim(
             if claim["kind"] == kind:
                 return claim
     return claims[0] if claims else None
+
+
+def _obvious_identity_key(value: str) -> str:
+    """Collapse only spelling, trailing-acronym and simple plural variants."""
+
+    normalized = " ".join(unicodedata.normalize("NFKC", value).split())
+    match = _TRAILING_ACRONYM.search(normalized)
+    if match is not None:
+        base = normalized[: match.start()].strip()
+        acronym = "".join(character for character in match.group(1) if character.isalnum())
+        initials = "".join(
+            word[0] for word in re.findall(r"[A-Za-z0-9]+", base) if word
+        )
+        folded_acronym = acronym.casefold()
+        folded_initials = initials.casefold()
+        if (
+            2 <= len(acronym) <= 8
+            and folded_initials
+            and (
+                folded_acronym == folded_initials
+                or folded_acronym.startswith(folded_initials)
+                or folded_initials.startswith(folded_acronym)
+            )
+        ):
+            normalized = base
+    words = " ".join(
+        _IDENTITY_SEPARATORS.sub(" ", normalized.casefold()).split()
+    ).split()
+    if (
+        words
+        and len(words[-1]) > 3
+        and words[-1].endswith("s")
+        and not words[-1].endswith(("ss", "us", "is"))
+    ):
+        words[-1] = words[-1][:-1]
+    return " ".join(words)
+
+
+def _deduplicate_results(results: list[dict[str, Any]]) -> None:
+    owners: dict[str, list[str]] = defaultdict(list)
+    rows_by_id = {row["candidate_id"]: row for row in results}
+    parent = {candidate_id: candidate_id for candidate_id in rows_by_id}
+
+    def find(candidate_id: str) -> str:
+        while parent[candidate_id] != candidate_id:
+            parent[candidate_id] = parent[parent[candidate_id]]
+            candidate_id = parent[candidate_id]
+        return candidate_id
+
+    def union(left: str, right: str) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parent[max(left_root, right_root)] = min(left_root, right_root)
+
+    for row in results:
+        keys = {
+            _obvious_identity_key(value)
+            for value in (row["canonical_name"], *row["aliases"])
+            if isinstance(value, str) and value.strip()
+        }
+        for key in keys:
+            owners[key].append(row["candidate_id"])
+    for candidate_ids in owners.values():
+        for candidate_id in candidate_ids[1:]:
+            union(candidate_ids[0], candidate_id)
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for candidate_id, row in rows_by_id.items():
+        groups[find(candidate_id)].append(row)
+
+    for values in groups.values():
+        if len(values) < 2:
+            continue
+        conservative = [
+            row for row in values if row["reason"] in {"mature", "marketing_hype"}
+        ]
+        candidates = conservative or values
+        status_priority = {"main": 2, "watchlist": 1, "excluded": 0}
+        primary = min(
+            candidates,
+            key=lambda row: (
+                -status_priority[row["status"]],
+                -int(row["evidence_review"]["independent_origins"]),
+                -float(row["model"]["score"]),
+                str(row["canonical_name"]).casefold(),
+                row["candidate_id"],
+            ),
+        )
+        duplicates = sorted(
+            row["candidate_id"] for row in values if row is not primary
+        )
+        primary["duplicate_candidate_ids"] = duplicates
+        for row in values:
+            if row is primary:
+                continue
+            row["status"] = CandidateStatus.EXCLUDED.value
+            row["reason"] = "duplicate"
+            row["reason_ru"] = (
+                f"дубликат темы «{primary['canonical_name']}»; "
+                "в итоговой выдаче оставлена одна карточка"
+            )
+            row["duplicate_of"] = primary["candidate_id"]
+            row["duplicate_of_name"] = primary["canonical_name"]
 
 
 def _load_evidence(
@@ -457,6 +565,7 @@ def build_analysis_result(
         }
         results.append(result)
 
+    _deduplicate_results(results)
     main = [row for row in results if row["status"] == CandidateStatus.MAIN.value]
     main.sort(
         key=lambda row: (
@@ -528,7 +637,7 @@ def build_analysis_result(
         "top15_count": len(top15),
         "assumptions": {
             "all_analysis_plan_candidates_passed_candidate_gate": True,
-            "analysis_plan_alias_groups_are_not_duplicates": True,
+            "obvious_identity_variants_collapsed_before_top15": True,
             "semantic_maturity_kinds_override_llm_direction": True,
         },
         "inputs": {

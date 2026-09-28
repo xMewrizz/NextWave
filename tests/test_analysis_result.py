@@ -7,6 +7,8 @@ from pathlib import Path
 
 from nextwave.evaluation.analysis_result import (
     ANALYSIS_RESULT_VERSION,
+    _deduplicate_results,
+    _obvious_identity_key,
     build_analysis_result,
     export_analysis_result,
 )
@@ -23,6 +25,72 @@ def _jsonl(rows: list[dict[str, object]]) -> bytes:
 
 
 class AnalysisResultTests(unittest.TestCase):
+    def test_obvious_identity_key_collapses_acronym_and_plural_variants(self) -> None:
+        self.assertEqual(
+            _obvious_identity_key("Digital Twins (DTw)"),
+            _obvious_identity_key("digital twin"),
+        )
+        self.assertEqual(
+            _obvious_identity_key("Large Language Models (LLMs)"),
+            _obvious_identity_key("large-language-model"),
+        )
+        self.assertNotEqual(
+            _obvious_identity_key("RAG"),
+            _obvious_identity_key("Retrieval-Augmented Generation"),
+        )
+
+    def test_final_dedup_keeps_one_card_and_records_primary(self) -> None:
+        def row(candidate_id: str, name: str, status: str, score: float) -> dict:
+            return {
+                "candidate_id": candidate_id,
+                "canonical_name": name,
+                "aliases": [],
+                "status": status,
+                "reason": "passed" if status == "main" else "insufficient_origins",
+                "reason_ru": "reason",
+                "model": {"score": score},
+                "evidence_review": {"independent_origins": 2 if status == "main" else 1},
+            }
+
+        rows = [
+            row("candidate-a", "Digital Twins", "watchlist", 0.3),
+            row("candidate-b", "Digital Twins (DTw)", "main", 0.7),
+        ]
+        _deduplicate_results(rows)
+        by_id = {item["candidate_id"]: item for item in rows}
+        self.assertEqual(by_id["candidate-b"]["duplicate_candidate_ids"], ["candidate-a"])
+        self.assertEqual(by_id["candidate-a"]["reason"], "duplicate")
+        self.assertEqual(by_id["candidate-a"]["duplicate_of"], "candidate-b")
+        self.assertEqual(by_id["candidate-a"]["duplicate_of_name"], "Digital Twins (DTw)")
+
+    def test_final_dedup_does_not_hide_maturity_evidence(self) -> None:
+        rows = [
+            {
+                "candidate_id": "candidate-main",
+                "canonical_name": "Reinforcement Learnings",
+                "aliases": [],
+                "status": "main",
+                "reason": "passed",
+                "reason_ru": "passed",
+                "model": {"score": 0.9},
+                "evidence_review": {"independent_origins": 3},
+            },
+            {
+                "candidate_id": "candidate-mature",
+                "canonical_name": "reinforcement learning",
+                "aliases": [],
+                "status": "excluded",
+                "reason": "mature",
+                "reason_ru": "mature",
+                "model": {"score": 0.2},
+                "evidence_review": {"independent_origins": 2},
+            },
+        ]
+        _deduplicate_results(rows)
+        by_id = {item["candidate_id"]: item for item in rows}
+        self.assertEqual(by_id["candidate-mature"]["reason"], "mature")
+        self.assertEqual(by_id["candidate-main"]["reason"], "duplicate")
+
     def _fixture(self, root: Path) -> dict[str, object]:
         candidate_ids = [
             "candidate-main",

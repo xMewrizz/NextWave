@@ -8,12 +8,12 @@ import os
 from pathlib import Path
 from typing import Any
 
-RESULT_SCHEMA_VERSION = "analysis-result-v1"
+RESULT_SCHEMA_VERSION = "analysis-result-v2"
 DEFAULT_RESULT_DIR = (
     Path(__file__).resolve().parents[2]
     / "data"
     / "development"
-    / "analysis-result-aiinfra-004-v1"
+    / "analysis-result-aiinfra-004-final-v2"
 )
 
 

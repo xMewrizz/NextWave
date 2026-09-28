@@ -54,7 +54,7 @@ intercept, значение признака после преобразован
 калибровка не выполнена, интерфейс называет число «оценкой модели», а не
 вероятностью или процентом уверенности.
 
-Backend читает тот же неизменяемый `analysis-result-v1` через read-only адаптер
+Backend читает тот же неизменяемый `analysis-result-v2` через read-only адаптер
 `/api/result/current`, повторно проверяет checksums и не пересчитывает score или
 policy. В Docker Compose каталог реального результата монтируется только для
 чтения. Web-страница `/result` показывает TOP-15, все три статуса, локальные
@@ -66,17 +66,17 @@ policy. В Docker Compose каталог реального результата
 
 ## Запуск проверенного web-результата
 
-Сначала должен существовать каталог `analysis-result-v1` с четырьмя файлами:
+Сначала должен существовать каталог `analysis-result-v2` с четырьмя файлами:
 `manifest.json`, `summary.json`, `top15.json` и `candidates.jsonl`. Backend при
 старте повторно проверяет их размер и SHA-256; повреждённый или чужой артефакт
 не показывается.
 
 По умолчанию Compose использует
-`data/development/analysis-result-aiinfra-004-v1`. Другой каталог передаётся
+`data/development/analysis-result-aiinfra-004-final-v2`. Другой каталог передаётся
 через host-переменную `NEXTWAVE_RESULT_DIR`:
 
 ```powershell
-$env:NEXTWAVE_RESULT_DIR = "C:\path\to\analysis-result-v1"
+$env:NEXTWAVE_RESULT_DIR = "C:\path\to\analysis-result-v2"
 docker compose up --build
 ```
 
@@ -116,9 +116,12 @@ enrichment, point-in-time признаки, frozen inference и resumable Eviden
 реальный прогон имеет статус `development_only`, потому что финальный
 квалификационный корпус 50 mature + 50 hype ещё не собран. Его `model_score`
 некалиброван и не показывается как вероятность или уверенность.
-получили scientific/industry coverage, модельную оценку и постраничную
-Evidence-проверку. Ограничение 30 относится к одной рабочей пачке и не отбрасывает
-остальных кандидатов.
+Перед TOP-15 результат схлопывает только очевидные варианты одной темы: регистр,
+дефисы, простой plural и хвостовой акроним вроде `Digital Twins (DTw)`.
+Проигравшая карточка получает `reason=duplicate`, `duplicate_of` и имя основной
+карточки. Семантические сокращения вроде `RAG` и полной формы автоматически не
+объединяются. Ограничение 30 относится к одной рабочей пачке Evidence и не
+отбрасывает остальных кандидатов.
 
 Текущий model report остаётся `development_only`: 100 organizer positives
 сопоставлены с 57 mature и 7 ранее принятыми hype, поэтому Accuracy 0.915 нельзя

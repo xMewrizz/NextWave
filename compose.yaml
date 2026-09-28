@@ -9,7 +9,7 @@ services:
     environment:
       NEXTWAVE_RESULT_DIR: /data/result
     volumes:
-      - ${NEXTWAVE_RESULT_DIR:-./data/development/analysis-result-aiinfra-004-v1}:/data/result:ro
+      - ${NEXTWAVE_RESULT_DIR:-./data/development/analysis-result-aiinfra-004-final-v2}:/data/result:ro
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
