@@ -587,8 +587,10 @@ PostgreSQL интегрированной версии хранит:
 исполнения enrichment и temporal counts команда `analysis-feature-table`
 строит векторы без меток и требует полное scientific/industry и temporal
 coverage. Она использует те же расчёты документных и временных признаков, что
-training feature table. Зафиксированная модель выдаёт вероятности, а decision
-policy —
+training feature table. Команда `analysis-inference` загружает сохранённые
+vocabulary, IDF, нормировки, веса и threshold без переобучения на текущем
+запросе. Если model report имеет статус `development_only`, inference сохраняет
+этот статус и не выдаёт его за qualification. Затем decision policy формирует
 состояния `main`, `watchlist` и `excluded`. TOP-15 выбирается только из `main`
 этого анализа; `watchlist` показывается отдельно, `excluded` в рейтинг не
 попадает. Междоменный TOP-15 по обучающим строкам методике не соответствует.

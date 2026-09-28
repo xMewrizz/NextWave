@@ -23,6 +23,7 @@ from .discovery import (
 )
 from .evaluation import (
     ANALYSIS_FEATURE_TABLE_VERSION,
+    ANALYSIS_INFERENCE_VERSION,
     FEATURE_TABLE_VERSION,
     GATE_NOISE_EVALUATION_VERSION,
     IDENTITY_REVIEW_VERSION,
@@ -30,6 +31,7 @@ from .evaluation import (
     TEMPORAL_COUNT_PLAN_VERSION,
     TEMPORAL_COUNT_RESULT_VERSION,
     export_analysis_feature_table,
+    export_analysis_inference,
     export_analysis_temporal_count_plan,
     export_feature_table,
     export_gate_noise_evaluation,
@@ -637,6 +639,17 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data") / "development" / ANALYSIS_FEATURE_TABLE_VERSION,
     )
+    analysis_inference = commands.add_parser(
+        "analysis-inference",
+        help="применить frozen model к кандидатам одного пользовательского запроса",
+    )
+    analysis_inference.add_argument("--features", type=Path, required=True)
+    analysis_inference.add_argument("--model", type=Path, required=True)
+    analysis_inference.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / ANALYSIS_INFERENCE_VERSION,
+    )
     model_report = commands.add_parser(
         "evaluation-model-report",
         help="обучить baseline/LogReg и выпустить grouped OOF отчёт",
@@ -1225,6 +1238,20 @@ def _run_analysis_feature_table(
     return 0
 
 
+def _run_analysis_inference(features: Path, model: Path, output: Path) -> int:
+    try:
+        paths = export_analysis_inference(
+            feature_dir=features, model_dir=model, output_dir=output
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось выполнить query-specific inference: {error}", file=sys.stderr)
+        return 1
+    print("Query-specific inference успешно выполнен.")
+    print(f"Предсказания: {paths.predictions}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def _run_analysis_enrichment_plan(run: Path, output: Path) -> int:
     try:
         paths = export_analysis_enrichment_plan(run_dir=run, output_dir=output)
@@ -1491,6 +1518,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.enrichment_result,
             arguments.temporal_counts,
             arguments.output,
+        )
+    if arguments.command == "analysis-inference":
+        return _run_analysis_inference(
+            arguments.features, arguments.model, arguments.output
         )
     if arguments.command == "evaluation-model-report":
         return _run_evaluation_model_report(arguments.features, arguments.output)

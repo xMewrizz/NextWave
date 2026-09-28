@@ -6,6 +6,12 @@ from .analysis_features import (
     build_analysis_feature_table,
     export_analysis_feature_table,
 )
+from .analysis_inference import (
+    ANALYSIS_INFERENCE_VERSION,
+    AnalysisInferencePaths,
+    build_analysis_inference,
+    export_analysis_inference,
+)
 from .decision_policy import (
     DECISION_POLICY_VERSION,
     DecisionPolicyInput,
@@ -57,6 +63,10 @@ __all__ = [
     "AnalysisFeatureTablePaths",
     "build_analysis_feature_table",
     "export_analysis_feature_table",
+    "ANALYSIS_INFERENCE_VERSION",
+    "AnalysisInferencePaths",
+    "build_analysis_inference",
+    "export_analysis_inference",
     "DECISION_POLICY_VERSION",
     "DecisionPolicyInput",
     "DecisionPolicyResult",

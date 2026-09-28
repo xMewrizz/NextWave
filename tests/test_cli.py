@@ -714,6 +714,33 @@ class CommandLineTests(unittest.TestCase):
             Path("data") / "development" / ANALYSIS_FEATURE_TABLE_VERSION,
         )
 
+    @patch("nextwave.__main__.export_analysis_inference")
+    def test_analysis_inference_uses_frozen_model(self, export) -> None:
+        from nextwave.evaluation import ANALYSIS_INFERENCE_VERSION, AnalysisInferencePaths
+
+        export.return_value = AnalysisInferencePaths(
+            predictions=Path("out/predictions.jsonl"),
+            manifest=Path("out/manifest.json"),
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "analysis-inference",
+                    "--features",
+                    "features",
+                    "--model",
+                    "model",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(kwargs["feature_dir"], Path("features"))
+        self.assertEqual(kwargs["model_dir"], Path("model"))
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / ANALYSIS_INFERENCE_VERSION,
+        )
+
     @patch("nextwave.__main__.export_temporal_count_plan")
     def test_temporal_count_plan_uses_versioned_default_output(self, export) -> None:
         from nextwave.evaluation import (
