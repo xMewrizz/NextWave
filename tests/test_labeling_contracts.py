@@ -30,12 +30,13 @@ def make_evidence(
     trust_level: TrustLevel = TrustLevel.B,
     direction: EvidenceDirection = EvidenceDirection.SUPPORT,
     origin_id: str | None = None,
+    source_type: SourceType = SourceType.INDUSTRY_MEDIA,
 ) -> LabelEvidence:
     return LabelEvidence(
         evidence_id=f"evidence-{number:03d}",
         direction=direction,
         kind=kind,
-        source_type=SourceType.INDUSTRY_MEDIA,
+        source_type=source_type,
         trust_level=trust_level,
         title=f"Материал {number}",
         url=f"https://example.org/{number}",
@@ -199,6 +200,68 @@ class LabelingContractTests(unittest.TestCase):
                 SearchSourceClass.INDUSTRY,
                 SearchSourceClass.OFFICIAL,
             )
+        )
+
+        self.assertEqual(decision.to_dict()["label"], "marketing_hype")
+
+    def test_ab_research_mentions_do_not_equal_technical_validation(self) -> None:
+        decision = ModelLabelDecision(
+            decision_id="decision-hype-001",
+            candidate_id="team-negative-001",
+            review_round=ReviewRound.PRIMARY,
+            status=ReviewStatus.REVIEWED,
+            label=NegativeClass.MARKETING_HYPE,
+            rationale=(
+                "Публикации упоминают категорию, но не проверяют заявленную "
+                "в рекламной волне способность."
+            ),
+            reviewer_id="reviewer-1",
+            annotated_at=date(2026, 9, 19),
+            cutoff_date=LABELING_CUTOFF_DATE,
+            evidence=(
+                *hype_evidence(),
+                make_evidence(
+                    4,
+                    kind=EvidenceKind.PUBLICITY_WAVE,
+                    trust_level=TrustLevel.A,
+                    origin_id="research-origin-a",
+                    source_type=SourceType.RESEARCH,
+                ),
+                make_evidence(
+                    5,
+                    kind=EvidenceKind.PUBLICITY_WAVE,
+                    trust_level=TrustLevel.B,
+                    origin_id="research-origin-b",
+                    source_type=SourceType.RESEARCH,
+                ),
+            ),
+            search_coverage=complete_coverage(),
+        )
+
+        self.assertEqual(decision.to_dict()["label"], "marketing_hype")
+
+    def test_product_announcement_does_not_equal_confirmed_pilot(self) -> None:
+        decision = ModelLabelDecision(
+            decision_id="decision-hype-001",
+            candidate_id="team-negative-001",
+            review_round=ReviewRound.PRIMARY,
+            status=ReviewStatus.REVIEWED,
+            label=NegativeClass.MARKETING_HYPE,
+            rationale="Анонс продукта не содержит подтверждения эксплуатации клиентом.",
+            reviewer_id="reviewer-1",
+            annotated_at=date(2026, 9, 19),
+            cutoff_date=LABELING_CUTOFF_DATE,
+            evidence=(
+                *hype_evidence(),
+                make_evidence(
+                    4,
+                    kind=EvidenceKind.PUBLICITY_WAVE,
+                    trust_level=TrustLevel.A,
+                    origin_id="vendor-launch",
+                    source_type=SourceType.PRESS_RELEASE,
+                ),
+            ),
+            search_coverage=complete_coverage(),
         )
 
         self.assertEqual(decision.to_dict()["label"], "marketing_hype")

@@ -60,15 +60,20 @@ flowchart LR
 9. Собрать сначала CLI-решение `discovery → features → model → maturity policy → main/watchlist/excluded → TOP-15 → Evidence Duel` и проверить один исторический срез без будущих документов.
 10. Только после стабильного итогового JSON подключить backend/frontend/PostgreSQL/Docker, измерить полный live-прогон против лимита 20 минут и синхронизировать README, Docker-инструкцию и релизные manifests.
 
-Текущая точка на 28.09.2026: повторный аудит отменил ошибочное утверждение о 43
-готовых hype. В adjudication v6 приняты 57 `mature` и только 7
-`marketing_hype`; ещё 36 hype — `proposed`, а 43 — размер всего hype-пула.
-Noise содержит 50 строк. Development feature table v3 честно исключает proposed
+Текущая точка на 28.09.2026: claim-specific audit v6 проверил 114 старых и новых
+hype-вариантов и принял 6; дефицит равен 44. Audit v4/v5 ошибочно считал любое
+научное совпадение независимой технической валидацией и приравнивал launch/demo
+к подтверждённому пилоту. Исправленная рубрика проверяет конкретное рекламное
+обещание: упоминание, обзор, релиз и лабораторное demo сами по себе hype не
+блокируют. Все три широких пакета завершены; новые поисковые пакеты остановлены,
+чтобы не сорвать остальные обязательные блоки. Noise содержит 50 строк.
+Development feature table v3 отражает старые статусы и честно исключает proposed
 и содержит 164 строки; scoped OpenAlex counts v4 завершены 412/412. Diagnostic
 LogReg report v4 даёт OOF accuracy 0.909 и balanced accuracy 0.891, сохраняет
 15 OOF-ошибок и явные FPR по отрицательным подтипам, но эти метрики нельзя
-выдавать за qualification. Блокеры: строгая проверка hype-рубрик, frozen roster
-50/50 и reviewed identity. Temporal v3 запрещён: независимые candidate/scope
+выдавать за qualification. Блокеры: дефицит 44 hype, frozen roster 50/50 и
+reviewed identity. Второй широкий пакет также дал 0 hype: 14 not-grounded, один
+Gate reject и пять с недостаточной publicity. Temporal v3 запрещён: независимые candidate/scope
 запросы дали 23 доли больше единицы. Автоматические EvidenceClaim не считаются
 экспертными метками и не заменяют проверенный отрицательный корпус.
 
