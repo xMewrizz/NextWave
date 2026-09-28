@@ -23,6 +23,7 @@ from .discovery import (
 )
 from .evaluation import (
     ANALYSIS_COMBINED_ENRICHMENT_VERSION,
+    ANALYSIS_EVIDENCE_INPUT_VERSION,
     ANALYSIS_FEATURE_TABLE_VERSION,
     ANALYSIS_INFERENCE_VERSION,
     ANALYSIS_SHORTLIST_VERSION,
@@ -34,6 +35,7 @@ from .evaluation import (
     MODEL_REPORT_VERSION,
     TEMPORAL_COUNT_PLAN_VERSION,
     TEMPORAL_COUNT_RESULT_VERSION,
+    export_analysis_evidence_input,
     export_analysis_feature_table,
     export_analysis_inference,
     export_analysis_shortlist,
@@ -711,10 +713,27 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     analysis_shortlist.add_argument("--inference", type=Path, required=True)
     analysis_shortlist.add_argument("--limit", type=int, default=30)
+    analysis_shortlist.add_argument("--offset", type=int, default=0)
     analysis_shortlist.add_argument(
         "--output",
         type=Path,
         default=Path("data") / "development" / ANALYSIS_SHORTLIST_VERSION,
+    )
+    analysis_evidence_input = commands.add_parser(
+        "analysis-evidence-input-plan",
+        help="собрать проверяемые документы shortlist для Evidence LLM",
+    )
+    analysis_evidence_input.add_argument(
+        "--analysis-plan", type=Path, required=True
+    )
+    analysis_evidence_input.add_argument(
+        "--combined-result", type=Path, required=True
+    )
+    analysis_evidence_input.add_argument("--shortlist", type=Path, required=True)
+    analysis_evidence_input.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / ANALYSIS_EVIDENCE_INPUT_VERSION,
     )
     model_report = commands.add_parser(
         "evaluation-model-report",
@@ -1319,17 +1338,43 @@ def _run_analysis_inference(features: Path, model: Path, output: Path) -> int:
 
 
 def _run_analysis_shortlist(
-    inference: Path, limit: int, output: Path
+    inference: Path, limit: int, offset: int, output: Path
 ) -> int:
     try:
         paths = export_analysis_shortlist(
-            inference_dir=inference, limit=limit, output_dir=output
+            inference_dir=inference,
+            limit=limit,
+            offset=offset,
+            output_dir=output,
         )
     except (OSError, ValueError) as error:
         print(f"Не удалось собрать evidence-shortlist: {error}", file=sys.stderr)
         return 1
     print("Evidence-shortlist успешно собран; это ещё не финальный TOP-15.")
     print(f"Очередь: {paths.shortlist}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_analysis_evidence_input(
+    analysis_plan: Path,
+    combined_result: Path,
+    shortlist: Path,
+    output: Path,
+) -> int:
+    try:
+        paths = export_analysis_evidence_input(
+            analysis_plan_dir=analysis_plan,
+            combined_result_dir=combined_result,
+            shortlist_dir=shortlist,
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось собрать query Evidence-вход: {error}", file=sys.stderr)
+        return 1
+    print("Query Evidence-вход успешно собран.")
+    print(f"Документы: {paths.documents}")
+    print(f"Покрытие: {paths.coverage}")
     print(f"Manifest: {paths.manifest}")
     return 0
 
@@ -1694,7 +1739,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if arguments.command == "analysis-evidence-shortlist":
         return _run_analysis_shortlist(
-            arguments.inference, arguments.limit, arguments.output
+            arguments.inference,
+            arguments.limit,
+            arguments.offset,
+            arguments.output,
+        )
+    if arguments.command == "analysis-evidence-input-plan":
+        return _run_analysis_evidence_input(
+            arguments.analysis_plan,
+            arguments.combined_result,
+            arguments.shortlist,
+            arguments.output,
         )
     if arguments.command == "evaluation-model-report":
         return _run_evaluation_model_report(arguments.features, arguments.output)

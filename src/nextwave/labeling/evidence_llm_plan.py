@@ -49,7 +49,10 @@ TASKS_FILENAME = "tasks.jsonl"
 COVERAGE_FILENAME = "coverage.jsonl"
 LLM_PLAN_MANIFEST_FILENAME = "manifest.json"
 
-_CONNECTOR_BY_CLASS = {"scientific": "openalex", "industry": "mediacloud"}
+_CONNECTORS_BY_CLASS = {
+    "scientific": {"openalex"},
+    "industry": {"mediacloud", "exa"},
+}
 _MATURITY_STRONG_PASSAGE_CUES = (
     "adopted", "adoption", "deployed", "deployment", "widely used",
     "widespread", "in production", "production use", "industrial use",
@@ -315,7 +318,7 @@ def _validate(
         source_class = row.get("source_class")
         if source_class not in ("scientific", "industry"):
             raise ValueError(f"{label} has an unknown source_class")
-        if row.get("connector") != _CONNECTOR_BY_CLASS[source_class]:
+        if row.get("connector") not in _CONNECTORS_BY_CLASS[source_class]:
             raise ValueError(f"{label} connector does not match source_class")
         if row.get("evidence_text_available") is not True:
             raise ValueError(f"{label} evidence_text_available must be strictly true")

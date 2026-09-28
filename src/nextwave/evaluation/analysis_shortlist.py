@@ -35,10 +35,15 @@ def _read_object(path: Path, label: str) -> dict[str, Any]:
 
 
 def build_analysis_shortlist(
-    *, inference_dir: str | Path, limit: int = DEFAULT_SHORTLIST_SIZE
+    *,
+    inference_dir: str | Path,
+    limit: int = DEFAULT_SHORTLIST_SIZE,
+    offset: int = 0,
 ) -> tuple[bytes, bytes]:
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
         raise ValueError("shortlist limit must be a positive integer")
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        raise ValueError("shortlist offset must be a non-negative integer")
     directory = Path(inference_dir)
     manifest_bytes = (directory / MANIFEST_FILENAME).read_bytes()
     manifest = _read_object(directory / MANIFEST_FILENAME, "analysis inference manifest")
@@ -93,6 +98,7 @@ def build_analysis_shortlist(
         {
             "schema_version": ANALYSIS_SHORTLIST_VERSION,
             "evidence_rank": rank,
+            "model_rank": offset + rank,
             "candidate_id": row["candidate_id"],
             "canonical_name": row.get("canonical_name"),
             "domain": row.get("domain"),
@@ -102,7 +108,7 @@ def build_analysis_shortlist(
             "decision_threshold": row["decision_threshold"],
             "preliminary_prediction": row["prediction"],
         }
-        for rank, row in enumerate(ordered[:limit], 1)
+        for rank, row in enumerate(ordered[offset : offset + limit], 1)
     ]
     shortlist_bytes = b"".join(
         (json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
@@ -116,6 +122,7 @@ def build_analysis_shortlist(
         "source_query": query,
         "candidate_count": len(predictions),
         "shortlist_limit": limit,
+        "shortlist_offset": offset,
         "selected_count": len(selected),
         "ranking": "model_score_desc_then_name_then_candidate_id",
         "inputs": {"analysis_inference": _digest(manifest_bytes)},
@@ -128,9 +135,15 @@ def build_analysis_shortlist(
 
 
 def export_analysis_shortlist(
-    *, inference_dir: str | Path, output_dir: str | Path, limit: int = DEFAULT_SHORTLIST_SIZE
+    *,
+    inference_dir: str | Path,
+    output_dir: str | Path,
+    limit: int = DEFAULT_SHORTLIST_SIZE,
+    offset: int = 0,
 ) -> AnalysisShortlistPaths:
-    shortlist, manifest = build_analysis_shortlist(inference_dir=inference_dir, limit=limit)
+    shortlist, manifest = build_analysis_shortlist(
+        inference_dir=inference_dir, limit=limit, offset=offset
+    )
     paths = publish_artifact_bundle(
         {SHORTLIST_FILENAME: shortlist, MANIFEST_FILENAME: manifest}, output_dir
     )

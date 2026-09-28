@@ -797,6 +797,7 @@ class CommandLineTests(unittest.TestCase):
         _, kwargs = export.call_args
         self.assertEqual(kwargs["inference_dir"], Path("inference"))
         self.assertEqual(kwargs["limit"], 25)
+        self.assertEqual(kwargs["offset"], 0)
         self.assertEqual(
             kwargs["output_dir"],
             Path("data") / "development" / ANALYSIS_SHORTLIST_VERSION,

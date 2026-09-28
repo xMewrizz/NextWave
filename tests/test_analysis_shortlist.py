@@ -64,6 +64,7 @@ class AnalysisShortlistTests(unittest.TestCase):
         summary = json.loads(manifest)
         self.assertEqual([row["candidate_id"] for row in rows], ["candidate-002", "candidate-001"])
         self.assertEqual([row["evidence_rank"] for row in rows], [1, 2])
+        self.assertEqual([row["model_rank"] for row in rows], [1, 2])
         self.assertEqual(summary["schema_version"], ANALYSIS_SHORTLIST_VERSION)
         self.assertEqual(summary["artifact_role"], "evidence_work_queue_not_final_top15")
 
@@ -75,6 +76,21 @@ class AnalysisShortlistTests(unittest.TestCase):
                 inference_dir=self._fixture(root, reverse=True), limit=3
             )
         self.assertEqual(first[0], second[0])
+
+    def test_offset_builds_next_evidence_page_without_losing_global_rank(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            shortlist, manifest = build_analysis_shortlist(
+                inference_dir=self._fixture(Path(tmp)), limit=2, offset=1
+            )
+        rows = [json.loads(line) for line in shortlist.decode().splitlines()]
+        summary = json.loads(manifest)
+        self.assertEqual(
+            [row["candidate_id"] for row in rows],
+            ["candidate-001", "candidate-003"],
+        )
+        self.assertEqual([row["evidence_rank"] for row in rows], [1, 2])
+        self.assertEqual([row["model_rank"] for row in rows], [2, 3])
+        self.assertEqual(summary["shortlist_offset"], 1)
 
     def test_rejects_mixed_query(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

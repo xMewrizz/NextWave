@@ -1654,6 +1654,21 @@ class PreflightTests(unittest.TestCase):
             input_dir = build_input(root, [task], [run_coverage_row("c1", task)])
             self._run_fails(root, input_dir, "connector does not match")
 
+    def test_exa_is_accepted_as_industry_connector(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [task_doc_row("c1", 1, "exa", 1)]
+            task = make_task_row("c1", docs)
+            input_dir = build_input(
+                root, [task], [run_coverage_row("c1", task)]
+            )
+            generator = success_handler({"c1": [(docs[0]["document_id"], [])]})
+            paths = run_with_fake(
+                input_dir, root / "work", root / "out", generator
+            )
+        self.assertEqual(len(generator.calls), 1)
+        self.assertTrue(paths.manifest.name == "manifest.json")
+
     def test_ineligible_passage_is_rejected_before_work_or_model(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

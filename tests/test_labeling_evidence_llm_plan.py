@@ -847,5 +847,56 @@ class MaturityPurposeTests(unittest.TestCase):
         self.assertEqual(manifest["purpose"], EVIDENCE_PURPOSE_MATURITY)
 
 
+class ExaConnectorTests(unittest.TestCase):
+    def test_industry_exa_is_accepted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [doc_row("c1", 1, "exa", 1)]
+            coverage = [
+                coverage_row(
+                    "c1",
+                    1,
+                    scientific_selected=0,
+                    media_selected=1,
+                    source_classes_present=["industry"],
+                )
+            ]
+            paths = export_evidence_llm_plan(
+                input_dir=build_input(root, docs, coverage),
+                output_dir=root / "out",
+            )
+            tasks = read_jsonl(paths.tasks)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["documents"][0]["connector"], "exa")
+        self.assertEqual(
+            tasks[0]["documents"][0]["source_class"], "industry"
+        )
+
+    def test_unknown_connector_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [doc_row("c1", 1, "mystery", 1)]
+            input_dir = build_input(root, docs, [coverage_row("c1", 1)])
+            with self.assertRaisesRegex(ValueError, "connector does not match"):
+                export_evidence_llm_plan(
+                    input_dir=input_dir, output_dir=root / "out"
+                )
+            self.assertFalse((root / "out").exists())
+
+    def test_exa_with_scientific_class_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            docs = [
+                doc_row("c1", 1, "exa", 1, source_class="scientific")
+            ]
+            input_dir = build_input(root, docs, [coverage_row("c1", 1)])
+            with self.assertRaisesRegex(ValueError, "connector does not match"):
+                export_evidence_llm_plan(
+                    input_dir=input_dir, output_dir=root / "out"
+                )
+            self.assertFalse((root / "out").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

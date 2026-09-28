@@ -131,7 +131,10 @@ ISSUES_FILENAME = "issues.jsonl"
 COVERAGE_FILENAME = "coverage.jsonl"
 RESULT_MANIFEST_FILENAME = "manifest.json"
 
-_CONNECTOR_BY_CLASS = {"scientific": "openalex", "industry": "mediacloud"}
+_CONNECTORS_BY_CLASS = {
+    "scientific": {"openalex"},
+    "industry": {"mediacloud", "exa"},
+}
 _VALID_CLASSES = ("scientific", "industry")
 
 
@@ -379,7 +382,7 @@ def _validate_task(
         source_class = doc.get("source_class")
         if source_class not in _VALID_CLASSES:
             raise ValueError(f"{label} has an unknown source_class")
-        if doc.get("connector") != _CONNECTOR_BY_CLASS[source_class]:
+        if doc.get("connector") not in _CONNECTORS_BY_CLASS[source_class]:
             raise ValueError(f"{label} connector does not match source_class")
         for name in ("title", "origin_id", "matched_term"):
             _require_text(doc.get(name), f"{label} {name}")
