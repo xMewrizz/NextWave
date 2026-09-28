@@ -6,6 +6,10 @@ services:
       context: ./backend
     env_file:
       - ./config/hackathon.env
+    environment:
+      NEXTWAVE_RESULT_DIR: /data/result
+    volumes:
+      - ./data/development/analysis-result-aiinfra-004-v1:/data/result:ro
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
@@ -14,7 +18,7 @@ services:
         - CMD
         - /app/.venv/bin/python
         - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/coverage', timeout=2)
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/result/current', timeout=2)
       interval: 10s
       timeout: 3s
       start_period: 10s

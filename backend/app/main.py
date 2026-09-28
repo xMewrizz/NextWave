@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import pipeline
 from .models import Analysis, AnalysisRequest, AnalysisSummary, Coverage, Stage, Trend
+from .result_store import configured_result_dir, load_result_bundle
 
 app = FastAPI(title="Радар зарождающихся технологий", version="0.1.0")
 
@@ -62,6 +63,19 @@ def _notice(trends: list[Trend]) -> str | None:
 @app.get("/api/coverage")
 def get_coverage() -> Coverage:
     return pipeline.coverage()
+
+
+@app.get("/api/result/current")
+def get_current_result() -> dict:
+    """Return the checked immutable CLI result without recomputing model policy."""
+
+    try:
+        return load_result_bundle()
+    except ValueError as error:
+        raise HTTPException(
+            503,
+            f"Итоговый результат недоступен ({configured_result_dir()}): {error}",
+        ) from error
 
 
 @app.get("/api/stages")

@@ -11,13 +11,17 @@ export function SearchPage() {
   const [starting, setStarting] = useState(false)
   const navigate = useNavigate()
   const coverage = useResource(api.coverage, 'coverage')
+  const result = useResource(api.currentResult, 'current-result')
 
   async function start() {
     if (!query.trim() || starting) return
     setStarting(true)
     try {
-      const analysis = await api.startAnalysis(query.trim())
-      navigate(`/analyses/${analysis.id}`)
+      if (!result.data) throw new Error('Проверенный результат ещё не загружен сервером')
+      if (query.trim().toLocaleLowerCase('ru-RU') !== result.data.summary.source_query.toLocaleLowerCase('ru-RU')) {
+        throw new Error(`Демонстрационный live-прогон зафиксирован для запроса «${result.data.summary.source_query}»`)
+      }
+      navigate('/result')
     } catch (e) {
       toast.error('Не удалось запустить анализ', { description: (e as Error).message })
       setStarting(false)
@@ -55,7 +59,7 @@ export function SearchPage() {
                   start()
                 }
               }}
-              placeholder="Например: агенты и LLM"
+              placeholder={result.data?.summary.source_query ?? 'Технологическое направление'}
               aria-label="Технологическое направление"
               className="block max-h-40 min-h-16 w-full resize-none bg-transparent px-2.5 py-2 text-[15px] leading-6 outline-none placeholder:text-muted-foreground/75"
             />
@@ -75,7 +79,7 @@ export function SearchPage() {
           </div>
         </form>
 
-        {coverage.data?.examples.length ? (
+        {!result.data && coverage.data?.examples.length ? (
           <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-2">
             {coverage.data.examples.slice(0, 4).map((example) => (
               <button
@@ -89,19 +93,34 @@ export function SearchPage() {
             ))}
           </div>
         ) : null}
+        {result.data && (
+          <button
+            type="button"
+            className="mt-3 text-xs text-muted-foreground underline underline-offset-4"
+            onClick={() => setQuery(result.data!.summary.source_query)}
+          >
+            Подставить зафиксированный запрос реального прогона
+          </button>
+        )}
       </div>
 
       <div className="mx-auto mb-6 flex max-w-2xl items-center justify-center gap-2 text-center text-xs text-muted-foreground">
         <Database className="size-3.5 shrink-0" />
         {coverage.loading && <span>Подключаем корпус данных…</span>}
         {coverage.error && <span>Сведения о корпусе временно недоступны</span>}
-        {coverage.data && (
+        {result.data ? (
+          <span>
+            {result.data.summary.processed_unique_documents.toLocaleString('ru-RU')} уникальных
+            документов · {result.data.summary.candidate_count} кандидатов ·{' '}
+            {result.data.summary.release_status}
+          </span>
+        ) : coverage.data ? (
           <span>
             {coverage.data.corpus_version.startsWith('synthetic-')
               ? 'Синтетический UI-корпус: результаты не являются выводами модели'
               : `${coverage.data.document_count.toLocaleString('ru-RU')} документов · корпус ${coverage.data.corpus_version} · обновлён ${formatDate(coverage.data.updated_at)}`}
           </span>
-        )}
+        ) : null}
       </div>
     </div>
   )
