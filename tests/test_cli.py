@@ -714,6 +714,46 @@ class CommandLineTests(unittest.TestCase):
             Path("data") / "development" / ANALYSIS_FEATURE_TABLE_VERSION,
         )
 
+    @patch("nextwave.__main__.export_combined_enrichment")
+    def test_analysis_enrichment_merge_uses_versioned_output(self, export) -> None:
+        from nextwave.evaluation import (
+            ANALYSIS_COMBINED_ENRICHMENT_VERSION,
+            CombinedEnrichmentPaths,
+        )
+
+        export.return_value = CombinedEnrichmentPaths(
+            documents=Path("out/documents.jsonl"),
+            coverage=Path("out/coverage.jsonl"),
+            excluded_documents=Path("out/excluded_documents.jsonl"),
+            manifest=Path("out/manifest.json"),
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "analysis-enrichment-merge",
+                    "--analysis-plan",
+                    "analysis-plan",
+                    "--scientific-result",
+                    "science",
+                    "--exa-plan",
+                    "exa-plan",
+                    "--exa-result",
+                    "exa-result",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(kwargs["analysis_plan_dir"], Path("analysis-plan"))
+        self.assertEqual(kwargs["scientific_result_dir"], Path("science"))
+        self.assertEqual(kwargs["exa_plan_dir"], Path("exa-plan"))
+        self.assertEqual(kwargs["exa_result_dir"], Path("exa-result"))
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data")
+            / "development"
+            / ANALYSIS_COMBINED_ENRICHMENT_VERSION,
+        )
+
     @patch("nextwave.__main__.export_analysis_inference")
     def test_analysis_inference_uses_frozen_model(self, export) -> None:
         from nextwave.evaluation import ANALYSIS_INFERENCE_VERSION, AnalysisInferencePaths

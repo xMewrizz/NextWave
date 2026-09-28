@@ -9,6 +9,7 @@ from pathlib import Path
 
 from nextwave.evaluation.feature_table import (
     FEATURE_TABLE_VERSION,
+    _document_features,
     _identity_groups,
     _temporal_feature_index,
     build_feature_table,
@@ -73,6 +74,20 @@ def _document(candidate_id: str, connector: str, suffix: str) -> dict:
 
 
 class FeatureTableTests(unittest.TestCase):
+    def test_exa_documents_supply_industry_features(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = Path(tmp) / "combined"
+            _write_dict_bundle(
+                result,
+                {
+                    "documents.jsonl": _jsonl_bytes(
+                        [_document("candidate-1", "exa", "industry")]
+                    )
+                },
+            )
+            features = _document_features(result, {"candidate-1"})
+        self.assertTrue(features["candidate-1"]["industry_recent_present"])
+
     def _fixture(self, root: Path) -> dict[str, Path]:
         positive = root / "positive"
         positive.mkdir()

@@ -26,6 +26,12 @@ from .decision_policy import (
     PolicyReason,
     apply_decision_policy,
 )
+from .exa_enrichment_merge import (
+    ANALYSIS_COMBINED_ENRICHMENT_VERSION,
+    CombinedEnrichmentPaths,
+    build_combined_enrichment,
+    export_combined_enrichment,
+)
 from .exa_enrichment_plan import (
     EXA_ENRICHMENT_PLAN_VERSION,
     ExaEnrichmentPlanPaths,
@@ -101,6 +107,10 @@ __all__ = [
     "ExaEnrichmentPlanPaths",
     "build_exa_enrichment_plan",
     "export_exa_enrichment_plan",
+    "ANALYSIS_COMBINED_ENRICHMENT_VERSION",
+    "CombinedEnrichmentPaths",
+    "build_combined_enrichment",
+    "export_combined_enrichment",
     "EXA_ENRICHMENT_EXECUTOR_VERSION",
     "EXA_ENRICHMENT_RESULT_VERSION",
     "EXA_ENRICHMENT_WORK_VERSION",

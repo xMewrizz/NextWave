@@ -27,6 +27,7 @@ from .feature_table import (
 ANALYSIS_FEATURE_TABLE_VERSION = "analysis-feature-table-v1"
 _ENRICHMENT_PLAN_VERSION = "labeling-enrichment-plan-v2"
 _ENRICHMENT_RESULT_VERSION = "labeling-enrichment-result-v2"
+_COMBINED_ENRICHMENT_RESULT_VERSION = "analysis-combined-enrichment-result-v1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +75,10 @@ def build_analysis_feature_table(
     result_manifest = _read_json(
         result_dir / MANIFEST_FILENAME, "analysis enrichment result manifest"
     )
-    if result_manifest.get("schema_version") != _ENRICHMENT_RESULT_VERSION:
+    if result_manifest.get("schema_version") not in {
+        _ENRICHMENT_RESULT_VERSION,
+        _COMBINED_ENRICHMENT_RESULT_VERSION,
+    }:
         raise ValueError("analysis enrichment result version is not supported")
     if result_manifest.get("bundle_id") != plan_manifest.get("bundle_id"):
         raise ValueError("analysis enrichment result bundle_id differs from plan")

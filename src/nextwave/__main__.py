@@ -22,6 +22,7 @@ from .discovery import (
     save_discovery_run,
 )
 from .evaluation import (
+    ANALYSIS_COMBINED_ENRICHMENT_VERSION,
     ANALYSIS_FEATURE_TABLE_VERSION,
     ANALYSIS_INFERENCE_VERSION,
     ANALYSIS_SHORTLIST_VERSION,
@@ -37,6 +38,7 @@ from .evaluation import (
     export_analysis_inference,
     export_analysis_shortlist,
     export_analysis_temporal_count_plan,
+    export_combined_enrichment,
     export_exa_enrichment_plan,
     export_feature_table,
     export_gate_noise_evaluation,
@@ -331,6 +333,21 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     exa_enrichment_run.add_argument("--max-new-requests", type=int, default=None)
     exa_enrichment_run.add_argument("--concurrency", type=int, default=5)
+    enrichment_merge = commands.add_parser(
+        "analysis-enrichment-merge",
+        help="объединить OpenAlex и очищенный Exa enrichment одного анализа",
+    )
+    enrichment_merge.add_argument("--analysis-plan", type=Path, required=True)
+    enrichment_merge.add_argument("--scientific-result", type=Path, required=True)
+    enrichment_merge.add_argument("--exa-plan", type=Path, required=True)
+    enrichment_merge.add_argument("--exa-result", type=Path, required=True)
+    enrichment_merge.add_argument(
+        "--output",
+        type=Path,
+        default=(
+            Path("data") / "development" / ANALYSIS_COMBINED_ENRICHMENT_VERSION
+        ),
+    )
     target_enrichment_plan = commands.add_parser(
         "labeling-target-enrichment-plan",
         help="построить enrichment для нейтральных целевых кандидатов дефицита",
@@ -1371,6 +1388,31 @@ def _run_analysis_exa_enrichment(
     return 0
 
 
+def _run_analysis_enrichment_merge(
+    analysis_plan: Path,
+    scientific_result: Path,
+    exa_plan: Path,
+    exa_result: Path,
+    output: Path,
+) -> int:
+    try:
+        paths = export_combined_enrichment(
+            analysis_plan_dir=analysis_plan,
+            scientific_result_dir=scientific_result,
+            exa_plan_dir=exa_plan,
+            exa_result_dir=exa_result,
+            output_dir=output,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось объединить enrichment: {error}", file=sys.stderr)
+        return 1
+    print("OpenAlex и source-typed Exa enrichment объединены.")
+    print(f"Документы: {paths.documents}")
+    print(f"Исключённые Exa-документы: {paths.excluded_documents}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def _run_evaluation_identity_review(
     positive_plan: Path,
     negative_plan: Path,
@@ -1615,6 +1657,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.env_file,
             arguments.max_new_requests,
             arguments.concurrency,
+        )
+    if arguments.command == "analysis-enrichment-merge":
+        return _run_analysis_enrichment_merge(
+            arguments.analysis_plan,
+            arguments.scientific_result,
+            arguments.exa_plan,
+            arguments.exa_result,
+            arguments.output,
         )
     if arguments.command == "evaluation-gate-noise":
         return _run_evaluation_gate_noise(

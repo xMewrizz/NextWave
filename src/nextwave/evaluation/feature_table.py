@@ -284,7 +284,7 @@ def _document_features(directory: Path, candidate_ids: set[str]) -> dict[str, di
             "scientific"
             if connector == "openalex"
             else "industry"
-            if connector == "mediacloud"
+            if connector in {"mediacloud", "exa"}
             else None
         )
         if source_class is None:
