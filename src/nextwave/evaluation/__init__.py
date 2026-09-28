@@ -1,5 +1,11 @@
 """Training and evaluation artifacts for NextWave."""
 
+from .analysis_features import (
+    ANALYSIS_FEATURE_TABLE_VERSION,
+    AnalysisFeatureTablePaths,
+    build_analysis_feature_table,
+    export_analysis_feature_table,
+)
 from .decision_policy import (
     DECISION_POLICY_VERSION,
     DecisionPolicyInput,
@@ -47,6 +53,10 @@ from .temporal_count_run import (
 )
 
 __all__ = [
+    "ANALYSIS_FEATURE_TABLE_VERSION",
+    "AnalysisFeatureTablePaths",
+    "build_analysis_feature_table",
+    "export_analysis_feature_table",
     "DECISION_POLICY_VERSION",
     "DecisionPolicyInput",
     "DecisionPolicyResult",

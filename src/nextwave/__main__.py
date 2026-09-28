@@ -22,12 +22,14 @@ from .discovery import (
     save_discovery_run,
 )
 from .evaluation import (
+    ANALYSIS_FEATURE_TABLE_VERSION,
     FEATURE_TABLE_VERSION,
     GATE_NOISE_EVALUATION_VERSION,
     IDENTITY_REVIEW_VERSION,
     MODEL_REPORT_VERSION,
     TEMPORAL_COUNT_PLAN_VERSION,
     TEMPORAL_COUNT_RESULT_VERSION,
+    export_analysis_feature_table,
     export_analysis_temporal_count_plan,
     export_feature_table,
     export_gate_noise_evaluation,
@@ -623,6 +625,18 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("data") / "development" / FEATURE_TABLE_VERSION,
         help="новый каталог таблицы признаков",
     )
+    analysis_features = commands.add_parser(
+        "analysis-feature-table",
+        help="собрать безметочные признаки кандидатов одного пользовательского запроса",
+    )
+    analysis_features.add_argument("--analysis-plan", type=Path, required=True)
+    analysis_features.add_argument("--enrichment-result", type=Path, required=True)
+    analysis_features.add_argument("--temporal-counts", type=Path, required=True)
+    analysis_features.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / ANALYSIS_FEATURE_TABLE_VERSION,
+    )
     model_report = commands.add_parser(
         "evaluation-model-report",
         help="обучить baseline/LogReg и выпустить grouped OOF отчёт",
@@ -1189,6 +1203,28 @@ def _run_evaluation_feature_table(
     return 0
 
 
+def _run_analysis_feature_table(
+    analysis_plan: Path,
+    enrichment_result: Path,
+    temporal_counts: Path,
+    output: Path,
+) -> int:
+    try:
+        paths = export_analysis_feature_table(
+            analysis_plan_dir=analysis_plan,
+            enrichment_result_dir=enrichment_result,
+            temporal_count_dir=temporal_counts,
+            output_dir=output,
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось собрать query-specific признаки: {error}", file=sys.stderr)
+        return 1
+    print("Query-specific признаки успешно собраны.")
+    print(f"Признаки: {paths.features}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def _run_analysis_enrichment_plan(run: Path, output: Path) -> int:
     try:
         paths = export_analysis_enrichment_plan(run_dir=run, output_dir=output)
@@ -1447,6 +1483,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.adjudication,
             arguments.temporal_counts,
             arguments.identity_review,
+            arguments.output,
+        )
+    if arguments.command == "analysis-feature-table":
+        return _run_analysis_feature_table(
+            arguments.analysis_plan,
+            arguments.enrichment_result,
+            arguments.temporal_counts,
             arguments.output,
         )
     if arguments.command == "evaluation-model-report":

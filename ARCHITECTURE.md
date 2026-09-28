@@ -584,8 +584,11 @@ PostgreSQL интегрированной версии хранит:
 Команда `analysis-temporal-count-plan` создаёт для этих кандидатов те же два
 временных OpenAlex-окна и тот же scope-знаменатель, что использовались при
 обучении. В analysis-плане присутствует только scope текущего запроса. После
-исполнения enrichment и temporal counts общий feature builder должен построить
-векторы без меток, зафиксированная модель — вероятности, а decision policy —
+исполнения enrichment и temporal counts команда `analysis-feature-table`
+строит векторы без меток и требует полное scientific/industry и temporal
+coverage. Она использует те же расчёты документных и временных признаков, что
+training feature table. Зафиксированная модель выдаёт вероятности, а decision
+policy —
 состояния `main`, `watchlist` и `excluded`. TOP-15 выбирается только из `main`
 этого анализа; `watchlist` показывается отдельно, `excluded` в рейтинг не
 попадает. Междоменный TOP-15 по обучающим строкам методике не соответствует.

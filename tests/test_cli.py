@@ -682,6 +682,38 @@ class CommandLineTests(unittest.TestCase):
         _, kwargs = export.call_args
         self.assertEqual(kwargs["output_dir"], Path("data") / "development" / MODEL_REPORT_VERSION)
 
+    @patch("nextwave.__main__.export_analysis_feature_table")
+    def test_analysis_feature_table_uses_unlabeled_inputs(self, export) -> None:
+        from nextwave.evaluation import (
+            ANALYSIS_FEATURE_TABLE_VERSION,
+            AnalysisFeatureTablePaths,
+        )
+
+        export.return_value = AnalysisFeatureTablePaths(
+            features=Path("out/features.jsonl"), manifest=Path("out/manifest.json")
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "analysis-feature-table",
+                    "--analysis-plan",
+                    "plan",
+                    "--enrichment-result",
+                    "enrichment",
+                    "--temporal-counts",
+                    "temporal",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(kwargs["analysis_plan_dir"], Path("plan"))
+        self.assertEqual(kwargs["enrichment_result_dir"], Path("enrichment"))
+        self.assertEqual(kwargs["temporal_count_dir"], Path("temporal"))
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / ANALYSIS_FEATURE_TABLE_VERSION,
+        )
+
     @patch("nextwave.__main__.export_temporal_count_plan")
     def test_temporal_count_plan_uses_versioned_default_output(self, export) -> None:
         from nextwave.evaluation import (
