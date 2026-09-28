@@ -741,6 +741,28 @@ class CommandLineTests(unittest.TestCase):
             Path("data") / "development" / ANALYSIS_INFERENCE_VERSION,
         )
 
+    @patch("nextwave.__main__.export_analysis_shortlist")
+    def test_analysis_evidence_shortlist_is_not_final_top15(self, export) -> None:
+        from nextwave.evaluation import ANALYSIS_SHORTLIST_VERSION, AnalysisShortlistPaths
+
+        export.return_value = AnalysisShortlistPaths(
+            shortlist=Path("out/shortlist.jsonl"), manifest=Path("out/manifest.json")
+        )
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(
+                ["analysis-evidence-shortlist", "--inference", "inference", "--limit", "25"]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(kwargs["inference_dir"], Path("inference"))
+        self.assertEqual(kwargs["limit"], 25)
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / ANALYSIS_SHORTLIST_VERSION,
+        )
+        self.assertIn("не финальный TOP-15", stdout.getvalue())
+
     @patch("nextwave.__main__.export_temporal_count_plan")
     def test_temporal_count_plan_uses_versioned_default_output(self, export) -> None:
         from nextwave.evaluation import (

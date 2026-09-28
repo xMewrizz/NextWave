@@ -24,6 +24,7 @@ from .discovery import (
 from .evaluation import (
     ANALYSIS_FEATURE_TABLE_VERSION,
     ANALYSIS_INFERENCE_VERSION,
+    ANALYSIS_SHORTLIST_VERSION,
     FEATURE_TABLE_VERSION,
     GATE_NOISE_EVALUATION_VERSION,
     IDENTITY_REVIEW_VERSION,
@@ -32,6 +33,7 @@ from .evaluation import (
     TEMPORAL_COUNT_RESULT_VERSION,
     export_analysis_feature_table,
     export_analysis_inference,
+    export_analysis_shortlist,
     export_analysis_temporal_count_plan,
     export_feature_table,
     export_gate_noise_evaluation,
@@ -650,6 +652,17 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data") / "development" / ANALYSIS_INFERENCE_VERSION,
     )
+    analysis_shortlist = commands.add_parser(
+        "analysis-evidence-shortlist",
+        help="выбрать query-specific очередь кандидатов для Evidence Duel",
+    )
+    analysis_shortlist.add_argument("--inference", type=Path, required=True)
+    analysis_shortlist.add_argument("--limit", type=int, default=30)
+    analysis_shortlist.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / ANALYSIS_SHORTLIST_VERSION,
+    )
     model_report = commands.add_parser(
         "evaluation-model-report",
         help="обучить baseline/LogReg и выпустить grouped OOF отчёт",
@@ -1252,6 +1265,22 @@ def _run_analysis_inference(features: Path, model: Path, output: Path) -> int:
     return 0
 
 
+def _run_analysis_shortlist(
+    inference: Path, limit: int, output: Path
+) -> int:
+    try:
+        paths = export_analysis_shortlist(
+            inference_dir=inference, limit=limit, output_dir=output
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось собрать evidence-shortlist: {error}", file=sys.stderr)
+        return 1
+    print("Evidence-shortlist успешно собран; это ещё не финальный TOP-15.")
+    print(f"Очередь: {paths.shortlist}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def _run_analysis_enrichment_plan(run: Path, output: Path) -> int:
     try:
         paths = export_analysis_enrichment_plan(run_dir=run, output_dir=output)
@@ -1522,6 +1551,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "analysis-inference":
         return _run_analysis_inference(
             arguments.features, arguments.model, arguments.output
+        )
+    if arguments.command == "analysis-evidence-shortlist":
+        return _run_analysis_shortlist(
+            arguments.inference, arguments.limit, arguments.output
         )
     if arguments.command == "evaluation-model-report":
         return _run_evaluation_model_report(arguments.features, arguments.output)

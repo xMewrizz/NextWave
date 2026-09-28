@@ -594,3 +594,8 @@ vocabulary, IDF, нормировки, веса и threshold без переоб
 состояния `main`, `watchlist` и `excluded`. TOP-15 выбирается только из `main`
 этого анализа; `watchlist` показывается отдельно, `excluded` в рейтинг не
 попадает. Междоменный TOP-15 по обучающим строкам методике не соответствует.
+
+Чтобы не запускать Evidence LLM по всему хвосту, `analysis-evidence-shortlist`
+выбирает до 30 кандидатов по frozen model score внутри того же запроса. Это
+очередь для Evidence Duel, а не итоговый TOP-15: окончательный ранг появляется
+только после evidence-проверки и decision policy.
