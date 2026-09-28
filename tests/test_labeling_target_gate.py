@@ -15,7 +15,7 @@ from nextwave.discovery import (
 )
 from nextwave.labeling.enrichment_plan import export_target_enrichment_plan
 from nextwave.labeling.enrichment_run import ENRICHMENT_RESULT_VERSION
-from nextwave.labeling.target_gate import run_target_gate
+from nextwave.labeling.target_gate import _scope, run_target_gate
 
 
 def _digest(payload: bytes) -> dict:
@@ -191,6 +191,21 @@ def _rows(path: Path) -> list[dict]:
 
 
 class TargetGateTests(unittest.TestCase):
+    def test_all_product_domains_have_a_target_gate_scope(self) -> None:
+        domains = {
+            "Edge",
+            "Защита ИИ",
+            "Индустриальный ИИ",
+            "Инфраструктура ИИ",
+            "Роботы",
+            "Финтех",
+        }
+
+        scopes = [_scope(domain) for domain in sorted(domains)]
+
+        self.assertEqual(len({scope.scope_id for scope in scopes}), len(domains))
+        self.assertTrue(all(scope.languages == ("en", "ru") for scope in scopes))
+
     def test_canonical_exact_sequence_calls_gate_and_round_trips_locator(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

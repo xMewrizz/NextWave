@@ -54,6 +54,10 @@ TARGET_GROUNDING_EXTRACTOR_ID = "target-exact-sequence-v1"
 _TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
 _CONNECTOR_SOURCE_CLASS = {"openalex": "scientific", "mediacloud": "industry"}
 _DOMAIN_SCOPE = {
+    "Edge": (
+        "target-edge-v1",
+        "Emerging edge and on-device AI technologies",
+    ),
     "Защита ИИ": (
         "target-ai-security-v1",
         "Emerging AI security technologies",
@@ -61,6 +65,14 @@ _DOMAIN_SCOPE = {
     "Индустриальный ИИ": (
         "target-industrial-ai-v1",
         "Emerging industrial AI technologies",
+    ),
+    "Инфраструктура ИИ": (
+        "target-ai-infrastructure-v1",
+        "Emerging AI infrastructure technologies",
+    ),
+    "Роботы": (
+        "target-robotics-v1",
+        "Emerging robotics and embodied AI technologies",
     ),
     "Финтех": ("target-fintech-v1", "Emerging fintech technologies"),
 }
