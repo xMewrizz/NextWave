@@ -608,6 +608,35 @@ class CommandLineTests(unittest.TestCase):
             Path("data") / "development" / IDENTITY_REVIEW_VERSION,
         )
 
+    @patch("nextwave.__main__.export_gate_noise_evaluation")
+    def test_gate_noise_uses_versioned_default_output(self, export) -> None:
+        from nextwave.evaluation import (
+            GATE_NOISE_EVALUATION_VERSION,
+            GateNoiseEvaluationPaths,
+        )
+
+        export.return_value = GateNoiseEvaluationPaths(
+            rows=Path("out/noise_results.jsonl"),
+            report=Path("out/report.json"),
+            manifest=Path("out/manifest.json"),
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "evaluation-gate-noise",
+                    "--selection",
+                    "selection.json",
+                    "--discovery-root",
+                    "discovery",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / GATE_NOISE_EVALUATION_VERSION,
+        )
+
     @patch("nextwave.__main__.export_model_report")
     def test_model_report_uses_versioned_default_output(self, export) -> None:
         from nextwave.evaluation import MODEL_REPORT_VERSION, ModelReportPaths

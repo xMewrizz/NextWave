@@ -23,11 +23,13 @@ from .discovery import (
 )
 from .evaluation import (
     FEATURE_TABLE_VERSION,
+    GATE_NOISE_EVALUATION_VERSION,
     IDENTITY_REVIEW_VERSION,
     MODEL_REPORT_VERSION,
     TEMPORAL_COUNT_PLAN_VERSION,
     TEMPORAL_COUNT_RESULT_VERSION,
     export_feature_table,
+    export_gate_noise_evaluation,
     export_identity_review,
     export_model_report,
     export_temporal_count_plan,
@@ -559,6 +561,18 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data") / "development" / IDENTITY_REVIEW_VERSION,
         help="новый каталог проверенных identity",
+    )
+    gate_noise = commands.add_parser(
+        "evaluation-gate-noise",
+        help="измерить Gate и полное удержание на 50 reviewed noise controls",
+    )
+    gate_noise.add_argument("--selection", type=Path, required=True)
+    gate_noise.add_argument("--discovery-root", type=Path, required=True)
+    gate_noise.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / GATE_NOISE_EVALUATION_VERSION,
+        help="новый каталог отчёта",
     )
     feature_table = commands.add_parser(
         "evaluation-feature-table",
@@ -1162,6 +1176,25 @@ def _run_evaluation_identity_review(
     return 0
 
 
+def _run_evaluation_gate_noise(
+    selection: Path, discovery_root: Path, output: Path
+) -> int:
+    try:
+        paths = export_gate_noise_evaluation(
+            selection_path=selection,
+            discovery_root=discovery_root,
+            output_dir=output,
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось оценить Candidate Gate: {error}", file=sys.stderr)
+        return 1
+    print("Оценка Candidate Gate успешно собрана.")
+    print(f"Строки: {paths.rows}")
+    print(f"Отчёт: {paths.report}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def _run_evaluation_model_report(features: Path, output: Path) -> int:
     try:
         paths = export_model_report(feature_dir=features, output_dir=output)
@@ -1335,6 +1368,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.negative_plan,
             arguments.decisions,
             arguments.output,
+        )
+    if arguments.command == "evaluation-gate-noise":
+        return _run_evaluation_gate_noise(
+            arguments.selection, arguments.discovery_root, arguments.output
         )
     if arguments.command == "evaluation-feature-table":
         return _run_evaluation_feature_table(
