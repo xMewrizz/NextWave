@@ -67,12 +67,15 @@ hype-вариантов и принял 6; дефицит равен 44. Audit v
 обещание: упоминание, обзор, релиз и лабораторное demo сами по себе hype не
 блокируют. Все три широких пакета завершены; новые поисковые пакеты остановлены,
 чтобы не сорвать остальные обязательные блоки. Noise содержит 50 строк.
-Development feature table v3 отражает старые статусы и честно исключает proposed
-и содержит 164 строки; scoped OpenAlex counts v4 завершены 412/412. Diagnostic
-LogReg report v4 даёт OOF accuracy 0.909 и balanced accuracy 0.891, сохраняет
-15 OOF-ошибок и явные FPR по отрицательным подтипам, но эти метрики нельзя
-выдавать за qualification. Блокеры: дефицит 44 hype, frozen roster 50/50 и
-reviewed identity. Второй широкий пакет также дал 0 hype: 14 not-grounded, один
+Cross-corpus identity review v1 проверил 200 кандидатов и 40 пар: 13
+лексических предложений и 27 семантических дополнений. Три `same_candidate`
+конфликта относятся к proposed negative и не входят в текущую таблицу. Feature
+table development v5 содержит 164/164 reviewed identity, ноль используемых
+конфликтов и общие group ID для родственных семейств; scoped OpenAlex counts v4
+завершены 412/412. Та же неизменённая grouped-CV методика в model report
+development v6 даёт OOF accuracy 0.915, balanced accuracy 0.896, organizer recall
+0.98 и 14 ошибок. Эти метрики нельзя выдавать за qualification. Блокеры: дефицит
+44 hype и frozen roster 50/50. Второй широкий пакет также дал 0 hype: 14 not-grounded, один
 Gate reject и пять с недостаточной publicity. Temporal v3 запрещён: независимые candidate/scope
 запросы дали 23 доли больше единицы. Автоматические EvidenceClaim не считаются
 экспертными метками и не заменяют проверенный отрицательный корпус.

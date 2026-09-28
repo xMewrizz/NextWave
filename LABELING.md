@@ -270,6 +270,16 @@ Coverage считается отдельно на кандидата и исто
 - черновики, разногласия и неполный поиск не входят в обучающий набор;
 - повторная сборка создаёт те же файлы и checksum.
 
+## Cross-corpus identity review
+
+Перед grouped CV команда `evaluation-identity-review` сравнивает canonical names,
+aliases и search terms positive/negative corpus. Автоматический shortlist лишь
+предлагает пары; reviewer фиксирует `same_candidate`, `same_family` или
+`distinct`. Родственные технологии получают общий `group_id`, а настоящий
+cross-label дубль блокирует model-ready статус. `evaluation-feature-table`
+принимает проверенный artifact через `--identity-review`; без него identities
+остаются непроверенными.
+
 ## Аудит готовности корпуса (read-only)
 
 Команда `labeling-corpus-readiness` работает офлайн. Она сверяет локальные outputs

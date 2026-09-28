@@ -23,10 +23,12 @@ from .discovery import (
 )
 from .evaluation import (
     FEATURE_TABLE_VERSION,
+    IDENTITY_REVIEW_VERSION,
     MODEL_REPORT_VERSION,
     TEMPORAL_COUNT_PLAN_VERSION,
     TEMPORAL_COUNT_RESULT_VERSION,
     export_feature_table,
+    export_identity_review,
     export_model_report,
     export_temporal_count_plan,
     run_temporal_counts,
@@ -545,6 +547,19 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("data") / "development" / HYPE_INPUT_POLICY_VERSION,
         help="новый каталог результата",
     )
+    identity_review = commands.add_parser(
+        "evaluation-identity-review",
+        help="зафиксировать aliases и cross-corpus группы для grouped CV",
+    )
+    identity_review.add_argument("--positive-plan", type=Path, required=True)
+    identity_review.add_argument("--negative-plan", type=Path, required=True)
+    identity_review.add_argument("--decisions", type=Path, required=True)
+    identity_review.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / IDENTITY_REVIEW_VERSION,
+        help="новый каталог проверенных identity",
+    )
     feature_table = commands.add_parser(
         "evaluation-feature-table",
         help="собрать leakage-safe таблицу признаков из frozen corpus",
@@ -559,6 +574,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="complete openalex-temporal-count-result-v4",
+    )
+    feature_table.add_argument(
+        "--identity-review",
+        type=Path,
+        default=None,
+        help="candidate-identity-review-v1 с проверенными cross-corpus группами",
     )
     feature_table.add_argument(
         "--output",
@@ -1095,6 +1116,7 @@ def _run_evaluation_feature_table(
     negative_enrichment: Path,
     adjudication: Path,
     temporal_counts: Path | None,
+    identity_review: Path | None,
     output: Path,
 ) -> int:
     try:
@@ -1105,6 +1127,7 @@ def _run_evaluation_feature_table(
             negative_enrichment_dir=negative_enrichment,
             adjudication_dir=adjudication,
             temporal_count_dir=temporal_counts,
+            identity_review_dir=identity_review,
             output_dir=output,
         )
     except (OSError, ValueError) as error:
@@ -1112,6 +1135,29 @@ def _run_evaluation_feature_table(
         return 1
     print("Таблица признаков успешно собрана.")
     print(f"Признаки: {paths.features}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
+def _run_evaluation_identity_review(
+    positive_plan: Path,
+    negative_plan: Path,
+    decisions: Path,
+    output: Path,
+) -> int:
+    try:
+        paths = export_identity_review(
+            positive_plan_dir=positive_plan,
+            negative_plan_dir=negative_plan,
+            decisions_path=decisions,
+            output_dir=output,
+        )
+    except (OSError, ValueError) as error:
+        print(f"Не удалось собрать identity review: {error}", file=sys.stderr)
+        return 1
+    print("Identity review успешно собран.")
+    print(f"Группы: {paths.identities}")
+    print(f"Решения: {paths.pair_decisions}")
     print(f"Manifest: {paths.manifest}")
     return 0
 
@@ -1283,6 +1329,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.media_result,
             arguments.output,
         )
+    if arguments.command == "evaluation-identity-review":
+        return _run_evaluation_identity_review(
+            arguments.positive_plan,
+            arguments.negative_plan,
+            arguments.decisions,
+            arguments.output,
+        )
     if arguments.command == "evaluation-feature-table":
         return _run_evaluation_feature_table(
             arguments.positive,
@@ -1291,6 +1344,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.negative_enrichment,
             arguments.adjudication,
             arguments.temporal_counts,
+            arguments.identity_review,
             arguments.output,
         )
     if arguments.command == "evaluation-model-report":

@@ -6,6 +6,13 @@ from .feature_table import (
     build_feature_table,
     export_feature_table,
 )
+from .identity_review import (
+    IDENTITY_DECISIONS_VERSION,
+    IDENTITY_REVIEW_VERSION,
+    IdentityReviewPaths,
+    build_identity_review,
+    export_identity_review,
+)
 from .model import (
     MODEL_REPORT_VERSION,
     ModelReportPaths,
@@ -29,6 +36,11 @@ __all__ = [
     "FeatureTablePaths",
     "build_feature_table",
     "export_feature_table",
+    "IDENTITY_DECISIONS_VERSION",
+    "IDENTITY_REVIEW_VERSION",
+    "IdentityReviewPaths",
+    "build_identity_review",
+    "export_identity_review",
     "MODEL_REPORT_VERSION",
     "ModelReportPaths",
     "build_model_report",

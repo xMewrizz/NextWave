@@ -208,6 +208,30 @@ class EvaluationModelTests(unittest.TestCase):
             self.assertEqual(rate, expected)
             self.assertEqual(subgroup["false_positive_rate"], expected)
 
+    def test_reviewed_identity_manifest_removes_stale_identity_limitation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            feature_dir = Path(tmp) / "features"
+            _write_feature_bundle(feature_dir, _rows())
+            manifest_path = feature_dir / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["feature_policy"] = {
+                "reviewed_identity_groups_used": True,
+                "uncapped_openalex_temporal_counts_used": True,
+            }
+            manifest["counts"].update(
+                {
+                    "accepted_mature": 10,
+                    "accepted_marketing_hype": 10,
+                    "identity_conflicts": 0,
+                }
+            )
+            manifest_path.write_bytes(
+                (json.dumps(manifest, sort_keys=True) + "\n").encode()
+            )
+            _, _, report_bytes, _ = build_model_report(feature_dir)
+        limitations = json.loads(report_bytes)["limitations"]
+        self.assertFalse(any("identities" in item for item in limitations))
+
     def test_manifest_checksum_tampering_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             feature_dir = Path(tmp) / "features"

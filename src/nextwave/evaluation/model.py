@@ -447,13 +447,30 @@ def build_model_report(feature_dir: str | Path) -> tuple[bytes, bytes, bytes, by
         )
         for negative_class in ("mature", "marketing_hype")
     }
-    limitations = [
-        "negative corpus has not reached reviewed 50 mature / 50 marketing_hype",
-        "cross-corpus identities are exact-normalized only and remain unreviewed",
-        "text style may encode organizer-versus-discovery provenance",
-        "metrics are diagnostic and must not be reported as qualification accuracy",
-    ]
     feature_policy = manifest.get("feature_policy")
+    counts = manifest.get("counts")
+    limitations: list[str] = []
+    if not isinstance(counts, dict) or (
+        counts.get("accepted_mature") != 50
+        or counts.get("accepted_marketing_hype") != 50
+    ):
+        limitations.append(
+            "negative corpus has not reached reviewed 50 mature / 50 marketing_hype"
+        )
+    if not isinstance(feature_policy, dict) or not feature_policy.get(
+        "reviewed_identity_groups_used"
+    ):
+        limitations.append(
+            "cross-corpus identities are exact-normalized only and remain unreviewed"
+        )
+    elif isinstance(counts, dict) and counts.get("identity_conflicts", 0) != 0:
+        limitations.append("reviewed cross-corpus identity conflicts remain unresolved")
+    limitations.extend(
+        [
+            "text style may encode organizer-versus-discovery provenance",
+            "metrics are diagnostic and must not be reported as qualification accuracy",
+        ]
+    )
     if not isinstance(feature_policy, dict) or not feature_policy.get(
         "uncapped_openalex_temporal_counts_used"
     ):

@@ -580,6 +580,34 @@ class CommandLineTests(unittest.TestCase):
         _, kwargs = export.call_args
         self.assertEqual(kwargs["output_dir"], Path("data") / "development" / FEATURE_TABLE_VERSION)
 
+    @patch("nextwave.__main__.export_identity_review")
+    def test_identity_review_uses_versioned_default_output(self, export) -> None:
+        from nextwave.evaluation import IDENTITY_REVIEW_VERSION, IdentityReviewPaths
+
+        export.return_value = IdentityReviewPaths(
+            identities=Path("out/identities.jsonl"),
+            pair_decisions=Path("out/pair_decisions.jsonl"),
+            manifest=Path("out/manifest.json"),
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "evaluation-identity-review",
+                    "--positive-plan",
+                    "positive-plan",
+                    "--negative-plan",
+                    "negative-plan",
+                    "--decisions",
+                    "decisions.json",
+                ]
+            )
+        self.assertEqual(exit_code, 0)
+        _, kwargs = export.call_args
+        self.assertEqual(
+            kwargs["output_dir"],
+            Path("data") / "development" / IDENTITY_REVIEW_VERSION,
+        )
+
     @patch("nextwave.__main__.export_model_report")
     def test_model_report_uses_versioned_default_output(self, export) -> None:
         from nextwave.evaluation import MODEL_REPORT_VERSION, ModelReportPaths

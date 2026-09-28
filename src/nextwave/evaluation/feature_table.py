@@ -28,6 +28,7 @@ _CUTOFF = date(2026, 9, 15)
 _WINDOW_START = date(2024, 9, 15)
 _RECENT_START = date(2025, 9, 15)
 _TEMPORAL_COUNT_RESULT_VERSION = "openalex-temporal-count-result-v4"
+_IDENTITY_REVIEW_VERSION = "candidate-identity-review-v1"
 _TEMPORAL_FEATURE_KEYS = (
     "scientific_previous_count_log1p",
     "scientific_recent_count_log1p",
@@ -180,6 +181,50 @@ def _identity_groups(rows: list[dict[str, Any]]) -> dict[str, str]:
         for candidate_id in candidate_ids:
             result[candidate_id] = group_id
     return result
+
+
+def _reviewed_identity_groups(
+    directory: Path,
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, str], bool, int]:
+    manifest = _read_json(directory / MANIFEST_FILENAME, "identity review manifest")
+    if manifest.get("schema_version") != _IDENTITY_REVIEW_VERSION:
+        raise ValueError(f"identity review must use {_IDENTITY_REVIEW_VERSION}")
+    identity_rows = _rows_from_bytes(
+        _checked_file(directory, manifest, "identities.jsonl"),
+        "identities",
+    )
+    pair_rows = _rows_from_bytes(
+        _checked_file(directory, manifest, "pair_decisions.jsonl"),
+        "identity pair decisions",
+    )
+    identity_index = _index(identity_rows, "candidate_id", "identity")
+    expected = {row["candidate_id"]: row for row in rows}
+    missing = sorted(set(expected) - set(identity_index))
+    if missing:
+        raise ValueError(f"identity review misses candidate {missing[0]!r}")
+    groups: dict[str, str] = {}
+    for candidate_id, candidate in expected.items():
+        identity = identity_index[candidate_id]
+        if identity.get("identity_status") != "reviewed":
+            raise ValueError(f"identity {candidate_id!r} is not reviewed")
+        if identity.get("canonical_name") != candidate["canonical_name"]:
+            raise ValueError(f"identity {candidate_id!r} canonical_name differs")
+        group_id = identity.get("group_id")
+        if not isinstance(group_id, str) or not group_id.startswith("cross-corpus-"):
+            raise ValueError(f"identity {candidate_id!r} has invalid group_id")
+        groups[candidate_id] = group_id
+    selected_ids = set(expected)
+    conflicts = 0
+    for index, pair in enumerate(pair_rows, 1):
+        left = pair.get("left_candidate_id")
+        right = pair.get("right_candidate_id")
+        relation = pair.get("relation")
+        if not isinstance(left, str) or not isinstance(right, str):
+            raise ValueError(f"identity pair decision {index} has invalid IDs")
+        if relation == "same_candidate" and {left, right} <= selected_ids:
+            conflicts += 1
+    return groups, conflicts == 0, conflicts
 
 
 def _coverage_index(directory: Path, candidate_ids: set[str]) -> dict[str, dict[str, bool]]:
@@ -416,6 +461,7 @@ def build_feature_table(
     negative_enrichment_dir: str | Path,
     adjudication_dir: str | Path,
     temporal_count_dir: str | Path | None = None,
+    identity_review_dir: str | Path | None = None,
 ) -> tuple[bytes, bytes]:
     positive_path = Path(positive_dir)
     positive_manifest = _read_json(positive_path / MANIFEST_FILENAME, "positive manifest")
@@ -480,7 +526,16 @@ def build_feature_table(
     negative_coverage_all = _coverage_index(Path(negative_enrichment_dir), set(negatives))
     positive_features = _document_features(Path(positive_enrichment_dir), positive_ids)
     negative_features_all = _document_features(Path(negative_enrichment_dir), set(negatives))
-    identity_groups = _identity_groups(candidate_rows)
+    if identity_review_dir is None:
+        identity_groups = _identity_groups(candidate_rows)
+        identity_ready = False
+        identity_conflicts = 0
+    else:
+        identity_groups, identity_ready, identity_conflicts = _reviewed_identity_groups(
+            Path(identity_review_dir), candidate_rows
+        )
+        for row in candidate_rows:
+            row["identity_reviewed"] = True
     temporal_features = _temporal_feature_index(
         Path(temporal_count_dir) if temporal_count_dir is not None else None,
         positive_ids | accepted_negative_ids,
@@ -513,6 +568,7 @@ def build_feature_table(
     qualification_eligible = (
         len(positives) == 100
         and accepted_counts == Counter({"mature": 50, "hype": 50})
+        and identity_ready
         and all(row["identity_reviewed"] for row in rows)
         and all(
             all(
@@ -542,13 +598,15 @@ def build_feature_table(
             "proposed_negative_excluded": len(negatives) - len(accepted_negative_ids),
             "feature_rows": len(rows),
             "identity_reviewed": sum(row["identity_reviewed"] for row in rows),
+            "identity_conflicts": identity_conflicts,
         },
         "feature_policy": {
             "capped_document_counts_used": False,
             "uncapped_openalex_temporal_counts_used": temporal_count_dir is not None,
             "expert_annotation_fields_used": False,
             "proposed_labels_used": False,
-            "exact_identity_only": True,
+            "exact_identity_only": identity_review_dir is None,
+            "reviewed_identity_groups_used": identity_review_dir is not None,
             "temporal_window": [_WINDOW_START.isoformat(), _CUTOFF.isoformat()],
             "recent_window_from": _RECENT_START.isoformat(),
         },
@@ -556,6 +614,7 @@ def build_feature_table(
             "accepted_mature": max(0, 50 - accepted_counts["mature"]),
             "accepted_marketing_hype": max(0, 50 - accepted_counts["hype"]),
             "unreviewed_identities": sum(not row["identity_reviewed"] for row in rows),
+            "identity_conflicts": identity_conflicts,
         },
         "surpluses": {
             "accepted_mature": max(0, accepted_counts["mature"] - 50),
@@ -570,6 +629,11 @@ def build_feature_table(
             "temporal_counts": (
                 _manifest_digest(Path(temporal_count_dir))
                 if temporal_count_dir is not None
+                else None
+            ),
+            "identity_review": (
+                _manifest_digest(Path(identity_review_dir))
+                if identity_review_dir is not None
                 else None
             ),
         },
@@ -589,6 +653,7 @@ def export_feature_table(
     negative_enrichment_dir: str | Path,
     adjudication_dir: str | Path,
     temporal_count_dir: str | Path | None = None,
+    identity_review_dir: str | Path | None = None,
     output_dir: str | Path,
 ) -> FeatureTablePaths:
     features, manifest = build_feature_table(
@@ -598,6 +663,7 @@ def export_feature_table(
         negative_enrichment_dir=negative_enrichment_dir,
         adjudication_dir=adjudication_dir,
         temporal_count_dir=temporal_count_dir,
+        identity_review_dir=identity_review_dir,
     )
     paths = publish_artifact_bundle(
         {FEATURES_FILENAME: features, MANIFEST_FILENAME: manifest}, output_dir

@@ -182,6 +182,55 @@ class FeatureTableTests(unittest.TestCase):
         rows = [json.loads(line) for line in features.decode().splitlines()]
         self.assertEqual(rows[0]["group_id"], rows[1]["group_id"])
 
+    def test_reviewed_identity_artifact_replaces_exact_only_groups(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            kwargs = self._fixture(root)
+            identity = root / "identity"
+            identity_rows = [
+                {
+                    "candidate_id": "organizer-001",
+                    "canonical_name": "Shared-Tech",
+                    "corpus": "positive",
+                    "group_id": "cross-corpus-reviewed0001",
+                    "identity_status": "reviewed",
+                },
+                {
+                    "candidate_id": "team-negative-001",
+                    "canonical_name": "Mature tech",
+                    "corpus": "negative",
+                    "group_id": "cross-corpus-reviewed0001",
+                    "identity_status": "reviewed",
+                },
+            ]
+            _write_dict_bundle(
+                identity,
+                {
+                    "identities.jsonl": _jsonl_bytes(identity_rows),
+                    "pair_decisions.jsonl": b"",
+                },
+            )
+            manifest_path = identity / "manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest.update(
+                {
+                    "schema_version": "candidate-identity-review-v1",
+                    "ready_for_model": True,
+                    "totals": {"conflicts": 0},
+                }
+            )
+            manifest_path.write_bytes(_json_bytes(manifest))
+            features, manifest_bytes = build_feature_table(
+                **kwargs,
+                identity_review_dir=identity,
+            )
+        rows = [json.loads(line) for line in features.decode().splitlines()]
+        summary = json.loads(manifest_bytes)
+        self.assertTrue(all(row["identity_reviewed"] for row in rows))
+        self.assertEqual({row["group_id"] for row in rows}, {"cross-corpus-reviewed0001"})
+        self.assertTrue(summary["feature_policy"]["reviewed_identity_groups_used"])
+        self.assertEqual(summary["deficits"]["unreviewed_identities"], 0)
+
     def test_identity_does_not_merge_different_roots(self) -> None:
         rows = [
             _candidate("candidate-1", "RAG"),
