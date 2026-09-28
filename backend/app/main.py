@@ -1,4 +1,5 @@
 import asyncio
+import os
 import uuid
 from datetime import UTC, datetime
 
@@ -22,6 +23,11 @@ app.add_middleware(
 # Интегрированная версия сохраняет анализы в PostgreSQL.
 _analyses: dict[str, Analysis] = {}
 _tasks: set[asyncio.Task] = set()
+
+
+def _require_synthetic_demo() -> None:
+    if os.getenv("NEXTWAVE_ENABLE_SYNTHETIC_DEMO") != "1":
+        raise HTTPException(404, "Синтетический API отключён в release mode.")
 
 
 async def _execute(analysis: Analysis) -> None:
@@ -62,6 +68,7 @@ def _notice(trends: list[Trend]) -> str | None:
 
 @app.get("/api/coverage")
 def get_coverage() -> Coverage:
+    _require_synthetic_demo()
     return pipeline.coverage()
 
 
@@ -80,11 +87,13 @@ def get_current_result() -> dict:
 
 @app.get("/api/stages")
 def get_stages() -> list[Stage]:
+    _require_synthetic_demo()
     return pipeline.STAGES
 
 
 @app.post("/api/analyses", status_code=201)
 async def create_analysis(body: AnalysisRequest) -> Analysis:
+    _require_synthetic_demo()
     query = body.query.strip()
     if not query:
         raise HTTPException(422, "Пустой запрос не запускает анализ.")
@@ -106,6 +115,7 @@ async def create_analysis(body: AnalysisRequest) -> Analysis:
 
 @app.get("/api/analyses")
 def list_analyses() -> list[AnalysisSummary]:
+    _require_synthetic_demo()
     items = sorted(_analyses.values(), key=lambda a: a.created_at, reverse=True)
     return [
         AnalysisSummary(
@@ -117,6 +127,7 @@ def list_analyses() -> list[AnalysisSummary]:
 
 @app.get("/api/analyses/{analysis_id}")
 def get_analysis(analysis_id: str) -> Analysis:
+    _require_synthetic_demo()
     analysis = _analyses.get(analysis_id)
     if analysis is None:
         raise HTTPException(404, "Анализ не найден. Возможно, сервер был перезапущен.")

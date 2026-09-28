@@ -13,7 +13,8 @@ from app.main import app
 
 
 @pytest.fixture
-async def client():
+async def client(monkeypatch):
+    monkeypatch.setenv("NEXTWAVE_ENABLE_SYNTHETIC_DEMO", "1")
     async with AsyncClient(transport=ASGITransport(app), base_url="http://test") as c:
         yield c
 
