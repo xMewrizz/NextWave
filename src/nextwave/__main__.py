@@ -26,6 +26,7 @@ from .evaluation import (
     ANALYSIS_INFERENCE_VERSION,
     ANALYSIS_SHORTLIST_VERSION,
     EXA_ENRICHMENT_PLAN_VERSION,
+    EXA_ENRICHMENT_RESULT_VERSION,
     FEATURE_TABLE_VERSION,
     GATE_NOISE_EVALUATION_VERSION,
     IDENTITY_REVIEW_VERSION,
@@ -42,6 +43,7 @@ from .evaluation import (
     export_identity_review,
     export_model_report,
     export_temporal_count_plan,
+    run_exa_enrichment,
     run_temporal_counts,
 )
 from .labeling.corpus_readiness import (
@@ -313,6 +315,22 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("data") / "development" / EXA_ENRICHMENT_PLAN_VERSION,
         help="новый каталог Exa-плана",
     )
+    exa_enrichment_run = commands.add_parser(
+        "analysis-exa-enrichment-run",
+        help="выполнить Exa enrichment с resume и параллельными запросами",
+    )
+    exa_enrichment_run.add_argument("--plan", type=Path, required=True)
+    exa_enrichment_run.add_argument("--work", type=Path, required=True)
+    exa_enrichment_run.add_argument(
+        "--output",
+        type=Path,
+        default=Path("data") / "development" / EXA_ENRICHMENT_RESULT_VERSION,
+    )
+    exa_enrichment_run.add_argument(
+        "--env-file", type=Path, default=Path("config") / "hackathon.env"
+    )
+    exa_enrichment_run.add_argument("--max-new-requests", type=int, default=None)
+    exa_enrichment_run.add_argument("--concurrency", type=int, default=5)
     target_enrichment_plan = commands.add_parser(
         "labeling-target-enrichment-plan",
         help="построить enrichment для нейтральных целевых кандидатов дефицита",
@@ -1326,6 +1344,33 @@ def _run_analysis_exa_enrichment_plan(analysis_plan: Path, output: Path) -> int:
     return 0
 
 
+def _run_analysis_exa_enrichment(
+    plan: Path,
+    work: Path,
+    output: Path,
+    env_file: Path,
+    max_new_requests: int | None,
+    concurrency: int,
+) -> int:
+    try:
+        paths = run_exa_enrichment(
+            plan_dir=plan,
+            work_dir=work,
+            output_dir=output,
+            environment=_runtime_environment(env_file),
+            max_new_requests=max_new_requests,
+            concurrency=concurrency,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось выполнить Exa enrichment: {error}", file=sys.stderr)
+        return 1
+    print("Exa enrichment выполнен.")
+    print(f"Документы: {paths.documents}")
+    print(f"Покрытие: {paths.coverage}")
+    print(f"Manifest: {paths.manifest}")
+    return 0
+
+
 def _run_evaluation_identity_review(
     positive_plan: Path,
     negative_plan: Path,
@@ -1561,6 +1606,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "analysis-exa-enrichment-plan":
         return _run_analysis_exa_enrichment_plan(
             arguments.analysis_plan, arguments.output
+        )
+    if arguments.command == "analysis-exa-enrichment-run":
+        return _run_analysis_exa_enrichment(
+            arguments.plan,
+            arguments.work,
+            arguments.output,
+            arguments.env_file,
+            arguments.max_new_requests,
+            arguments.concurrency,
         )
     if arguments.command == "evaluation-gate-noise":
         return _run_evaluation_gate_noise(

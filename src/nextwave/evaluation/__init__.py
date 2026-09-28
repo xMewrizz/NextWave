@@ -32,6 +32,13 @@ from .exa_enrichment_plan import (
     build_exa_enrichment_plan,
     export_exa_enrichment_plan,
 )
+from .exa_enrichment_run import (
+    EXA_ENRICHMENT_EXECUTOR_VERSION,
+    EXA_ENRICHMENT_RESULT_VERSION,
+    EXA_ENRICHMENT_WORK_VERSION,
+    ExaEnrichmentRunPaths,
+    run_exa_enrichment,
+)
 from .feature_table import (
     FEATURE_TABLE_VERSION,
     FeatureTablePaths,
@@ -94,6 +101,11 @@ __all__ = [
     "ExaEnrichmentPlanPaths",
     "build_exa_enrichment_plan",
     "export_exa_enrichment_plan",
+    "EXA_ENRICHMENT_EXECUTOR_VERSION",
+    "EXA_ENRICHMENT_RESULT_VERSION",
+    "EXA_ENRICHMENT_WORK_VERSION",
+    "ExaEnrichmentRunPaths",
+    "run_exa_enrichment",
     "FEATURE_TABLE_VERSION",
     "FeatureTablePaths",
     "build_feature_table",
