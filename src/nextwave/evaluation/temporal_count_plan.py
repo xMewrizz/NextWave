@@ -136,6 +136,7 @@ def _collect_candidates(
     role: str,
     candidates: dict[str, dict[str, Any]],
     required_cutoff: str | None = "2026-09-15",
+    dynamic_scope_queries: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], date]:
     manifest, plan, payload = _load_enrichment_plan(directory)
     cutoff_raw = plan.get("cutoff_date")
@@ -162,8 +163,24 @@ def _collect_candidates(
         if candidate_id in candidates:
             raise ValueError(f"candidate_id {candidate_id!r} occurs in both plans")
         scope = raw.get("analysis_scope_key")
+        if not isinstance(scope, str) or not scope:
+            raise ValueError(f"candidate {candidate_id} has invalid analysis scope")
         if scope not in _SCOPE_QUERIES:
-            raise ValueError(f"candidate {candidate_id} has unknown analysis scope")
+            if dynamic_scope_queries is None:
+                raise ValueError(f"candidate {candidate_id} has unknown analysis scope")
+            origin = raw.get("origin")
+            if not isinstance(origin, dict):
+                raise ValueError(f"candidate {candidate_id} misses analysis source query")
+            scope_query = _normalized_term(
+                origin.get("source_query"),
+                f"candidate {candidate_id} analysis source query",
+            )
+            existing_query = dynamic_scope_queries.get(scope)
+            if existing_query is not None and existing_query != scope_query:
+                raise ValueError(
+                    f"analysis scope {scope!r} has inconsistent source queries"
+                )
+            dynamic_scope_queries[scope] = scope_query
         terms = raw.get("search_terms")
         if not isinstance(terms, list) or not terms:
             raise ValueError(f"candidate {candidate_id} needs reviewed search terms")
@@ -186,11 +203,12 @@ def _render_temporal_count_plan(
     manifest_inputs: list[dict[str, Any]],
     candidates: dict[str, dict[str, Any]],
     scopes: tuple[str, ...],
+    scope_queries: dict[str, str],
     cutoff: date,
 ) -> tuple[bytes, bytes]:
     if not candidates:
         raise ValueError("temporal count plan requires candidates")
-    if not scopes or any(scope not in _SCOPE_QUERIES for scope in scopes):
+    if not scopes or any(scope not in scope_queries for scope in scopes):
         raise ValueError("temporal count plan requires known scopes")
     if len(scopes) != len(set(scopes)):
         raise ValueError("temporal count scopes must be unique")
@@ -205,14 +223,14 @@ def _render_temporal_count_plan(
                     entity_id=candidate["candidate_id"],
                     analysis_scope_key=candidate["analysis_scope_key"],
                     search_text=candidate["search_text"],
-                    scope_search_text=_SCOPE_QUERIES[candidate["analysis_scope_key"]],
+                    scope_search_text=scope_queries[candidate["analysis_scope_key"]],
                     window=window,
                     published_from=start,
                     published_until=end,
                 )
             )
     for scope in sorted(scopes):
-        search_text = _SCOPE_QUERIES[scope]
+        search_text = scope_queries[scope]
         for window, start, end in windows:
             tasks.append(
                 _task(
@@ -237,7 +255,7 @@ def _render_temporal_count_plan(
             name: {"from": start, "until": end, "inclusive": True}
             for name, start, end in windows
         },
-        "scope_queries": {scope: _SCOPE_QUERIES[scope] for scope in sorted(scopes)},
+        "scope_queries": {scope: scope_queries[scope] for scope in sorted(scopes)},
         "retrieval_policy": {
             "connector": "openalex",
             "channel": "text",
@@ -296,6 +314,7 @@ def build_temporal_count_plan(
         manifest_inputs=manifest_inputs,
         candidates=candidates,
         scopes=tuple(sorted(_SCOPE_QUERIES)),
+        scope_queries=_SCOPE_QUERIES,
         cutoff=cutoff,
     )
 
@@ -308,22 +327,29 @@ def build_analysis_temporal_count_plan(
     if manifest.get("plan_role") != "analysis_candidates":
         raise ValueError("analysis temporal counts require an analysis_candidates plan")
     candidates: dict[str, dict[str, Any]] = {}
+    dynamic_scope_queries: dict[str, str] = {}
     logical, manifest_input, cutoff = _collect_candidates(
         directory=directory,
         role="analysis",
         candidates=candidates,
         required_cutoff=None,
+        dynamic_scope_queries=dynamic_scope_queries,
     )
     scopes = tuple(
         sorted({str(candidate["analysis_scope_key"]) for candidate in candidates.values()})
     )
     if len(scopes) != 1:
         raise ValueError("analysis enrichment plan must contain exactly one scope")
+    scope_queries = {
+        scope: _SCOPE_QUERIES.get(scope, dynamic_scope_queries.get(scope, ""))
+        for scope in scopes
+    }
     return _render_temporal_count_plan(
         plan_inputs=[logical],
         manifest_inputs=[manifest_input],
         candidates=candidates,
         scopes=scopes,
+        scope_queries=scope_queries,
         cutoff=cutoff,
     )
 

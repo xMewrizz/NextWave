@@ -25,8 +25,9 @@ def _candidate(
     term: str,
     *,
     cutoff_date: str = "2026-09-15",
+    source_query: str | None = None,
 ) -> dict:
-    return {
+    row = {
         "candidate_id": candidate_id,
         "canonical_name": term,
         "aliases": [],
@@ -35,6 +36,9 @@ def _candidate(
         "cutoff_date": cutoff_date,
         "search_terms": [term, f"{term} alias"],
     }
+    if source_query is not None:
+        row["origin"] = {"source_query": source_query}
+    return row
 
 
 def _write_plan(
@@ -267,6 +271,58 @@ class TemporalCountPlanTests(unittest.TestCase):
                 },
             },
         )
+
+    def test_analysis_plan_accepts_its_dynamic_user_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            analysis = root / "analysis"
+            scope = "scope-7377ccb2b45c924c"
+            query = "Infrastructure technologies for AI training and inference"
+            _write_plan(
+                analysis,
+                "analysis-bundle",
+                [
+                    _candidate(
+                        "alias-group-001",
+                        scope,
+                        "paged attention",
+                        source_query=query,
+                    ),
+                    _candidate(
+                        "alias-group-002",
+                        scope,
+                        "AI accelerator",
+                        source_query=query,
+                    ),
+                ],
+                plan_role="analysis_candidates",
+            )
+            plan_bytes, _ = build_analysis_temporal_count_plan(
+                analysis_plan_dir=analysis
+            )
+
+        plan = json.loads(plan_bytes)
+        self.assertEqual(plan["scope_queries"], {scope: query})
+        self.assertEqual(
+            {task["scope_search_text"] for task in plan["tasks"]}, {query}
+        )
+
+    def test_analysis_plan_rejects_inconsistent_dynamic_scope_queries(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            analysis = root / "analysis"
+            scope = "scope-dynamic"
+            _write_plan(
+                analysis,
+                "analysis-bundle",
+                [
+                    _candidate("one", scope, "one", source_query="first query"),
+                    _candidate("two", scope, "two", source_query="second query"),
+                ],
+                plan_role="analysis_candidates",
+            )
+            with self.assertRaisesRegex(ValueError, "inconsistent source queries"):
+                build_analysis_temporal_count_plan(analysis_plan_dir=analysis)
 
     def test_analysis_plan_rejects_training_or_multiple_scopes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
