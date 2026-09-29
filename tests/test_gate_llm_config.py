@@ -78,8 +78,11 @@ class GateLlmConfigTests(unittest.TestCase):
 
     def test_gate_id_contains_actual_pro_model(self) -> None:
         env = base_env() | {
-            "NEXTWAVE_GATE_LLM_PROVIDER": "yandex",
-            "NEXTWAVE_GATE_LLM_MODEL": "YandexGPT Pro 5",
+            "NEXTWAVE_GATE_LLM_PROVIDER": "qwen",
+            "NEXTWAVE_GATE_LLM_MODEL": "Qwen3 235B",
+            "NEXTWAVE_QWEN_BASE_URL": (
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+            ),
         }
         gate = build_candidate_gate_from_environment(env)
         scope = gate_scope()
@@ -89,7 +92,7 @@ class GateLlmConfigTests(unittest.TestCase):
             (),
         )
         self.assertEqual(result.gate_id, PRODUCT_GATE_ID)
-        self.assertEqual(result.gate_id, "yandex-yandexgpt-pro-5-candidate-gate-v6")
+        self.assertEqual(result.gate_id, "qwen-qwen3-235b-candidate-gate-v6")
 
     def test_resolver_and_evidence_stay_on_main_lite(self) -> None:
         env = base_env() | {

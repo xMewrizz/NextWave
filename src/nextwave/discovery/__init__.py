@@ -83,6 +83,8 @@ from .executor import (
 from .llm import (
     ALLOWED_CLOUD_MODELS,
     QUERY_INTERPRETATION_JSON_SCHEMA,
+    QWEN_ADAPTER_VERSION,
+    QWEN_MODEL_IDS,
     YANDEX_ADAPTER_VERSION,
     YANDEX_COMPLETION_ENDPOINT,
     YANDEX_MODEL_URIS,
@@ -90,6 +92,7 @@ from .llm import (
     LlmProvider,
     LlmRuntimeSettings,
     LlmSelection,
+    QwenCompletionJsonGenerator,
     UrllibJsonHttpTransport,
     YandexCompletionJsonGenerator,
     YandexContentFilterError,
@@ -97,6 +100,7 @@ from .llm import (
     load_evidence_llm_settings,
     load_gate_llm_settings,
     load_llm_runtime_settings,
+    parse_openai_completion_text,
     parse_yandex_completion_text,
 )
 from .media_executor import (
@@ -280,6 +284,9 @@ __all__ = [
     "LlmProvider",
     "LlmRuntimeSettings",
     "LlmSelection",
+    "QWEN_ADAPTER_VERSION",
+    "QWEN_MODEL_IDS",
+    "QwenCompletionJsonGenerator",
     "MediaDiscoveryExecutor",
     "MediaDiscoveryResult",
     "MediaFallbackReason",
@@ -331,6 +338,7 @@ __all__ = [
     "load_gate_llm_settings",
     "load_llm_runtime_settings",
     "parse_yandex_completion_text",
+    "parse_openai_completion_text",
     "parse_mediacloud_collection_ids",
     "resolve_candidate_aliases",
     "resolve_candidate_origins",

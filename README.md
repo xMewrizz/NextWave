@@ -213,7 +213,7 @@ python -m unittest discover -s tests -v
 python -m nextwave --version
 ```
 
-Живой новостной поиск Media Cloud использует временный командный ключ из `config/hackathon.env`. Docker Compose передаёт его только backend автоматически: пользователю клонированного приватного репозитория не нужно регистрироваться во внешнем сервисе или настраивать `.env`. Ключ не включается во frontend, URL запросов, snapshots и логи; после завершения оценки он отзывается. Локальный `.env` остаётся игнорируемой Git настройкой разработчика и подхватывается автоматически: приоритет сверху вниз — переменные процесса, затем `.env`, затем файл настроек.
+Живые API-ключи хранятся только в локальном `.env` или серверном secret store. `config/hackathon.env` содержит лишь несекретные пары provider/model и endpoint. Docker Compose передаёт секреты только backend; они не включаются во frontend, URL запросов, snapshots и логи. Локальный `.env` остаётся игнорируемой Git настройкой разработчика и подхватывается автоматически: приоритет сверху вниз — переменные процесса, затем `.env`, затем файл настроек.
 
 По умолчанию Media Cloud ищет в дефолтном охвате `NEXTWAVE_MEDIACLOUD_COLLECTION_IDS=34412234,34412118`: API story-list без параметров `ss`/`cs` всегда отвечает 422 (доказано живым прогоном 22.09.2026), глобального поиска без коллекций у него нет. Backend может переопределить набор через ту же переменную; пользовательский интерфейс эту настройку не запрашивает. Английская и русская выдачи загружаются отдельными запросами и объединяются только на уровне кандидатов.
 
@@ -221,26 +221,25 @@ python -m nextwave --version
 
 ## Проверка LLM-контура
 
-Query Resolver, извлечение кандидатов, Candidate Gate и labeling Evidence executor используют
-явно настроенные YandexGPT-модели: основная пара `NEXTWAVE_LLM_PROVIDER/MODEL` —
-`YandexGPT Lite 5`, Candidate Gate — отдельная пара
-`NEXTWAVE_GATE_LLM_PROVIDER/MODEL` с `YandexGPT Pro 5`, а labeling Evidence —
-`NEXTWAVE_EVIDENCE_LLM_PROVIDER/MODEL` с `YandexGPT Pro 5.1`. Это три фиксированные
-конфигурации, а не автоматический routing и не скрытый fallback; пользователь
+Query Resolver, извлечение кандидатов, Candidate Gate и Evidence executor используют
+одну явно раскрытую модель `Qwen3 235B` (`qwen3-235b-a22b-instruct-2507`) напрямую
+через официальный Alibaba Cloud Model Studio API. Все три пары
+`NEXTWAVE_LLM_*`, `NEXTWAVE_GATE_LLM_*` и `NEXTWAVE_EVIDENCE_LLM_*` зафиксированы
+как `qwen / Qwen3 235B`. Это фиксированная конфигурация, а не автоматический routing;
+пользователь
 интерфейса ничего не выбирает и не вводит. Провайдер и модели зафиксированы в
-`config/hackathon.env`; API-ключ и ID
-каталога являются серверными секретами и не передаются во frontend, prompt, snapshots или
-логи. Query Resolver может повторить только повреждённый JSON через `YandexGPT Pro 5` и
-сохраняет фактически ответившую модель. Остальные этапы, включая labeling Evidence,
-не выполняют скрытый fallback:
+`config/hackathon.env`; API-ключ является серверным секретом и не передаётся во
+frontend, prompt, snapshots или логи. OpenRouter и другие посредники не используются.
+Ни один этап не выполняет скрытый fallback:
 ошибка становится `review` или неизвестным покрытием.
-Labeling Evidence дополнительно проверяет точную пару `yandex / YandexGPT Pro 5.1`
-до создания work и запрещает запуск на общей Lite-модели. При локальном запуске
+Evidence дополнительно проверяет точную пару `qwen / Qwen3 235B` (старую
+квалификационную пару YandexGPT Pro 5.1 можно воспроизводить только для сохранённых
+корпусных артефактов). При локальном запуске
 нужно использовать `config/hackathon.env`; секреты из `.env` подхватываются
 автоматически, поэтому передавать `.env` через `--env-file` нельзя.
 
 CLI читает настройки слоями: `config/hackathon.env`, затем локальный `.env`, затем переменные
-процесса. Docker Compose явно передаёт Yandex, OpenAlex и Exa credentials из локального
+процесса. Docker Compose явно передаёт Qwen, OpenAlex и Exa credentials из локального
 `.env` в backend поверх `config/hackathon.env`, поэтому CLI и сервис используют один аккаунт.
 Команда проверки:
 
@@ -248,10 +247,31 @@ CLI читает настройки слоями: `config/hackathon.env`, зат
 python -m nextwave query-resolve --query "Технологии в ИИ"
 ```
 
-Для live-запуска backend должен получить `NEXTWAVE_LLM_API_KEY` и
-`NEXTWAVE_YANDEX_FOLDER_ID`. В развёрнутом сервисе эти значения задаются один раз на сервере;
+Для live-запуска backend должен получить `NEXTWAVE_LLM_API_KEY`; официальный endpoint
+задаётся в `NEXTWAVE_QWEN_BASE_URL`. В развёрнутом сервисе эти значения задаются один раз на сервере;
 пользователь интерфейса ничего не регистрирует и не вводит. Тесты и синтетический UI не
-требуют доступа к YandexGPT.
+требуют доступа к Qwen.
+
+### Получение прямого Qwen API key
+
+1. В Alibaba Cloud откройте **Model Studio**, выберите регион **Singapore** и активируйте pay-as-you-go.
+2. В разделе **API Key** создайте ключ для default workspace. Ключ региона Singapore нельзя использовать с endpoint другого региона.
+3. Добавьте ключ только в локальный `.env`:
+
+   ```dotenv
+   NEXTWAVE_LLM_API_KEY=sk-ws-...
+   ```
+
+4. Оставьте в `config/hackathon.env` официальный прямой endpoint `NEXTWAVE_QWEN_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1`. OpenRouter и другие посредники не используются. Для production можно заменить его на workspace-specific Singapore endpoint из поля **API Host**.
+5. Перед полным прогоном выполните один дешёвый smoke-вызов:
+
+   ```powershell
+   .\.venv\Scripts\python.exe -m nextwave query-resolve `
+     --query "Инфраструктурные технологии для обучения и инференса ИИ" `
+     --env-file config/hackathon.env
+   ```
+
+Ключ никогда не добавляется в Git. Модельный ID фиксирован в адаптере как `qwen3-235b-a22b-instruct-2507`; смена модели требует изменения раскрытой конфигурации и повторной проверки качества.
 Docker Compose запускает frontend, FastAPI и PostgreSQL. API сохраняет jobs и
 их точный итоговый JSON в PostgreSQL и восстанавливает их после полного рестарта.
 Полный продуктовый конвейер запускается одной resumable-командой:

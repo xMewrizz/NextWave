@@ -515,6 +515,9 @@ class YandexSettingsTests(unittest.TestCase):
                 "NEXTWAVE_LLM_PROVIDER": "qwen",
                 "NEXTWAVE_LLM_MODEL": "Qwen3.6 35B-A3B",
                 "NEXTWAVE_LLM_API_KEY": "temporary-secret",
+                "NEXTWAVE_QWEN_BASE_URL": (
+                    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+                ),
             }
         )
         self.assertEqual(settings.selection.provider, LlmProvider.QWEN)

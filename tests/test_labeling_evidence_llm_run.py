@@ -390,7 +390,7 @@ class ExecutorCallTests(unittest.TestCase):
             }
 
             with self.assertRaisesRegex(
-                ValueError, "qualification Evidence requires yandex/YandexGPT Pro 5.1"
+                ValueError, "explicitly approved provider/model pair"
             ):
                 run_evidence_llm(
                     plan_dir=plan,

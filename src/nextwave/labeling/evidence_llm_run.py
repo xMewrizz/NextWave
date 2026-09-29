@@ -1,7 +1,7 @@
 """Resumable Evidence LLM executor (offline-first design, no model calls here).
 
 Reads deterministic tasks from an evidence LLM plan, calls the configured
-Yandex model once per candidate task, validates every claim against the
+disclosed model once per candidate task, validates every claim against the
 verbatim passage, and publishes claims with resumable work storage. Secrets,
 prompts duplication and silent zeros are all rejected loudly.
 """
@@ -24,7 +24,6 @@ from typing import Any
 from nextwave.contracts import ClaimType, EvidenceDirection
 from nextwave.datasets.artifacts import publish_artifact_bundle
 from nextwave.discovery.llm import (
-    LlmProvider,
     YandexContentFilterError,
     YandexTruncationError,
     build_json_generator,
@@ -55,6 +54,8 @@ EVIDENCE_CONCURRENCY = 6
 EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v11-general-maturity-relation"
 QUALIFICATION_EVIDENCE_PROVIDER = "yandex"
 QUALIFICATION_EVIDENCE_MODEL = "YandexGPT Pro 5.1"
+PRODUCT_EVIDENCE_PROVIDER = "qwen"
+PRODUCT_EVIDENCE_MODEL = "Qwen3 235B"
 EVIDENCE_RESPONSE_JSON_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -1679,20 +1680,15 @@ def run_evidence_llm(
         if not wanted or any(not isinstance(item, str) for item in wanted):
             raise ValueError("candidate_ids must be a non-empty string collection")
     settings = load_evidence_llm_settings(environment)
-    if settings.selection.provider is not LlmProvider.YANDEX:
-        raise ValueError(
-            "evidence executor supports a Yandex evidence model, "
-            f"not {settings.selection.provider.value!r}"
-        )
     provider = settings.selection.provider.value
     model = settings.selection.model
-    if (
-        provider != QUALIFICATION_EVIDENCE_PROVIDER
-        or model != QUALIFICATION_EVIDENCE_MODEL
-    ):
+    approved_pairs = {
+        (QUALIFICATION_EVIDENCE_PROVIDER, QUALIFICATION_EVIDENCE_MODEL),
+        (PRODUCT_EVIDENCE_PROVIDER, PRODUCT_EVIDENCE_MODEL),
+    }
+    if (provider, model) not in approved_pairs:
         raise ValueError(
-            "qualification Evidence requires "
-            f"{QUALIFICATION_EVIDENCE_PROVIDER}/{QUALIFICATION_EVIDENCE_MODEL}; "
+            "Evidence requires an explicitly approved provider/model pair; "
             f"resolved {provider}/{model}. Use config/hackathon.env as --env-file "
             "and keep credentials in the automatically loaded .env"
         )
