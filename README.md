@@ -87,9 +87,12 @@ job и новый workspace для этого не создаются.
 В Docker Compose каталог реального результата монтируется только для чтения, а
 состояние job хранится в отдельном volume. Web-страница `/result` показывает
 TOP-15, все три статуса, локальные факторы модели, Evidence Duel, цитаты и ссылки;
-синтетический набор к этому пути не подставляется. Старые synthetic `/api/coverage`
-и `/api/stages` отключены по умолчанию и доступны только при явном
-`NEXTWAVE_ENABLE_SYNTHETIC_DEMO=1` для UI-разработки.
+синтетический набор к этому пути не подставляется. Прежние synthetic `/api/coverage`
+и `/api/stages` (за флагом `NEXTWAVE_ENABLE_SYNTHETIC_DEMO`) удалены вместе с их страницами.
+`GET /api/health` возвращает `{"status": "ok", "mode": "cached_snapshot" | "live"}`, и
+интерфейс показывает этот режим до создания job. Типы ответа описаны в
+`frontend/src/lib/api.ts`; `backend/test_frontend_contract.py` сверяет их с backend и
+`demo/result`.
 
 ## Запуск проверенного web-результата
 
@@ -121,9 +124,16 @@ docker compose up --build -d
 ```
 
 Live-режиму нужны серверные `NEXTWAVE_OPENAI_API_KEY` и `NEXTWAVE_EXA_API_KEY`;
-`NEXTWAVE_OPENALEX_API_KEY` необязателен, но увеличивает квоту OpenAlex. Эти
-значения передаются только backend. Checkpoint-артефакты хранятся в volume
-`nextwave-analysis-work` и переживают перезапуск контейнера.
+`NEXTWAVE_OPENALEX_API_KEY` и `NEXTWAVE_MEDIACLOUD_API_KEY` необязательны (без первого
+OpenAlex работает анонимно с меньшей квотой, без второго новостной поиск идёт через GDELT).
+Ключи задаются в корневом `.env` по шаблону `.env.example`, передаются только backend.
+Без обязательных ключей job завершается ошибкой с названием ключа. Checkpoint-артефакты
+хранятся в volume `nextwave-analysis-work` и переживают перезапуск контейнера.
+Различия режимов и проверку стенда см. в [DOCKER.md](DOCKER.md).
+
+Что остаётся сделать вручную: заполнить `.env` и выполнить один живой прогон запроса
+на реальных ключах; метрики модели имеют статус `development_only` и не заменяют оценку на
+закрытой разметке.
 
 ### Воспроизводимая web-репетиция
 
