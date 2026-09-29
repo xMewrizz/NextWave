@@ -9,8 +9,10 @@ from nextwave.evaluation.analysis_result import (
     ANALYSIS_RESULT_VERSION,
     _benefit_claim,
     _deduplicate_results,
+    _main_rank_key,
     _obvious_identity_key,
     _plain_explanation,
+    _top15_eligible,
     build_analysis_result,
     export_analysis_result,
 )
@@ -27,6 +29,35 @@ def _jsonl(rows: list[dict[str, object]]) -> bytes:
 
 
 class AnalysisResultTests(unittest.TestCase):
+    def test_top15_can_rank_verified_watchlist_without_calling_it_main(self) -> None:
+        row = {
+            "status": "watchlist",
+            "model": {"score": 0.72, "threshold": 0.5},
+            "evidence_review": {"status": "complete"},
+        }
+
+        self.assertTrue(_top15_eligible(row))
+        self.assertFalse(
+            _top15_eligible({**row, "evidence_review": {"status": "failed"}})
+        )
+
+    def test_ranking_prefers_evidence_over_insignificant_score_decimals(self) -> None:
+        def row(candidate_id: str, score: float, origins: int, claims: int) -> dict:
+            return {
+                "candidate_id": candidate_id,
+                "canonical_name": candidate_id,
+                "model": {"score": score},
+                "evidence_review": {
+                    "independent_origins": origins,
+                    "full_candidate_claims": claims,
+                },
+            }
+
+        stronger_score = row("slightly-higher-score", 0.739508, 2, 3)
+        stronger_evidence = row("stronger-evidence", 0.739062, 6, 6)
+
+        self.assertLess(_main_rank_key(stronger_evidence), _main_rank_key(stronger_score))
+
     def test_plain_explanation_removes_model_meta_language(self) -> None:
         self.assertEqual(
             _plain_explanation("Цитата прямо подтверждает использование фотонных ускорителей."),

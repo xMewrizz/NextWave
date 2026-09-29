@@ -135,7 +135,7 @@ class TemporalCountPlanTests(unittest.TestCase):
             if task["entity_type"] == "candidate" and task["entity_id"] == "organizer-001"
         ]
         self.assertEqual({task["search_text"] for task in tasks}, {"edge compression"})
-        self.assertEqual({task["search_mode"] for task in tasks}, {"scoped_proximity_5"})
+        self.assertEqual({task["search_mode"] for task in tasks}, {"candidate_proximity_5"})
         self.assertEqual(
             {task["scope_search_text"] for task in tasks},
             {'"edge computing" OR "edge AI"'},

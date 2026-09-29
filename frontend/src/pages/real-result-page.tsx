@@ -96,7 +96,7 @@ export function ResultView({ data }: { data: ResultBundle }) {
         </h2>
         <p className="mb-4 text-sm text-muted-foreground">
           {view === 'top15'
-            ? 'Пятнадцать наиболее сильных слабых сигналов после проверки модели, источников и доказательств.'
+            ? 'Пятнадцать наиболее перспективных тем по модели и проверенным источникам. Статус карточки показывает, достаточно ли подтверждений для основной выдачи.'
             : view === 'watchlist'
               ? 'Перспективные темы, которым пока не хватает полного покрытия или независимых подтверждений.'
               : 'Зрелые, рекламные, повторные и другие темы, не включённые в финальную выдачу. Для каждой сохранена причина.'}
@@ -218,21 +218,27 @@ function CandidateDetails({ candidate }: { candidate: ResultCandidate }) {
       <div>
         <h4 className="font-medium">Оценка модели</h4>
         <p className="mt-2 text-muted-foreground">
-          {Math.round(candidate.model.score * 100)} из 100 — сравнительный балл, а не вероятность.
-          Одинаковый балл у нескольких тем означает одинаковый набор наблюдаемых признаков. Итоговый статус
-          также учитывает доказательства и независимость источников.
+          {(candidate.model.score * 100).toFixed(1)} из 100 — сравнительный балл, а не вероятность.
+          Рейтинг использует округлённый балл, а внутри одной группы выше ставит темы с большим числом
+          независимых источников и проверяемых фрагментов.
+        </p>
+        <p className="mt-2 text-muted-foreground">
+          Сила подтверждения: {candidate.evidence_review.independent_origins} независимых источника и{' '}
+          {candidate.evidence_review.full_candidate_claims} проверяемых фрагмента.
         </p>
       </div>
       <FactorList title="Что повысило оценку" factors={candidate.model.top_positive_factors} />
-      <FactorList title="Что снизило оценку" factors={candidate.model.top_negative_factors} />
+      {meaningfulFactors(candidate.model.top_negative_factors).length > 0 && (
+        <FactorList title="Что снизило оценку" factors={meaningfulFactors(candidate.model.top_negative_factors)} />
+      )}
       {candidateAdvantage(candidate) && (
         <div>
           <h4 className="font-medium">Потенциальное преимущество</h4>
           <p className="mt-2 text-muted-foreground">{candidateAdvantage(candidate)}</p>
         </div>
       )}
-      <ClaimList title="Что подтверждает слабый сигнал" claims={candidate.signal_case} />
-      <ClaimList title="Что ослабляет вывод" claims={candidate.skeptic_case} />
+      <ClaimList title="Что подтверждает слабый сигнал" claims={candidate.signal_case} mode="support" />
+      <ClaimList title="Что ослабляет вывод" claims={candidate.skeptic_case} mode="skeptic" />
       {candidate.limitations.length > 0 && (
         <div>
           <h4 className="font-medium">Ограничения вывода</h4>
@@ -264,7 +270,7 @@ function FactorList({ title, factors }: { title: string; factors: ResultCandidat
   )
 }
 
-function ClaimList({ title, claims }: { title: string; claims: EvidenceClaimView[] }) {
+function ClaimList({ title, claims, mode = 'support' }: { title: string; claims: EvidenceClaimView[]; mode?: 'support' | 'skeptic' }) {
   return (
     <div>
       <h4 className="font-medium">{title}</h4>
@@ -275,7 +281,7 @@ function ClaimList({ title, claims }: { title: string; claims: EvidenceClaimView
           {claims.map((claim) => (
             <li key={claim.claim_id} className="rounded-lg bg-muted/50 p-3">
               <Badge variant="outline">{claimKindLabel(claim.kind)}</Badge>
-              <p className="mt-2">{plainClaimExplanation(claim.explanation_ru)}</p>
+              <p className="mt-2">{claimExplanation(claim, mode)}</p>
               <blockquote className="mt-2 border-l-2 pl-3 text-xs text-muted-foreground">
                 {claim.quote}
               </blockquote>
@@ -298,6 +304,20 @@ function ClaimList({ title, claims }: { title: string; claims: EvidenceClaimView
       )}
     </div>
   )
+}
+
+function meaningfulFactors(factors: ResultCandidate['model']['top_negative_factors']) {
+  return factors.filter((factor) => Math.abs(factor.contribution) >= 0.03)
+}
+
+function claimExplanation(claim: EvidenceClaimView, mode: 'support' | 'skeptic') {
+  if (mode === 'skeptic' && claim.kind === 'promotional_claim') {
+    return 'Источник связан с компанией, которая продвигает решение. Такое заявление не считается независимым подтверждением слабого сигнала.'
+  }
+  if (mode === 'skeptic' && ['adoption', 'standard', 'market'].includes(claim.kind)) {
+    return 'Фрагмент указывает на внедрение, сформировавшийся рынок или стандарт. Это признак зрелости технологии, а не раннего слабого сигнала.'
+  }
+  return plainClaimExplanation(claim.explanation_ru)
 }
 
 function reasonText(candidate: ResultCandidate) {

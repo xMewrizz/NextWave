@@ -361,6 +361,35 @@ def _deduplicate_results(results: list[dict[str, Any]]) -> None:
             row["duplicate_of_name"] = primary["canonical_name"]
 
 
+def _main_rank_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    """Rank evidence strength before insignificant model-score decimals."""
+
+    score = float(row["model"]["score"])
+    review = row["evidence_review"]
+    return (
+        -round(score * 100),
+        -int(review["independent_origins"]),
+        -int(review["full_candidate_claims"]),
+        -score,
+        str(row["canonical_name"] or "").casefold(),
+        row["candidate_id"],
+    )
+
+
+def _top15_eligible(row: dict[str, Any]) -> bool:
+    """Keep the ranked list useful without overstating verification status."""
+
+    score = row["model"].get("score")
+    threshold = row["model"].get("threshold")
+    return (
+        row["status"] != CandidateStatus.EXCLUDED.value
+        and row["evidence_review"].get("status") == "complete"
+        and type(score) in {int, float}
+        and type(threshold) in {int, float}
+        and float(score) >= float(threshold)
+    )
+
+
 def _load_evidence(
     roots: tuple[Path, ...],
     *,
@@ -724,16 +753,10 @@ def build_analysis_result(
 
     _deduplicate_results(results)
     main = [row for row in results if row["status"] == CandidateStatus.MAIN.value]
-    main.sort(
-        key=lambda row: (
-            -float(row["model"]["score"]),
-            -int(row["evidence_review"]["independent_origins"]),
-            str(row["canonical_name"] or "").casefold(),
-            row["candidate_id"],
-        )
-    )
+    ranked = [row for row in results if _top15_eligible(row)]
+    ranked.sort(key=_main_rank_key)
     top15 = []
-    for rank, row in enumerate(main[:15], 1):
+    for rank, row in enumerate(ranked[:15], 1):
         row["top15_rank"] = rank
         top15.append(row)
     by_id = {row["candidate_id"]: row for row in results}

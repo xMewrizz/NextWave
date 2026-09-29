@@ -373,22 +373,34 @@ def _temporal_feature_index(
             type(value) is not int or value < 0 for value in counts.values()
         ):
             raise ValueError(f"temporal counts are invalid for {candidate_id}")
-        for window in ("previous", "recent"):
-            if counts[f"candidate_{window}"] > counts[f"scope_{window}"]:
-                raise ValueError(
-                    f"temporal candidate count exceeds scope count for {candidate_id} {window}"
-                )
         expected_growth = math.log1p(counts["candidate_recent"]) - math.log1p(
             counts["candidate_previous"]
         )
-        expected_shares = {
-            window: (
-                counts[f"candidate_{window}"] / counts[f"scope_{window}"]
-                if counts[f"scope_{window}"] > 0
-                else None
+        unscoped_counts = all(
+            row.get(key) is None
+            for key in (
+                "scope_share_previous",
+                "scope_share_recent",
+                "scope_share_delta",
             )
-            for window in ("previous", "recent")
-        }
+        )
+        if unscoped_counts:
+            expected_shares = {"previous": None, "recent": None}
+        else:
+            for window in ("previous", "recent"):
+                if counts[f"candidate_{window}"] > counts[f"scope_{window}"]:
+                    raise ValueError(
+                        "temporal candidate count exceeds scope count for "
+                        f"{candidate_id} {window}"
+                    )
+            expected_shares = {
+                window: (
+                    counts[f"candidate_{window}"] / counts[f"scope_{window}"]
+                    if counts[f"scope_{window}"] > 0
+                    else None
+                )
+                for window in ("previous", "recent")
+            }
         expected_delta = (
             expected_shares["recent"] - expected_shares["previous"]
             if expected_shares["recent"] is not None

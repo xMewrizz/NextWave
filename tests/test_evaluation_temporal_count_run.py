@@ -200,7 +200,7 @@ class TemporalCountRunTests(unittest.TestCase):
         self.assertEqual(manifest["counts"]["complete"], 16)
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(row["coverage"] == "complete" for row in rows))
-        self.assertTrue(all(row["scope_share_recent"] == 1.0 for row in rows))
+        self.assertTrue(all(row["scope_share_recent"] is None for row in rows))
 
     def test_successful_zero_is_covered_zero(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -345,25 +345,27 @@ class TemporalCountRunTests(unittest.TestCase):
             serialized = b"".join(path.read_bytes() for path in paths.values())
         self.assertEqual(transport.calls[0][1]["Authorization"], "Bearer temporal-secret")
         search = parse_qs(urlparse(transport.calls[0][0]).query)["search"][0]
-        self.assertEqual(
-            search,
-            '("edge compression"~5) AND ("edge computing" OR "edge AI")',
-        )
+        self.assertEqual(search, '("edge compression"~5)')
         self.assertNotIn("temporal-secret", transport.calls[0][0])
         self.assertNotIn(b"temporal-secret", serialized)
 
-    def test_candidate_count_cannot_exceed_scope_denominator(self) -> None:
+    def test_unscoped_candidate_count_may_exceed_scope_count(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            with self.assertRaisesRegex(ValueError, "candidate count exceeds scope count"):
-                run_temporal_counts(
-                    plan_dir=self._plan(root),
-                    work_dir=root / "work",
-                    output_dir=root / "result",
-                    connector=OpenAlexConnector(transport=CandidateExceedsScopeTransport()),
-                    sleeper=lambda _seconds: None,
-                )
-        self.assertFalse((root / "result").exists())
+            paths = run_temporal_counts(
+                plan_dir=self._plan(root),
+                work_dir=root / "work",
+                output_dir=root / "result",
+                connector=OpenAlexConnector(transport=CandidateExceedsScopeTransport()),
+                sleeper=lambda _seconds: None,
+            )
+            rows = [
+                json.loads(line)
+                for line in paths["candidate_temporal_features.jsonl"]
+                .read_text()
+                .splitlines()
+            ]
+        self.assertTrue(all(row["scope_share_recent"] is None for row in rows))
 
     def test_missing_task_is_rejected_before_work_or_network(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
