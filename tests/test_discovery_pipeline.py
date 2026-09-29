@@ -435,8 +435,11 @@ class DiscoveryProgressTests(unittest.TestCase):
             stages,
             [
                 "[discovery] sources",
+                "[discovery] extraction_progress",
                 "[discovery] extraction",
                 "[discovery] proposals",
+                "[discovery] gate_progress_primary",
+                "[discovery] gate_progress_audit",
                 "[discovery] gate",
                 "[discovery] aliases",
                 "[discovery] verification",

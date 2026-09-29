@@ -448,9 +448,49 @@ class AnalysisApplication:
         )
 
         def pipeline_progress(message: str) -> None:
-            stage = "candidate_gate" if "[discovery] gate:" in message else "source_search"
-            value = 0.24 if stage == "candidate_gate" else 0.12
-            self.progress(stage, value, message)
+            fraction_match = re.search(r": (\d+)/(\d+)$", message)
+            fraction = 0.0
+            done = total = 0
+            if fraction_match is not None:
+                done, total = (int(value) for value in fraction_match.groups())
+                fraction = done / total if total else 0.0
+            if "[discovery] extraction_progress:" in message:
+                self.progress(
+                    "source_search",
+                    0.08 + 0.09 * fraction,
+                    f"Обработано пакетов документов: {done} из {total}",
+                )
+            elif "[discovery] gate_progress_primary:" in message:
+                self.progress(
+                    "candidate_gate",
+                    0.19 + 0.06 * fraction,
+                    f"Проверено предложений: {done} из {total}",
+                )
+            elif "[discovery] gate_progress_audit:" in message:
+                self.progress(
+                    "candidate_gate",
+                    0.25 + 0.015 * fraction,
+                    f"Повторно проверено принятых: {done} из {total}",
+                )
+            elif "[discovery] sources:" in message:
+                self.progress("source_search", 0.08, "Источники найдены")
+            elif "[discovery] extraction:" in message:
+                self.progress("source_search", 0.17, "Кандидаты извлечены")
+            elif "[discovery] proposals:" in message:
+                self.progress("source_search", 0.19, "Предложения подготовлены")
+            else:
+                labels = {
+                    "[discovery] gate:": "Предложения проверены",
+                    "[discovery] aliases:": "Варианты названий объединены",
+                    "[discovery] verification:": "Источники кандидатов проверены",
+                    "[discovery] origins:": "Происхождение кандидатов определено",
+                    "[discovery] evidence:": "Первичные подтверждения подготовлены",
+                }
+                label = next(
+                    (value for prefix, value in labels.items() if prefix in message),
+                    "Отбор кандидатов",
+                )
+                self.progress("candidate_gate", 0.265, label)
 
         result = build_discovery_pipeline_from_environment(
             self.environment,

@@ -89,7 +89,7 @@ class GateLlmConfigTests(unittest.TestCase):
             (),
         )
         self.assertEqual(result.gate_id, PRODUCT_GATE_ID)
-        self.assertEqual(result.gate_id, "yandex-yandexgpt-pro-5-candidate-gate-v5")
+        self.assertEqual(result.gate_id, "yandex-yandexgpt-pro-5-candidate-gate-v6")
 
     def test_resolver_and_evidence_stay_on_main_lite(self) -> None:
         env = base_env() | {

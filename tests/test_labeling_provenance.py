@@ -159,7 +159,7 @@ class ProvenanceEligibilityTests(unittest.TestCase):
         assert_run_labeling_eligible(run)
         self.assertEqual(DISCOVERY_PIPELINE_VERSION, "discovery-pipeline-v10")
         self.assertEqual(QUALIFICATION_GATE_VERSION, "candidate-gate-v4")
-        self.assertEqual(CANDIDATE_GATE_VERSION, "candidate-gate-v5")
+        self.assertEqual(CANDIDATE_GATE_VERSION, "candidate-gate-v6")
 
     def test_old_gate_v1_is_rejected(self) -> None:
         run = provenance_run("run-old-gate", gate_id=OLD_GATE_ID)

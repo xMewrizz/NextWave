@@ -1349,7 +1349,7 @@ class PilotFilterTests(unittest.TestCase):
 
 
 class ConcurrencyDeterminismTests(unittest.TestCase):
-    def test_concurrency_is_three(self) -> None:
+    def test_concurrency_is_six(self) -> None:
 
         seen: dict = {}
 
@@ -1371,7 +1371,7 @@ class ConcurrencyDeterminismTests(unittest.TestCase):
             ):
                 run_with_fake(plan, root / "work", root / "out", handler)
 
-        self.assertEqual(seen.get("max_workers"), 3)
+        self.assertEqual(seen.get("max_workers"), 6)
 
     def test_identical_fakes_give_identical_bytes(self) -> None:
         def run_once(base: Path):

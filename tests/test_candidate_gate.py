@@ -56,10 +56,11 @@ def fixture(*names: str):
     return scope, documents, build_candidate_proposals(scope, documents, mentions)
 
 
-def gate(generate):
+def gate(generate, *, version="candidate-gate-v5"):
     return StructuredCandidateGate(
         generate,
         selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
+        version=version,
     )
 
 
@@ -77,6 +78,99 @@ def decision(proposal, status, reason, *, basis=None, explanation="Grounded in t
 
 
 class CandidateGateTests(unittest.TestCase):
+    def test_product_gate_audits_initial_accepts_and_preserves_rejects(self) -> None:
+        scope, documents, batch = fixture("AI accelerator", "AMD", "Data science")
+        calls: list[str] = []
+
+        def generate(prompt):
+            proposals = json.loads(prompt.split("Input data as JSON:\n", 1)[1])[
+                "proposals"
+            ]
+            if "strict second-pass critic" in prompt:
+                calls.append("audit")
+                self.assertEqual(
+                    {item["name"] for item in proposals}, {"AI accelerator", "AMD"}
+                )
+                return json.dumps(
+                    {
+                        "decisions": [
+                            decision(
+                                proposal,
+                                "accept" if proposal["name"] == "AI accelerator" else "reject",
+                                "technical_mechanism"
+                                if proposal["name"] == "AI accelerator"
+                                else "organization",
+                            )
+                            for proposal in proposals
+                        ]
+                    }
+                )
+            calls.append("initial")
+            return json.dumps(
+                {
+                    "decisions": [
+                        decision(
+                            proposal,
+                            "reject" if proposal["name"] == "Data science" else "accept",
+                            "generic_area"
+                            if proposal["name"] == "Data science"
+                            else "technical_application",
+                        )
+                        for proposal in proposals
+                    ]
+                }
+            )
+
+        result = gate(generate, version="candidate-gate-v6").evaluate(
+            scope,
+            batch,
+            documents,
+            progress=lambda phase, done, total: calls.append(
+                f"{phase}:{done}/{total}"
+            ),
+        )
+
+        self.assertEqual(
+            calls,
+            ["initial", "primary:3/3", "audit", "audit:2/2"],
+        )
+        self.assertEqual(
+            {
+                proposal.canonical_name: decision.decision
+                for proposal, decision in zip(batch.proposals, result.decisions, strict=True)
+            },
+            {
+                "AI accelerator": GateDecision.ACCEPT,
+                "AMD": GateDecision.REJECT,
+                "Data science": GateDecision.REJECT,
+            },
+        )
+        self.assertEqual(result.batch_count, 2)
+
+    def test_product_gate_audit_failure_cannot_leave_initial_accept(self) -> None:
+        scope, documents, batch = fixture("AI accelerator")
+        calls = 0
+
+        def generate(prompt):
+            nonlocal calls
+            calls += 1
+            if "strict second-pass critic" in prompt:
+                return '{"decisions":[]}'
+            proposal = json.loads(prompt.split("Input data as JSON:\n", 1)[1])[
+                "proposals"
+            ][0]
+            return json.dumps(
+                {"decisions": [decision(proposal, "accept", "technical_mechanism")]}
+            )
+
+        result = gate(generate, version="candidate-gate-v6").evaluate(
+            scope, batch, documents
+        )
+
+        self.assertEqual(calls, 4)
+        self.assertEqual(result.decisions[0].decision, GateDecision.REVIEW)
+        self.assertEqual(result.accepted_proposal_ids, ())
+        self.assertEqual(result.issues[0].code, GateIssueCode.MISSING_PROPOSAL)
     def test_accepts_concrete_technology_and_rejects_generic_area(self) -> None:
         scope, documents, batch = fixture("Speculative decoding", "Data science")
 

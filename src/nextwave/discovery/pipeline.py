@@ -213,8 +213,18 @@ class DiscoveryPipeline:
             started,
         )
         started = time.monotonic()
+        def extraction_progress(done: int, total: int) -> None:
+            if progress is not None:
+                progress(f"[discovery] extraction_progress: {done}/{total}")
+
         text_extraction = (
-            self._text_extractor.extract_many(plan.scope, documents) if documents else None
+            self._text_extractor.extract_many(
+                plan.scope,
+                documents,
+                progress=extraction_progress,
+            )
+            if documents
+            else None
         )
         grounded_mentions = text_extraction.mentions if text_extraction is not None else ()
         mentions_by_id = {
@@ -249,10 +259,15 @@ class DiscoveryPipeline:
         gated_proposals, gate_skipped = split_gate_batch(
             candidate_proposals, self._max_gate_proposals
         )
+        def gate_progress(phase: str, done: int, total: int) -> None:
+            if progress is not None:
+                progress(f"[discovery] gate_progress_{phase}: {done}/{total}")
+
         candidate_gate = self._candidate_gate.evaluate(
             plan.scope,
             gated_proposals,
             documents,
+            progress=gate_progress,
         )
         report(
             "gate",
