@@ -249,7 +249,14 @@ def _coverage_index(directory: Path, candidate_ids: set[str]) -> dict[str, dict[
     return coverage
 
 
-def _document_features(directory: Path, candidate_ids: set[str]) -> dict[str, dict[str, bool]]:
+def _document_features(
+    directory: Path,
+    candidate_ids: set[str],
+    *,
+    window_start: date = _WINDOW_START,
+    recent_start: date = _RECENT_START,
+    cutoff: date = _CUTOFF,
+) -> dict[str, dict[str, bool]]:
     manifest = _read_json(directory / MANIFEST_FILENAME, f"{directory.name} manifest")
     rows = _rows_from_bytes(_checked_file(directory, manifest, "documents.jsonl"), "documents")
     result = {
@@ -294,9 +301,9 @@ def _document_features(directory: Path, candidate_ids: set[str]) -> dict[str, di
             result[candidate_id]["unknown_date_present"] = True
         elif isinstance(published, str):
             published_date = date.fromisoformat(published)
-            if not _WINDOW_START <= published_date <= _CUTOFF:
+            if not window_start <= published_date <= cutoff:
                 raise ValueError(f"document {document_id} is outside the frozen feature window")
-            window = "previous" if published_date < _RECENT_START else "recent"
+            window = "previous" if published_date < recent_start else "recent"
             result[candidate_id][f"{source_class}_{window}_present"] = True
         else:
             raise ValueError(f"document {document_id} has invalid published_at")

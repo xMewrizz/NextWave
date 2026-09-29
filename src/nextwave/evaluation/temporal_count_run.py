@@ -85,6 +85,13 @@ def _load_plan(directory: Path) -> tuple[dict[str, Any], list[dict[str, Any]], s
     plan = json.loads(plan_bytes)
     if not isinstance(plan, dict) or plan.get("schema_version") != TEMPORAL_COUNT_PLAN_VERSION:
         raise ValueError("temporal count plan version does not match executor")
+    cutoff_raw = plan.get("cutoff_date")
+    try:
+        cutoff = date.fromisoformat(cutoff_raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError("temporal count plan cutoff is not an ISO date") from error
+    if manifest.get("cutoff_date") != cutoff.isoformat():
+        raise ValueError("temporal count cutoff differs between plan and manifest")
     tasks = plan.get("tasks")
     if not isinstance(tasks, list) or any(not isinstance(task, dict) for task in tasks):
         raise ValueError("temporal count tasks must be a list of objects")
@@ -149,7 +156,7 @@ def _load_plan(directory: Path) -> tuple[dict[str, Any], list[dict[str, Any]], s
             raise ValueError(f"temporal count task {count_id} mismatches scope query")
         if entity_type == "scope" and task.get("search_text") != scope_queries[scope]:
             raise ValueError(f"temporal count task {count_id} changes scope search text")
-        _query_from_task(task)
+        _query_from_task(task, cutoff=cutoff)
     expected_pairs = {
         ("candidate", candidate_id, window)
         for candidate_id in candidate_index
@@ -170,7 +177,7 @@ def _load_plan(directory: Path) -> tuple[dict[str, Any], list[dict[str, Any]], s
     return plan, tasks, hashlib.sha256(plan_bytes).hexdigest()
 
 
-def _query_from_task(task: Mapping[str, Any]) -> SourceQuery:
+def _query_from_task(task: Mapping[str, Any], *, cutoff: date) -> SourceQuery:
     count_id = str(task["count_id"])
     search_text = task.get("search_text")
     scope_search_text = task.get("scope_search_text")
@@ -199,17 +206,20 @@ def _query_from_task(task: Mapping[str, Any]) -> SourceQuery:
         search_texts=(query_expression,),
         published_from=date.fromisoformat(str(task["published_from"])),
         published_until=date.fromisoformat(str(task["published_until"])),
-        cutoff_date=date(2026, 9, 15),
+        cutoff_date=cutoff,
         languages=("en", "ru"),
     )
 
 
-def _prepare_work(work_dir: Path, plan_digest: str, task_count: int) -> None:
+def _prepare_work(
+    work_dir: Path, plan_digest: str, task_count: int, cutoff: date
+) -> None:
     expected = {
         "schema_version": TEMPORAL_COUNT_WORK_VERSION,
         "executor_version": TEMPORAL_COUNT_EXECUTOR_VERSION,
         "plan_sha256": plan_digest,
         "task_count": task_count,
+        "cutoff_date": cutoff.isoformat(),
     }
     manifest_path = work_dir / "work_manifest.json"
     if work_dir.exists():
@@ -310,6 +320,7 @@ def _execute_task(
     work_dir: Path,
     connector: OpenAlexConnector,
     sleeper: Callable[[float], None],
+    cutoff: date,
 ) -> dict[str, Any]:
     count_id = task["count_id"]
     final = work_dir / "completed" / count_id
@@ -319,7 +330,7 @@ def _execute_task(
     staging = Path(tempfile.mkdtemp(prefix=f".{count_id}-", dir=work_dir / "completed"))
     snapshot_id = "snapshot"
     writer = SnapshotWriter(staging, snapshot_id)
-    query = _query_from_task(task)
+    query = _query_from_task(task, cutoff=cutoff)
     runs = []
     count: int | None = None
     note: str | None = None
@@ -473,11 +484,12 @@ def run_temporal_counts(
     if max_new_tasks is not None and max_new_tasks < 0:
         raise ValueError("max_new_tasks must be non-negative")
     plan, tasks, plan_digest = _load_plan(Path(plan_dir))
+    cutoff = date.fromisoformat(plan["cutoff_date"])
     output = Path(output_dir)
     if output.exists():
         raise ValueError(f"output already exists: {output}")
     work = Path(work_dir)
-    _prepare_work(work, plan_digest, len(tasks))
+    _prepare_work(work, plan_digest, len(tasks), cutoff)
     env = environment or {}
     active_connector = connector or OpenAlexConnector(
         contact_email=env.get("NEXTWAVE_OPENALEX_MAILTO"),
@@ -494,6 +506,7 @@ def run_temporal_counts(
                     work_dir=work,
                     connector=active_connector,
                     sleeper=sleeper,
+                    cutoff=cutoff,
                 )
             )
             continue
@@ -518,6 +531,7 @@ def run_temporal_counts(
                 work_dir=work,
                 connector=active_connector,
                 sleeper=sleeper,
+                cutoff=cutoff,
             )
         )
         new_tasks += 1
@@ -535,6 +549,7 @@ def run_temporal_counts(
         "schema_version": TEMPORAL_COUNT_RESULT_VERSION,
         "executor_version": TEMPORAL_COUNT_EXECUTOR_VERSION,
         "plan_sha256": plan_digest,
+        "cutoff_date": cutoff.isoformat(),
         "status": "complete" if statuses.get("complete") == len(tasks) else "partial",
         "counts": {
             "planned_tasks": len(tasks),

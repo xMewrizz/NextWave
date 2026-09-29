@@ -396,6 +396,13 @@ def _build_parser() -> argparse.ArgumentParser:
         default=Path("config") / "hackathon.env",
         help="файл runtime-настроек; переменные процесса имеют приоритет",
     )
+    enrichment_run.add_argument(
+        "--connector",
+        action="append",
+        choices=("openalex", "mediacloud"),
+        dest="connectors",
+        help="выполнить только выбранный коннектор; можно указать несколько раз",
+    )
     target_gate = commands.add_parser(
         "labeling-target-gate-run",
         help="проверить grounding нейтральных целей и выполнить Candidate Gate",
@@ -1035,7 +1042,13 @@ def _run_labeling_finalize(
     return 0
 
 
-def _run_labeling_enrichment_run(plan: Path, work: Path, output: Path, env_file: Path) -> int:
+def _run_labeling_enrichment_run(
+    plan: Path,
+    work: Path,
+    output: Path,
+    env_file: Path,
+    connectors: list[str] | None = None,
+) -> int:
     try:
         environment = _runtime_environment(env_file)
         paths = run_enrichment(
@@ -1043,6 +1056,7 @@ def _run_labeling_enrichment_run(plan: Path, work: Path, output: Path, env_file:
             work_dir=work,
             output_dir=output,
             environment=environment,
+            connectors=connectors,
         )
     except (OSError, RuntimeError, ValueError) as error:
         print(f"Не удалось выполнить enrichment: {error}", file=sys.stderr)
@@ -1660,7 +1674,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_labeling_target_enrichment_plan(arguments.candidates, arguments.output)
     if arguments.command == "labeling-enrichment-run":
         return _run_labeling_enrichment_run(
-            arguments.plan, arguments.work, arguments.output, arguments.env_file
+            arguments.plan,
+            arguments.work,
+            arguments.output,
+            arguments.env_file,
+            arguments.connectors,
         )
     if arguments.command == "labeling-target-gate-run":
         return _run_labeling_target_gate(

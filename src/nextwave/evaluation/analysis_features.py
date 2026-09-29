@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,14 @@ def build_analysis_feature_table(
     candidates = _index(raw_candidates, "candidate_id", "analysis candidate")
     if plan_manifest.get("candidate_count") != len(candidates):
         raise ValueError("analysis plan candidate_count does not match candidates")
+    try:
+        window_start = date.fromisoformat(plan["history_from"])
+        recent_start = date.fromisoformat(plan["recent_window_from"])
+        cutoff = date.fromisoformat(plan["cutoff_date"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("analysis plan feature windows are invalid") from error
+    if not window_start < recent_start <= cutoff:
+        raise ValueError("analysis plan feature windows are not ordered")
     scopes = {row.get("analysis_scope_key") for row in candidates.values()}
     queries: set[str] = set()
     for candidate_id, candidate in candidates.items():
@@ -90,7 +99,13 @@ def build_analysis_feature_table(
 
     candidate_ids = set(candidates)
     coverage = _coverage_index(result_dir, candidate_ids)
-    documents = _document_features(result_dir, candidate_ids)
+    documents = _document_features(
+        result_dir,
+        candidate_ids,
+        window_start=window_start,
+        recent_start=recent_start,
+        cutoff=cutoff,
+    )
     if any(not all(classes.values()) for classes in coverage.values()):
         raise ValueError("analysis enrichment coverage must be complete for every candidate")
 
@@ -98,6 +113,8 @@ def build_analysis_feature_table(
     temporal_manifest = _read_json(
         temporal_dir / MANIFEST_FILENAME, "analysis temporal count manifest"
     )
+    if temporal_manifest.get("cutoff_date") != cutoff.isoformat():
+        raise ValueError("analysis temporal cutoff differs from plan")
     temporal_rows = _rows_from_bytes(
         _checked_file(
             temporal_dir, temporal_manifest, "candidate_temporal_features.jsonl"

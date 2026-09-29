@@ -402,6 +402,32 @@ class CommandLineTests(unittest.TestCase):
             Path("data/development/labeling-enrichment-result-v2"),
         )
 
+    @patch("nextwave.__main__.run_enrichment")
+    def test_enrichment_run_passes_connector_filter(self, run) -> None:
+        from nextwave.labeling.enrichment_run import LabelingEnrichmentRunPaths
+
+        run.return_value = LabelingEnrichmentRunPaths(
+            manifest=Path("out/manifest.json"),
+            request_results=Path("out/request_results.jsonl"),
+            documents=Path("out/documents.jsonl"),
+            coverage=Path("out/coverage.jsonl"),
+        )
+        with redirect_stdout(io.StringIO()):
+            exit_code = main(
+                [
+                    "labeling-enrichment-run",
+                    "--plan",
+                    "plan",
+                    "--work",
+                    "work",
+                    "--connector",
+                    "openalex",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(run.call_args.kwargs["connectors"], ["openalex"])
+
     def test_enrichment_commands_have_no_stale_v1_defaults(self) -> None:
         from nextwave.__main__ import _build_parser
 

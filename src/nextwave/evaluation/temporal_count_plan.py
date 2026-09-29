@@ -6,6 +6,7 @@ import hashlib
 import json
 import unicodedata
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,15 @@ _WINDOWS = (
     ("previous", "2024-09-15", "2025-09-14"),
     ("recent", "2025-09-15", "2026-09-15"),
 )
+
+
+def _windows_for_cutoff(cutoff: date) -> tuple[tuple[str, str, str], ...]:
+    recent_from = cutoff - timedelta(days=365)
+    previous_from = cutoff - timedelta(days=730)
+    return (
+        ("previous", previous_from.isoformat(), (recent_from - timedelta(days=1)).isoformat()),
+        ("recent", recent_from.isoformat(), cutoff.isoformat()),
+    )
 _SCOPE_QUERIES = {
     "edge-v1": '"edge computing" OR "edge AI"',
     "ai-security-v1": '"AI security" OR "machine learning security" OR "model security"',
@@ -121,10 +131,19 @@ def _task(
 
 
 def _collect_candidates(
-    *, directory: Path, role: str, candidates: dict[str, dict[str, Any]]
-) -> tuple[dict[str, Any], dict[str, Any]]:
+    *,
+    directory: Path,
+    role: str,
+    candidates: dict[str, dict[str, Any]],
+    required_cutoff: str | None = "2026-09-15",
+) -> tuple[dict[str, Any], dict[str, Any], date]:
     manifest, plan, payload = _load_enrichment_plan(directory)
-    if plan.get("cutoff_date") != "2026-09-15":
+    cutoff_raw = plan.get("cutoff_date")
+    try:
+        cutoff = date.fromisoformat(cutoff_raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{directory.name} cutoff is not an ISO date") from error
+    if required_cutoff is not None and cutoff_raw != required_cutoff:
         raise ValueError(f"{directory.name} cutoff is not frozen")
     bundle_id = manifest.get("bundle_id")
     if not isinstance(bundle_id, str) or not bundle_id:
@@ -149,6 +168,8 @@ def _collect_candidates(
         if not isinstance(terms, list) or not terms:
             raise ValueError(f"candidate {candidate_id} needs reviewed search terms")
         search_text = _normalized_term(terms[0], f"candidate {candidate_id} search term")
+        if raw.get("cutoff_date") != cutoff_raw:
+            raise ValueError(f"candidate {candidate_id} cutoff differs from plan")
         candidates[candidate_id] = {
             "candidate_id": candidate_id,
             "role": role,
@@ -156,7 +177,7 @@ def _collect_candidates(
             "analysis_scope_key": scope,
             "search_text": search_text,
         }
-    return logical_input, {**logical_input, "plan": _digest(payload)}
+    return logical_input, {**logical_input, "plan": _digest(payload)}, cutoff
 
 
 def _render_temporal_count_plan(
@@ -165,6 +186,7 @@ def _render_temporal_count_plan(
     manifest_inputs: list[dict[str, Any]],
     candidates: dict[str, dict[str, Any]],
     scopes: tuple[str, ...],
+    cutoff: date,
 ) -> tuple[bytes, bytes]:
     if not candidates:
         raise ValueError("temporal count plan requires candidates")
@@ -173,9 +195,10 @@ def _render_temporal_count_plan(
     if len(scopes) != len(set(scopes)):
         raise ValueError("temporal count scopes must be unique")
 
+    windows = _windows_for_cutoff(cutoff)
     tasks: list[dict[str, Any]] = []
     for candidate in sorted(candidates.values(), key=lambda row: row["candidate_id"]):
-        for window, start, end in _WINDOWS:
+        for window, start, end in windows:
             tasks.append(
                 _task(
                     entity_type="candidate",
@@ -190,7 +213,7 @@ def _render_temporal_count_plan(
             )
     for scope in sorted(scopes):
         search_text = _SCOPE_QUERIES[scope]
-        for window, start, end in _WINDOWS:
+        for window, start, end in windows:
             tasks.append(
                 _task(
                     entity_type="scope",
@@ -209,9 +232,10 @@ def _render_temporal_count_plan(
         raise ValueError("temporal count task IDs collide")
     plan_value = {
         "schema_version": TEMPORAL_COUNT_PLAN_VERSION,
-        "cutoff_date": "2026-09-15",
+        "cutoff_date": cutoff.isoformat(),
         "windows": {
-            name: {"from": start, "until": end, "inclusive": True} for name, start, end in _WINDOWS
+            name: {"from": start, "until": end, "inclusive": True}
+            for name, start, end in windows
         },
         "scope_queries": {scope: _SCOPE_QUERIES[scope] for scope in sorted(scopes)},
         "retrieval_policy": {
@@ -235,12 +259,12 @@ def _render_temporal_count_plan(
     ).encode()
     manifest_value = {
         "schema_version": TEMPORAL_COUNT_PLAN_VERSION,
-        "cutoff_date": "2026-09-15",
+        "cutoff_date": cutoff.isoformat(),
         "counts": {
             "candidates": len(candidates),
             "scopes": len(scopes),
-            "candidate_tasks": len(candidates) * len(_WINDOWS),
-            "scope_tasks": len(scopes) * len(_WINDOWS),
+            "candidate_tasks": len(candidates) * len(windows),
+            "scope_tasks": len(scopes) * len(windows),
             "tasks": len(tasks),
         },
         "inputs": manifest_inputs,
@@ -262,7 +286,7 @@ def build_temporal_count_plan(
         ("positive", positive_plan_dir),
         ("negative", negative_plan_dir),
     ):
-        logical, manifest_input = _collect_candidates(
+        logical, manifest_input, cutoff = _collect_candidates(
             directory=Path(raw_directory), role=role, candidates=candidates
         )
         plan_inputs.append(logical)
@@ -272,6 +296,7 @@ def build_temporal_count_plan(
         manifest_inputs=manifest_inputs,
         candidates=candidates,
         scopes=tuple(sorted(_SCOPE_QUERIES)),
+        cutoff=cutoff,
     )
 
 
@@ -283,8 +308,11 @@ def build_analysis_temporal_count_plan(
     if manifest.get("plan_role") != "analysis_candidates":
         raise ValueError("analysis temporal counts require an analysis_candidates plan")
     candidates: dict[str, dict[str, Any]] = {}
-    logical, manifest_input = _collect_candidates(
-        directory=directory, role="analysis", candidates=candidates
+    logical, manifest_input, cutoff = _collect_candidates(
+        directory=directory,
+        role="analysis",
+        candidates=candidates,
+        required_cutoff=None,
     )
     scopes = tuple(
         sorted({str(candidate["analysis_scope_key"]) for candidate in candidates.values()})
@@ -296,6 +324,7 @@ def build_analysis_temporal_count_plan(
         manifest_inputs=[manifest_input],
         candidates=candidates,
         scopes=scopes,
+        cutoff=cutoff,
     )
 
 

@@ -35,7 +35,15 @@ def _bundle(directory: Path, manifest: dict, files: dict[str, bytes]) -> None:
 
 
 class AnalysisFeatureTests(unittest.TestCase):
-    def _fixture(self, root: Path) -> tuple[Path, Path, Path]:
+    def _fixture(
+        self,
+        root: Path,
+        *,
+        cutoff_date: str = "2026-09-15",
+        history_from: str = "2024-09-15",
+        recent_from: str = "2025-09-15",
+        published_at: str = "2026-01-01",
+    ) -> tuple[Path, Path, Path]:
         candidate = {
             "candidate_id": "alias-group-001",
             "canonical_name": "Paged attention",
@@ -47,12 +55,14 @@ class AnalysisFeatureTests(unittest.TestCase):
                 "group_id": "alias-group-001",
                 "source_query": "Инфраструктура ИИ",
             },
-            "cutoff_date": "2026-09-15",
+            "cutoff_date": cutoff_date,
             "search_terms": ["Paged attention", "paged-attention"],
         }
         plan_value = {
             "schema_version": "labeling-enrichment-plan-v2",
-            "cutoff_date": "2026-09-15",
+            "cutoff_date": cutoff_date,
+            "history_from": history_from,
+            "recent_window_from": recent_from,
             "candidates": [candidate],
         }
         plan_bytes = _bytes(plan_value)
@@ -80,7 +90,7 @@ class AnalysisFeatureTests(unittest.TestCase):
                     "candidate_id": "alias-group-001",
                     "document_id": "doc-1",
                     "connector": "openalex",
-                    "published_at": "2026-01-01",
+                    "published_at": published_at,
                     "trust_tier": "A",
                     "origin_id": "doi:one",
                     "organizations": ["Org A"],
@@ -120,6 +130,7 @@ class AnalysisFeatureTests(unittest.TestCase):
             {
                 "schema_version": "openalex-temporal-count-result-v4",
                 "status": "complete",
+                "cutoff_date": cutoff_date,
             },
             {"candidate_temporal_features.jsonl": _jsonl([temporal_row])},
         )
@@ -141,6 +152,26 @@ class AnalysisFeatureTests(unittest.TestCase):
         self.assertEqual(row["source_query"], "Инфраструктура ИИ")
         self.assertTrue(row["features"]["temporal_count_coverage_complete"])
         self.assertAlmostEqual(row["features"]["scientific_recent_count_log1p"], math.log1p(5))
+
+    def test_historical_plan_uses_its_own_feature_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan, result, temporal = self._fixture(
+                root,
+                cutoff_date="2025-09-15",
+                history_from="2023-09-16",
+                recent_from="2024-09-15",
+                published_at="2024-05-24",
+            )
+            rows, _ = build_analysis_feature_table(
+                analysis_plan_dir=plan,
+                enrichment_result_dir=result,
+                temporal_count_dir=temporal,
+            )
+
+        row = json.loads(rows.decode())
+        self.assertTrue(row["features"]["scientific_previous_present"])
+        self.assertFalse(row["features"]["scientific_recent_present"])
 
     def test_rejects_incomplete_enrichment_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

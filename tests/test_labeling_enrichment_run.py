@@ -263,6 +263,7 @@ def run_with_fakes(
     openalex_transport=None,
     mediacloud_transport=None,
     env: dict[str, str] | None = None,
+    connectors=None,
 ):
     return run_enrichment(
         plan_dir=plan,
@@ -274,6 +275,7 @@ def run_with_fakes(
         clock=clock or FakeClock(),
         monotonic_clock=monotonic or FakeMonotonic(),
         sleeper=sleeper or FakeSleeper(),
+        connectors=connectors,
     )
 
 
@@ -294,6 +296,38 @@ def scan_bytes(root: Path) -> bytes:
 
 
 class EnrichmentRunTests(unittest.TestCase):
+    def test_openalex_only_skips_mediacloud_without_its_key(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(root, "run", [candidate_row(1)])
+            transport = FakeTransport()
+            run_with_fakes(
+                plan,
+                root / "work",
+                root / "out-1",
+                transport,
+                env={"NEXTWAVE_OPENALEX_MAILTO": FAKE_MAILTO},
+                connectors=("openalex",),
+            )
+
+            manifest = json.loads(
+                (root / "out-1" / "manifest.json").read_text(encoding="utf-8")
+            )
+            results = read_jsonl(root / "out-1" / "request_results.jsonl")
+            coverage = read_jsonl(root / "out-1" / "coverage.jsonl")
+            self.assertEqual(manifest["requested_connectors"], ["openalex"])
+            self.assertTrue(results)
+            self.assertEqual({row["connector"] for row in results}, {"openalex"})
+            scientific = next(
+                row for row in coverage if row["source_class"] == "scientific"
+            )
+            industry = next(
+                row for row in coverage if row["source_class"] == "industry"
+            )
+            self.assertEqual(scientific["status"], "complete")
+            self.assertEqual(industry["status"], "unknown")
+            self.assertFalse(any("mediacloud" in call[0] for call in transport.calls))
+
     def test_all_success_including_empty_is_complete(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -19,14 +19,20 @@ def _digest(payload: bytes) -> dict[str, object]:
     return {"size_bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
 
 
-def _candidate(candidate_id: str, scope: str, term: str) -> dict:
+def _candidate(
+    candidate_id: str,
+    scope: str,
+    term: str,
+    *,
+    cutoff_date: str = "2026-09-15",
+) -> dict:
     return {
         "candidate_id": candidate_id,
         "canonical_name": term,
         "aliases": [],
         "domain": "Edge",
         "analysis_scope_key": scope,
-        "cutoff_date": "2026-09-15",
+        "cutoff_date": cutoff_date,
         "search_terms": [term, f"{term} alias"],
     }
 
@@ -37,11 +43,12 @@ def _write_plan(
     candidates: list[dict],
     *,
     plan_role: str | None = None,
+    cutoff_date: str = "2026-09-15",
 ) -> None:
     directory.mkdir()
     value = {
         "schema_version": "labeling-enrichment-plan-v2",
-        "cutoff_date": "2026-09-15",
+        "cutoff_date": cutoff_date,
         "candidates": candidates,
     }
     payload = (json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n").encode()
@@ -216,6 +223,48 @@ class TemporalCountPlanTests(unittest.TestCase):
                 "scope_tasks": 2,
                 "scopes": 1,
                 "tasks": 6,
+            },
+        )
+
+    def test_historical_analysis_plan_uses_cutoff_relative_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            analysis = root / "analysis"
+            _write_plan(
+                analysis,
+                "historical-bundle",
+                [
+                    _candidate(
+                        "alias-group-001",
+                        "ai-infrastructure-v1",
+                        "paged attention",
+                        cutoff_date="2025-09-15",
+                    )
+                ],
+                plan_role="analysis_candidates",
+                cutoff_date="2025-09-15",
+            )
+            plan_bytes, manifest_bytes = build_analysis_temporal_count_plan(
+                analysis_plan_dir=analysis
+            )
+
+        plan = json.loads(plan_bytes)
+        manifest = json.loads(manifest_bytes)
+        self.assertEqual(plan["cutoff_date"], "2025-09-15")
+        self.assertEqual(manifest["cutoff_date"], "2025-09-15")
+        self.assertEqual(
+            plan["windows"],
+            {
+                "previous": {
+                    "from": "2023-09-16",
+                    "until": "2024-09-14",
+                    "inclusive": True,
+                },
+                "recent": {
+                    "from": "2024-09-15",
+                    "until": "2025-09-15",
+                    "inclusive": True,
+                },
             },
         )
 

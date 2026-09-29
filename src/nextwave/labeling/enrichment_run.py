@@ -15,7 +15,7 @@ import re
 import shutil
 import tempfile
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from enum import Enum
@@ -911,7 +911,7 @@ def _build_query(
         search_texts=(request["search_text"],),
         published_from=date.fromisoformat(str(window.get("from"))),
         published_until=date.fromisoformat(str(window.get("until"))),
-        cutoff_date=date.fromisoformat("2026-09-15"),
+        cutoff_date=date.fromisoformat(str(candidate.get("cutoff_date"))),
         languages=tuple(request["languages"]),
     )
 
@@ -923,7 +923,7 @@ def _execute_request(
     request: Mapping[str, Any],
     window: Mapping[str, Any],
     openalex_connector: OpenAlexConnector,
-    mediacloud_connector: MediaCloudConnector,
+    mediacloud_connector: MediaCloudConnector | None,
     staging_parent: Path,
     snapshot_version: str,
     bundle_id: str,
@@ -979,6 +979,8 @@ def _execute_request(
                     attempt=attempt,
                 )
             else:
+                if mediacloud_connector is None:
+                    raise ValueError("Media Cloud connector is not configured")
                 run = mediacloud_connector.run_page(
                     query,
                     writer,
@@ -1144,12 +1146,21 @@ def run_enrichment(
     clock: Callable[[], datetime] | None = None,
     monotonic_clock: Callable[[], float] | None = None,
     sleeper: Callable[[float], None] | None = None,
+    connectors: Collection[str] | None = None,
 ) -> LabelingEnrichmentRunPaths:
     """Execute every planned request once, reusing verified work, and publish."""
 
     now = clock or (lambda: datetime.now(UTC))
     sleep = sleeper or time.sleep
     plan, _plan_bytes, plan_digest = load_validated_plan(plan_dir)
+    selected_connectors = set(connectors or ("openalex", "mediacloud"))
+    if not selected_connectors or not selected_connectors <= {
+        "openalex",
+        "mediacloud",
+    }:
+        raise ValueError(
+            "enrichment connectors must contain openalex and/or mediacloud"
+        )
     bundle_id = plan["bundle"]["bundle_id"]
     output = Path(output_dir)
     if output.exists():
@@ -1157,7 +1168,7 @@ def run_enrichment(
     work = _init_or_check_work(work_dir, plan_digest, bundle_id)
 
     api_key = (environment.get("NEXTWAVE_MEDIACLOUD_API_KEY") or "").strip()
-    if not api_key:
+    if "mediacloud" in selected_connectors and not api_key:
         raise ValueError("NEXTWAVE_MEDIACLOUD_API_KEY is required to run enrichment")
     contact_email = (environment.get("NEXTWAVE_OPENALEX_MAILTO") or "").strip() or None
     openalex_api_key = normalize_openalex_api_key(
@@ -1185,20 +1196,26 @@ def run_enrichment(
         timeout_seconds=float(openalex_policy.get("timeout_seconds", 20)),
         clock=now,
     )
-    mediacloud_connector = MediaCloudConnector(
-        api_key=api_key,
-        transport=mediacloud_transport,
-        timeout_seconds=float(mediacloud_policy.get("timeout_seconds", 60)),
-        min_interval_seconds=float(mediacloud_policy.get("min_interval_seconds", 30)),
-        clock=now,
-        monotonic_clock=monotonic_clock,
-        sleeper=sleep,
+    mediacloud_connector = (
+        MediaCloudConnector(
+            api_key=api_key,
+            transport=mediacloud_transport,
+            timeout_seconds=float(mediacloud_policy.get("timeout_seconds", 60)),
+            min_interval_seconds=float(mediacloud_policy.get("min_interval_seconds", 30)),
+            clock=now,
+            monotonic_clock=monotonic_clock,
+            sleeper=sleep,
+        )
+        if "mediacloud" in selected_connectors
+        else None
     )
 
     request_rows: list[dict[str, Any]] = []
     document_rows: list[dict[str, Any]] = []
     for entry in sorted(plan["candidates"], key=lambda item: item["candidate_id"]):
         for search in entry["searches"]:
+            if search["connector"] not in selected_connectors:
+                continue
             window = search["planned_window"]
             snapshot_version = (
                 "openalex-discovery-v1"
@@ -1448,20 +1465,23 @@ def run_enrichment(
         "coverage_partial": sum(1 for row in coverage_rows if row["status"] == "partial"),
         "coverage_unknown": sum(1 for row in coverage_rows if row["status"] == "unknown"),
     }
+    manifest_payload = {
+        "schema_version": ENRICHMENT_RESULT_VERSION,
+        "executor_version": ENRICHMENT_EXECUTOR_VERSION,
+        "plan": _digest((Path(plan_dir) / PLAN_FILENAME).read_bytes()),
+        "bundle_id": bundle_id,
+        "totals": totals,
+        "outputs": {
+            REQUEST_RESULTS_FILENAME: _digest(request_bytes),
+            DOCUMENTS_FILENAME: _digest(documents_bytes),
+            COVERAGE_FILENAME: _digest(coverage_bytes),
+        },
+    }
+    if connectors is not None:
+        manifest_payload["requested_connectors"] = sorted(selected_connectors)
     manifest_bytes = (
         json.dumps(
-            {
-                "schema_version": ENRICHMENT_RESULT_VERSION,
-                "executor_version": ENRICHMENT_EXECUTOR_VERSION,
-                "plan": _digest((Path(plan_dir) / PLAN_FILENAME).read_bytes()),
-                "bundle_id": bundle_id,
-                "totals": totals,
-                "outputs": {
-                    REQUEST_RESULTS_FILENAME: _digest(request_bytes),
-                    DOCUMENTS_FILENAME: _digest(documents_bytes),
-                    COVERAGE_FILENAME: _digest(coverage_bytes),
-                },
-            },
+            manifest_payload,
             ensure_ascii=False,
             indent=2,
             sort_keys=True,
