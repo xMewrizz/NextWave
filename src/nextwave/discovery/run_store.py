@@ -17,15 +17,17 @@ import json
 import shutil
 import tempfile
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from nextwave.sources import publish_staging
 
+from .candidate_gate import PRODUCT_GATE_ID, QUALIFICATION_GATE_ID
 from .contracts import DiscoveryPlan
 from .pipeline import DISCOVERY_PIPELINE_VERSION, DiscoveryPipelineResult
 
-DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION = "discovery-run-manifest-v1"
+DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION = "discovery-run-manifest-v2"
 
 # Must stay in sync with LABELING.md and labeling/contracts.py.
 # Runs with any other cutoff are fine for demo, but only this date is
@@ -101,7 +103,16 @@ def _counts_from_result(result_dict: dict[str, Any]) -> dict[str, int]:
     review = sum(1 for item in decisions if item.get("decision") == "review")
     text_issues = text_extraction.get("issues") or []
     evidence_issues = evidence.get("issues") or []
-    judged = accepted + rejected + review
+    input_proposal_ids = gate.get("input_proposal_ids")
+    checked = (
+        len(input_proposal_ids)
+        if isinstance(input_proposal_ids, list)
+        else accepted + rejected + review
+    )
+    coverage = result_dict.get("gate_coverage") or {}
+    skipped = coverage.get("skipped_proposals")
+    if not isinstance(skipped, int) or isinstance(skipped, bool):
+        skipped = len(proposals.get("proposals") or []) - checked
 
     return {
         "documents": len(result_dict.get("documents") or []),
@@ -110,7 +121,7 @@ def _counts_from_result(result_dict: dict[str, Any]) -> dict[str, int]:
         "accepted": accepted,
         "rejected": rejected,
         "review": review,
-        "gate_skipped": len(proposals.get("proposals") or []) - judged,
+        "gate_skipped": skipped,
         "alias_suggestions": len(aliases.get("review_suggestions") or []),
         "evidence_proposals": len(evidence.get("proposals") or []),
         "issues": len(text_issues) + len(evidence_issues),
@@ -133,10 +144,12 @@ def _snapshot_ids_from_result(result_dict: dict[str, Any]) -> list[str]:
     return sorted(set(found))
 
 
-def is_labeling_eligible(cutoff_iso: str) -> bool:
-    """Only the fixed labeling cutoff may train the model; anything else is demo-only."""
+def is_labeling_eligible(
+    cutoff_iso: str, analysis_status: str = "complete"
+) -> bool:
+    """Require both the fixed cutoff and complete candidate coverage."""
 
-    return cutoff_iso == LABELING_CUTOFF_DATE_ISO
+    return cutoff_iso == LABELING_CUTOFF_DATE_ISO and analysis_status == "complete"
 
 
 def assert_labeling_cutoff(cutoff_iso: str) -> None:
@@ -146,6 +159,254 @@ def assert_labeling_cutoff(cutoff_iso: str) -> None:
             f"{cutoff_iso!r} is not eligible for labeling; "
             f"expected {LABELING_CUTOFF_DATE_ISO!r}"
         )
+
+
+def analysis_status_from_result(result_dict: dict[str, Any]) -> str:
+    """Read new coverage metadata or infer legacy partial Gate runs."""
+
+    coverage = result_dict.get("gate_coverage") or {}
+    status = coverage.get("status")
+    if status in {"complete", "partial"}:
+        return str(status)
+    if status is not None:
+        raise ValueError(f"invalid candidate gate coverage status: {status!r}")
+    proposals = (result_dict.get("candidate_proposals") or {}).get("proposals") or []
+    input_ids = (result_dict.get("candidate_gate") or {}).get("input_proposal_ids")
+    if isinstance(input_ids, list) and len(input_ids) < len(proposals):
+        return "partial"
+    return "complete"
+
+
+def _require_strict_count(run_id: str, field: str, value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(
+            f"run {run_id!r} is not eligible for labeling; "
+            f"gate_coverage.{field} must be a non-negative int, got {value!r}"
+        )
+    return value
+
+
+def _assert_run_complete(
+    run: DiscoveryRun,
+    *,
+    purpose: str,
+    expected_gate_id: str,
+    allow_partial_gate: bool = False,
+) -> None:
+    """Require one complete, internally consistent current-pipeline run.
+
+    Unlike the labeling export, product analysis may intentionally use an
+    earlier point-in-time cutoff. The cutoff must still be a valid date and
+    match between ``plan.json`` and ``manifest.json``.
+    """
+
+    manifest_cutoff = run.manifest.get("cutoff_date")
+    plan_cutoff = (run.plan.get("query") or {}).get("cutoff_date")
+    if not isinstance(manifest_cutoff, str):
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            "manifest cutoff is missing or not a string"
+        )
+    try:
+        date.fromisoformat(manifest_cutoff)
+    except ValueError as error:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"manifest cutoff {manifest_cutoff!r} is not an ISO date"
+        ) from error
+    if manifest_cutoff != plan_cutoff:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"cutoff mismatch manifest {manifest_cutoff!r} vs plan {plan_cutoff!r}"
+        )
+
+    manifest_status = run.manifest.get("analysis_status")
+    if manifest_status is None:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            "manifest.analysis_status is missing"
+        )
+    derived_status = analysis_status_from_result(run.result)
+    if manifest_status != derived_status:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"analysis_status mismatch manifest {manifest_status!r} "
+            f"vs result {derived_status!r}"
+        )
+    allowed_statuses = {"complete", "partial"} if allow_partial_gate else {"complete"}
+    if manifest_status not in allowed_statuses:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"candidate gate coverage is {manifest_status!r}"
+        )
+    manifest_pipeline = run.manifest.get("pipeline_version")
+    result_pipeline = run.result.get("pipeline_version")
+    if manifest_pipeline is None or result_pipeline is None:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"pipeline version is missing (manifest {manifest_pipeline!r}, "
+            f"result {result_pipeline!r})"
+        )
+    if manifest_pipeline != result_pipeline:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"pipeline version mismatch manifest {manifest_pipeline!r} "
+            f"vs result {result_pipeline!r}"
+        )
+    if result_pipeline != DISCOVERY_PIPELINE_VERSION:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"pipeline version {result_pipeline!r} does not match "
+            f"current {DISCOVERY_PIPELINE_VERSION!r}"
+        )
+    coverage = run.result.get("gate_coverage")
+    if not isinstance(coverage, dict):
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            "gate_coverage is missing or not an object"
+        )
+    coverage_status = coverage.get("status")
+    if coverage_status != manifest_status or coverage_status not in allowed_statuses:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"candidate gate coverage is {coverage_status!r}"
+        )
+    if "skipped_proposals" not in coverage:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            "gate_coverage.skipped_proposals is missing"
+        )
+    skipped = coverage.get("skipped_proposals")
+    if not isinstance(skipped, int) or isinstance(skipped, bool):
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"gate_coverage.skipped_proposals must be int, got {skipped!r}"
+        )
+    if not allow_partial_gate and skipped != 0:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"gate has {skipped!r} skipped proposals"
+        )
+    if "skipped_proposal_ids" not in coverage:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            "gate_coverage.skipped_proposal_ids is missing"
+        )
+    skipped_ids = coverage.get("skipped_proposal_ids")
+    if not isinstance(skipped_ids, list):
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"gate_coverage.skipped_proposal_ids must be list, got {skipped_ids!r}"
+        )
+    if len(skipped_ids) != skipped:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"gate skipped count {skipped!r} differs from "
+            f"{len(skipped_ids)} skipped proposal ids"
+        )
+    if "total_proposals" not in coverage or "checked_proposals" not in coverage:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            "gate_coverage.total_proposals/checked_proposals are missing"
+        )
+    total = _require_strict_count(
+        run.run_id, "total_proposals", coverage.get("total_proposals")
+    )
+    checked = _require_strict_count(
+        run.run_id, "checked_proposals", coverage.get("checked_proposals")
+    )
+    if total != checked + skipped:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"coverage mismatch total {total!r} != checked {checked!r} "
+            f"+ skipped {skipped!r}"
+        )
+    proposals = (run.result.get("candidate_proposals") or {}).get("proposals")
+    if not isinstance(proposals, list):
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            "candidate_proposals.proposals is missing or not a list"
+        )
+    if total != len(proposals):
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"coverage total {total!r} != proposals {len(proposals)!r}"
+        )
+    input_ids = (run.result.get("candidate_gate") or {}).get("input_proposal_ids")
+    if not isinstance(input_ids, list):
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            "candidate_gate.input_proposal_ids is missing or not a list"
+        )
+    if checked != len(input_ids):
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"coverage checked {checked!r} != gate inputs {len(input_ids)!r}"
+        )
+    manifest_gate = run.manifest.get("gate_id")
+    result_gate = (run.result.get("candidate_gate") or {}).get("gate_id")
+    if not isinstance(manifest_gate, str) or not isinstance(result_gate, str):
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"gate id is missing (manifest {manifest_gate!r}, result {result_gate!r})"
+        )
+    if manifest_gate != result_gate:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"gate id mismatch manifest {manifest_gate!r} vs result {result_gate!r}"
+        )
+    if result_gate != expected_gate_id:
+        gate_label = "qualification gate" if purpose == "labeling" else "product gate"
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for {purpose}; "
+            f"candidate gate {result_gate!r} does not match "
+            f"{gate_label} {expected_gate_id!r}"
+        )
+
+
+
+def assert_run_analysis_eligible(run: DiscoveryRun) -> None:
+    """Accept an internally consistent bounded product run at any cutoff."""
+
+    _assert_run_complete(
+        run,
+        purpose="analysis",
+        expected_gate_id=PRODUCT_GATE_ID,
+        allow_partial_gate=True,
+    )
+
+def assert_run_labeling_eligible(run: DiscoveryRun) -> None:
+    """Reject anything but a current complete run before queue construction.
+
+    Every provenance field is cross-checked between ``plan.json``,
+    ``pipeline_result.json`` and ``manifest.json``; the saved
+    ``manifest.labeling_eligible`` flag is never trusted on its own, so old
+    v6/v8 safes and Gate v1 results cannot slip into a new export.
+    """
+
+    manifest_cutoff = run.manifest.get("cutoff_date")
+    plan_cutoff = (run.plan.get("query") or {}).get("cutoff_date")
+    if manifest_cutoff != LABELING_CUTOFF_DATE_ISO:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for labeling; "
+            f"run cutoff {manifest_cutoff!r} is not eligible for labeling; "
+            f"expected {LABELING_CUTOFF_DATE_ISO!r}"
+        )
+    if plan_cutoff != LABELING_CUTOFF_DATE_ISO:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for labeling; "
+            f"plan cutoff {plan_cutoff!r} does not match expected {LABELING_CUTOFF_DATE_ISO!r}"
+        )
+    if manifest_cutoff != plan_cutoff:
+        raise ValueError(
+            f"run {run.run_id!r} is not eligible for labeling; "
+            f"cutoff mismatch manifest {manifest_cutoff!r} vs plan {plan_cutoff!r}"
+        )
+    _assert_run_complete(
+        run,
+        purpose="labeling",
+        expected_gate_id=QUALIFICATION_GATE_ID,
+    )
 
 
 def iter_nested_documents(result_dict: dict[str, Any]) -> list[dict[str, Any]]:
@@ -192,6 +453,8 @@ def save_discovery_run(
     result_bytes = _pretty_bytes(result_dict)
     counts = _counts_from_result(result_dict)
     cutoff_iso = str(plan.query.cutoff_date)
+    analysis_status = analysis_status_from_result(result_dict)
+    gate_id = (result_dict.get("candidate_gate") or {}).get("gate_id")
 
     manifest_dict: dict[str, Any] = {
         "schema_version": DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION,
@@ -201,9 +464,11 @@ def save_discovery_run(
         "domain": domain.strip(),
         "raw_query": plan.scope.raw_query,
         "cutoff_date": cutoff_iso,
-        "labeling_eligible": is_labeling_eligible(cutoff_iso),
+        "analysis_status": analysis_status,
+        "labeling_eligible": is_labeling_eligible(cutoff_iso, analysis_status)
+        and gate_id == QUALIFICATION_GATE_ID,
         "pipeline_version": result.pipeline_version or DISCOVERY_PIPELINE_VERSION,
-        "gate_id": (result_dict.get("candidate_gate") or {}).get("gate_id"),
+        "gate_id": gate_id,
         "snapshot_ids": _snapshot_ids_from_result(result_dict),
         "counts": counts,
         "outputs": [

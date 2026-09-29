@@ -139,9 +139,14 @@ def parse_mediacloud_story(
     published_at = _published_at(record.get("publish_date"))
     if published_at is not None and published_at > cutoff_date:
         raise ValueError("publish_date is after cutoff_date")
+    # indexed_date is crawler lag, not content time: a story published before
+    # the cutoff stays eligible no matter when the crawler filed it. Cutting
+    # on it would silently discard valid pre-cutoff publications.
     observed_at = _observed_at(record.get("indexed_date"))
-    if observed_at.date() > cutoff_date:
-        raise ValueError("indexed_date is after cutoff_date")
+    if published_at is None and observed_at.date() > cutoff_date:
+        # Without a publication date, first observation is the only temporal
+        # anchor. Accepting a post-cutoff observation would leak future data.
+        raise ValueError("undated story was first observed after cutoff_date")
 
     document_digest = hashlib.sha256(
         f"{snapshot_id}|mediacloud|{external_id}".encode()

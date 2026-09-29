@@ -115,6 +115,40 @@ class OpenAlexSearchScheduleTests(unittest.TestCase):
 
 
 class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
+    def test_full_page_continues_same_channel_after_first_wave(self) -> None:
+        first_page = [
+            work(f"W{index}", doi=f"10.1234/{index}")
+            for index in range(100)
+        ]
+        second_page = [
+            work(f"W{index}", doi=f"10.1234/{index}")
+            for index in range(100, 200)
+        ]
+        transport = SequenceTransport(
+            [
+                response(*first_page),
+                response(),
+                response(),
+                response(),
+                response(*second_page),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(plan(max_requests=6, max_pages=5, max_documents=500))
+
+        requested_pages = [
+            parse_qs(urlparse(call[0]).query)["page"] for call in transport.calls
+        ]
+        self.assertEqual(requested_pages, [["1"], ["1"], ["1"], ["1"], ["2"]])
+        self.assertEqual(result.usage.pages_used, 5)
+        self.assertIs(result.usage.stop_reason, DiscoveryStopReason.PAGE_BUDGET)
+
     def test_merges_discovery_hints_when_channels_return_the_same_origin(self) -> None:
         transport = SequenceTransport(
             [
@@ -195,6 +229,56 @@ class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
         self.assertEqual(pauses, [5.0])
         self.assertEqual(len(result.documents), 1)
         self.assertEqual(result.documents[0].title, "Work W1")
+
+    def test_retry_honors_server_retry_after_over_backoff(self) -> None:
+        transport = SequenceTransport(
+            [
+                HttpResponse(
+                    429,
+                    {"Content-Type": "application/json", "Retry-After": "39"},
+                    b'{"error":"limit"}',
+                ),
+                response(work("W1", doi="10.1234/one")),
+                response(),
+                response(),
+                response(),
+            ]
+        )
+        pauses: list[float] = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+                sleeper=pauses.append,
+            ).execute(plan())
+
+        self.assertEqual(pauses, [39.0])
+        self.assertEqual(len(result.documents), 1)
+
+    def test_long_retry_after_stops_current_attempt_without_sleeping(self) -> None:
+        limited = HttpResponse(
+            429,
+            {"Content-Type": "application/json", "Retry-After": "9612"},
+            b'{"error":"limit"}',
+        )
+        transport = SequenceTransport([limited, limited, limited, limited])
+        pauses: list[float] = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+                sleeper=pauses.append,
+            ).execute(plan())
+
+        self.assertEqual(pauses, [])
+        self.assertEqual(result.usage.requests_used, 4)
+        self.assertTrue(all(run.error.retryable for run in result.manifest.runs))
 
     def test_executes_bounded_channels_deduplicates_and_publishes_snapshot(self) -> None:
         transport = SequenceTransport(
@@ -326,6 +410,45 @@ class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
         self.assertEqual(len(transport.calls), 1)
         self.assertEqual(result.usage.elapsed_ms, 31000)
         self.assertIs(result.usage.stop_reason, DiscoveryStopReason.ELAPSED_BUDGET)
+
+
+class OpenAlexDiscoveryExecutorApiKeyTests(unittest.TestCase):
+    def test_forwards_api_key_as_bearer_on_every_call(self) -> None:
+        transport = SequenceTransport(
+            [response(work("W1", doi="10.1234/one")), response(), response(), response()]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                api_key="  openalex-free-key-1  ",
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(plan())
+
+        self.assertTrue(transport.calls)
+        for url, headers, _ in transport.calls:
+            self.assertEqual(headers["Authorization"], "Bearer openalex-free-key-1")
+            self.assertNotIn("openalex-free-key-1", url)
+
+    def test_blank_api_key_keeps_anonymous_behavior(self) -> None:
+        transport = SequenceTransport(
+            [response(work("W1", doi="10.1234/one")), response(), response(), response()]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                api_key="   ",
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(plan())
+
+        self.assertTrue(transport.calls)
+        for _, headers, _ in transport.calls:
+            self.assertNotIn("Authorization", headers)
 
 
 if __name__ == "__main__":

@@ -61,3 +61,4 @@ indexes/
 .opencode/
 AGENTS.md
 NEXTWAVE_AGENT_HANDOFF.md
+data/development/labeling-pilot-*/

@@ -15,6 +15,7 @@ from nextwave.discovery import (
     TaxonomyCandidate,
     TaxonomyLevel,
     TaxonomyLookupStatus,
+    build_interpretation_prompt,
     build_query_resolver_from_environment,
     parse_openalex_taxonomy_response,
     select_taxonomy_candidate,
@@ -264,6 +265,14 @@ class QueryResolverTests(unittest.TestCase):
         self.assertEqual(result.scope.normalized_query, "artificial intelligence")
 
 
+class InterpretationPromptTests(unittest.TestCase):
+    def test_prompt_preserves_applied_qualifiers(self) -> None:
+        prompt = build_interpretation_prompt("Промышленный искусственный интеллект")
+
+        self.assertIn("industrial artificial intelligence", prompt)
+        self.assertIn("qualifier", prompt.casefold())
+
+
 class OpenAlexTaxonomySourceTests(unittest.TestCase):
     def test_parses_topic_response_and_normalizes_id(self) -> None:
         body = json.dumps(
@@ -305,6 +314,64 @@ class OpenAlexTaxonomySourceTests(unittest.TestCase):
         self.assertIn("search=artificial+intelligence", url)
         self.assertIn("mailto=team%40example.com", url)
         self.assertNotIn("Authorization", headers)
+
+    def test_api_key_sends_bearer_header_and_keeps_mailto(self) -> None:
+        transport = FakeTransport(
+            HttpResponse(
+                200,
+                {"Content-Type": "application/json"},
+                b'{"results":[]}',
+            )
+        )
+        source = OpenAlexTaxonomySource(
+            transport=transport,
+            contact_email="team@example.com",
+            api_key="openalex-free-key-1",
+        )
+
+        result = source.search("artificial intelligence", ScopeGranularity.DIRECTION)
+
+        url, headers, _ = transport.calls[0]
+        self.assertEqual(result, ())
+        self.assertEqual(headers["Authorization"], "Bearer openalex-free-key-1")
+        self.assertIn("mailto=team%40example.com", url)
+        self.assertNotIn("openalex-free-key-1", url)
+
+    def test_blank_api_key_keeps_anonymous_behavior(self) -> None:
+        transport = FakeTransport(
+            HttpResponse(
+                200,
+                {"Content-Type": "application/json"},
+                b'{"results":[]}',
+            )
+        )
+        source = OpenAlexTaxonomySource(transport=transport, api_key="   ")
+
+        source.search("artificial intelligence", ScopeGranularity.DIRECTION)
+
+        _, headers, _ = transport.calls[0]
+        self.assertNotIn("Authorization", headers)
+
+    def test_transport_exception_with_key_raises_safe_error(self) -> None:
+        secret = "openalex-free-key-1"
+
+        class ExplodingTransport:
+            def get(self, url, *, headers, timeout_seconds):
+                raise RuntimeError(f"Authorization: Bearer {secret}")
+
+        source = OpenAlexTaxonomySource(
+            transport=ExplodingTransport(),
+            api_key=secret,
+        )
+
+        with self.assertRaises(RuntimeError) as caught:
+            source.search("artificial intelligence", ScopeGranularity.DIRECTION)
+
+        self.assertEqual(
+            str(caught.exception),
+            "RuntimeError: OpenAlex taxonomy request failed",
+        )
+        self.assertNotIn(secret, str(caught.exception))
 
 
 class RuntimeQueryResolverTests(unittest.TestCase):
@@ -372,6 +439,101 @@ class RuntimeQueryResolverTests(unittest.TestCase):
         self.assertEqual(result.scope.subfield_ids, ("1702",))
         self.assertEqual(result.interpretation.interpreter_provider, "yandex")
         self.assertEqual(result.interpretation.interpreter_model, "YandexGPT Lite 5")
+
+    def test_builder_reads_openalex_api_key_from_environment(self) -> None:
+        llm_transport = FakePostTransport(
+            HttpResponse(
+                200,
+                {},
+                json.dumps({
+                    "result": {
+                        "alternatives": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "text": json.dumps(
+                                        {
+                                            "normalized_query": "artificial intelligence",
+                                            "search_texts": ["artificial intelligence"],
+                                            "languages": ["en"],
+                                            "granularity": "direction",
+                                        }
+                                    ),
+                                }
+                            }
+                        ]
+                    }
+                }).encode(),
+            )
+        )
+        taxonomy_transport = FakeTransport(
+            HttpResponse(200, {}, b'{"results":[]}')
+        )
+
+        resolver = build_query_resolver_from_environment(
+            {
+                "NEXTWAVE_LLM_PROVIDER": "yandex",
+                "NEXTWAVE_LLM_MODEL": "YandexGPT Lite 5",
+                "NEXTWAVE_LLM_API_KEY": "temporary-secret",
+                "NEXTWAVE_YANDEX_FOLDER_ID": "folder-1",
+                "NEXTWAVE_OPENALEX_API_KEY": "  openalex-free-key-1  ",
+            },
+            llm_transport=llm_transport,
+            taxonomy_transport=taxonomy_transport,
+        )
+        resolver.resolve("Технологии в ИИ")
+
+        _, headers, _ = taxonomy_transport.calls[0]
+        self.assertEqual(headers["Authorization"], "Bearer openalex-free-key-1")
+
+    def test_builder_sends_mailto_and_bearer_in_one_taxonomy_request(self) -> None:
+        llm_transport = FakePostTransport(
+            HttpResponse(
+                200,
+                {},
+                json.dumps({
+                    "result": {
+                        "alternatives": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "text": json.dumps(
+                                        {
+                                            "normalized_query": "artificial intelligence",
+                                            "search_texts": ["artificial intelligence"],
+                                            "languages": ["en"],
+                                            "granularity": "direction",
+                                        }
+                                    ),
+                                }
+                            }
+                        ]
+                    }
+                }).encode(),
+            )
+        )
+        taxonomy_transport = FakeTransport(
+            HttpResponse(200, {}, b'{"results":[]}')
+        )
+
+        resolver = build_query_resolver_from_environment(
+            {
+                "NEXTWAVE_LLM_PROVIDER": "yandex",
+                "NEXTWAVE_LLM_MODEL": "YandexGPT Lite 5",
+                "NEXTWAVE_LLM_API_KEY": "temporary-secret",
+                "NEXTWAVE_YANDEX_FOLDER_ID": "folder-1",
+                "NEXTWAVE_OPENALEX_MAILTO": "team@example.com",
+                "NEXTWAVE_OPENALEX_API_KEY": "openalex-free-key-1",
+            },
+            llm_transport=llm_transport,
+            taxonomy_transport=taxonomy_transport,
+        )
+        resolver.resolve("Технологии в ИИ")
+
+        url, headers, _ = taxonomy_transport.calls[0]
+        self.assertIn("mailto=team%40example.com", url)
+        self.assertEqual(headers["Authorization"], "Bearer openalex-free-key-1")
+        self.assertNotIn("openalex-free-key-1", url)
 
 
 class FakePostTransport:

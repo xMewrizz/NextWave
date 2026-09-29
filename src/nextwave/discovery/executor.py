@@ -25,6 +25,7 @@ from nextwave.sources import (
     SnapshotStatus,
     SnapshotWriter,
     SourceQuery,
+    normalize_openalex_api_key,
     parse_openalex_response,
 )
 
@@ -157,6 +158,7 @@ class OpenAlexDiscoveryResult:
 # что OpenAlex режет частые запросы лимитом. Все попытки попадают в опись.
 OPENALEX_MAX_ATTEMPTS = 3
 OPENALEX_RETRY_BACKOFF_SECONDS = (5.0, 15.0)
+MAX_OPENALEX_RETRY_DELAY_SECONDS = 120.0
 
 
 def build_openalex_search_schedule(query: SourceQuery) -> tuple[OpenAlexSearchStep, ...]:
@@ -187,6 +189,7 @@ class OpenAlexDiscoveryExecutor:
         *,
         transport: HttpTransport | None = None,
         contact_email: str | None = None,
+        api_key: str | None = None,
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] | None = None,
         sleeper: Callable[[float], None] | None = None,
@@ -194,6 +197,7 @@ class OpenAlexDiscoveryExecutor:
         self._snapshot_root = snapshot_root
         self._transport = transport
         self._contact_email = contact_email
+        self._api_key = normalize_openalex_api_key(api_key)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._monotonic = monotonic or time.monotonic
         self._sleeper = sleeper
@@ -223,6 +227,12 @@ class OpenAlexDiscoveryExecutor:
             backoff = OPENALEX_RETRY_BACKOFF_SECONDS[
                 min(index, len(OPENALEX_RETRY_BACKOFF_SECONDS) - 1)
             ]
+            if run.error.retry_after_seconds is not None:
+                if run.error.retry_after_seconds > MAX_OPENALEX_RETRY_DELAY_SECONDS:
+                    # The failure remains retryable in a later run, but this
+                    # bounded execution cannot wait out a long server delay.
+                    return tuple(attempts), run
+                backoff = max(backoff, run.error.retry_after_seconds)
             (self._sleeper or time.sleep)(backoff)
         return tuple(attempts), attempts[-1]
 
@@ -260,6 +270,7 @@ class OpenAlexDiscoveryExecutor:
         connector = OpenAlexConnector(
             transport=self._transport,
             contact_email=self._contact_email,
+            api_key=self._api_key,
             timeout_seconds=budget.request_timeout_seconds,
             clock=self._clock,
         )
@@ -275,8 +286,11 @@ class OpenAlexDiscoveryExecutor:
         pages_fetched = 0
         stop_reason = DiscoveryStopReason.CHANNELS_EXHAUSTED
 
-        schedule = build_openalex_search_schedule(plan.query)
-        for step in schedule:
+        schedule = list(build_openalex_search_schedule(plan.query))
+        schedule_index = 0
+        while schedule_index < len(schedule):
+            step = schedule[schedule_index]
+            schedule_index += 1
             if len(runs) >= budget.max_requests:
                 stop_reason = DiscoveryStopReason.REQUEST_BUDGET
                 break
@@ -319,6 +333,8 @@ class OpenAlexDiscoveryExecutor:
             )
             returned_records += parsed.total_records
             accepted_records += parsed.accepted_records
+            if parsed.total_records >= min(100, remaining_documents):
+                schedule.append(replace(step, page_index=step.page_index + 1))
             hint_issues.extend(
                 DiscoveryHintIssue(
                     connector_id=ConnectorId.OPENALEX,

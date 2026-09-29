@@ -179,6 +179,18 @@ class SourceContractTests(unittest.TestCase):
         self.assertFalse(run.coverage_complete)
         self.assertIsNone(run.returned_records)
 
+    def test_connector_error_rejects_non_finite_retry_delay(self) -> None:
+        for value in (float("nan"), float("inf"), -1.0):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                ValueError, "finite and non-negative"
+            ):
+                ConnectorError(
+                    code="rate_limited",
+                    message="Retry later",
+                    retryable=True,
+                    retry_after_seconds=value,
+                )
+
     def test_failed_run_cannot_report_zero_records(self) -> None:
         with self.assertRaisesRegex(ValueError, "must not report"):
             ConnectorRun(

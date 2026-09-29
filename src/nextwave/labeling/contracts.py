@@ -284,7 +284,10 @@ _TECHNICAL_EVIDENCE_KINDS = {
     EvidenceKind.TECHNICAL_VALIDATION,
     EvidenceKind.PILOT,
 }
-_REQUIRED_SEARCH_CLASSES = set(SearchSourceClass)
+_REQUIRED_SEARCH_CLASSES = {
+    SearchSourceClass.SCIENTIFIC,
+    SearchSourceClass.INDUSTRY,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,24 +348,31 @@ class ModelLabelDecision:
             raise ValueError("reviewed marketing_hype requires a documented publicity wave")
         if self.search_coverage is None:
             raise ValueError("reviewed marketing_hype requires search coverage")
-        if set(self.search_coverage.source_classes) != _REQUIRED_SEARCH_CLASSES:
+        if not _REQUIRED_SEARCH_CLASSES <= set(self.search_coverage.source_classes):
             raise ValueError(
-                "search coverage must include scientific, official and industry sources"
+                "search coverage must include scientific and industry sources"
             )
         technical_origins = {
             item.origin_id
-            for item in self.evidence
+            for item in supporting
             if item.kind in _TECHNICAL_EVIDENCE_KINDS
             and item.trust_level in {TrustLevel.A, TrustLevel.B}
         }
         if len(technical_origins) >= 2:
             raise ValueError("marketing_hype cannot have two independent A/B technical origins")
         if any(
-            item.kind is EvidenceKind.PILOT
-            and item.trust_level in {TrustLevel.A, TrustLevel.B}
-            for item in self.evidence
+            item.kind in {EvidenceKind.PILOT, EvidenceKind.SERIAL_DEPLOYMENT}
+            for item in supporting
         ):
-            raise ValueError("marketing_hype cannot have a confirmed A/B pilot")
+            raise ValueError(
+                "marketing_hype cannot have confirmed pilot or deployment evidence"
+            )
+        if any(
+            item.kind in _MATURE_EVIDENCE_KINDS
+            and item.trust_level in {TrustLevel.A, TrustLevel.B}
+            for item in supporting
+        ):
+            raise ValueError("marketing_hype cannot have confirmed A/B maturity evidence")
 
     def to_dict(self) -> dict[str, Any]:
         return _json_value(asdict(self))

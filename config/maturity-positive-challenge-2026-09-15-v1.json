@@ -1,0 +1,79 @@
+{
+  "schema_version": "maturity-positive-challenge-v1",
+  "cutoff_date": "2026-09-15",
+  "source_plan": "data/development/labeling-evidence-llm-plan-maturity-recovery-v8",
+  "purpose": "Frozen positive-enriched diagnostic set created before model outputs were observed. It measures recall only and is not a representative sample or training corpus.",
+  "selection_rule": "Candidates outside the development and random-holdout sets were surfaced by a fixed list of maturity phrases; each item was retained only when a trust-tier A or B passage directly supported the candidate itself.",
+  "items": [
+    {
+      "candidate_id": "team-negative-026",
+      "verdict": "present",
+      "document_id": "document-openalex-cdf79473afffd8ca",
+      "evidence_kind": "standard",
+      "quote": "This vulnerability has catalyzed accelerated standardization efforts for post-quantum cryptography (PQC) by the U.S. National Institute of Standards and Technology (NIST) and global security stakeholders."
+    },
+    {
+      "candidate_id": "team-negative-034",
+      "verdict": "present",
+      "document_id": "document-openalex-6f53304ead9d775c",
+      "evidence_kind": "market",
+      "quote": "This study also highlights LiDAR sensor testing procedures, focusing on critical parameters, industry standards, and accuracy benchmarks; it evaluates the specifications of various commercially available LiDAR sensors with applications for plant feature characterization and highlights the importance of mounting LiDAR technology on agricultural machinery for effective recognition of crops and working environments."
+    },
+    {
+      "candidate_id": "team-negative-038",
+      "verdict": "present",
+      "document_id": "document-openalex-0f9bf0e56ee8cb99",
+      "evidence_kind": "adoption",
+      "quote": "It is applied in advanced sectors like aerospace, healthcare, automotive industries, and it starts having their interest in many other areas."
+    },
+    {
+      "candidate_id": "team-negative-039",
+      "verdict": "present",
+      "document_id": "document-openalex-05fdeb22142ed041",
+      "evidence_kind": "adoption",
+      "quote": "In industrial settings, human–robot collaboration typically involves physical interaction with collaborative robots (cobots), designed to assist in tasks such as manufacturing and logistics."
+    },
+    {
+      "candidate_id": "team-negative-052",
+      "verdict": "present",
+      "document_id": "document-openalex-bd80f310d230b3dc",
+      "evidence_kind": "adoption",
+      "quote": "Unmanned aerial vehicles (UAV) are widely used for edge computing in poor infrastructure scenarios due to their deployment flexibility and mobility."
+    },
+    {
+      "candidate_id": "team-negative-074",
+      "verdict": "present",
+      "document_id": "document-openalex-5f65b1dd7532084d",
+      "evidence_kind": "market",
+      "quote": "Meanwhile, the operation of wearable devices is based on the flexible sensors inside them."
+    },
+    {
+      "candidate_id": "team-negative-085",
+      "verdict": "present",
+      "document_id": "document-openalex-6e8286114a9956d6",
+      "evidence_kind": "adoption",
+      "quote": "The increasing adoption of blockchain technology (BCT) is transforming operations and relational dynamics within agri-food supply chains."
+    },
+    {
+      "candidate_id": "team-negative-087",
+      "verdict": "present",
+      "document_id": "document-openalex-7475f13e4329f121",
+      "evidence_kind": "adoption",
+      "quote": "Abstract In the digital age, biometric recognition technology is highly valued and widely used in biometrics, security detection, and personalized medicine."
+    },
+    {
+      "candidate_id": "team-negative-089",
+      "verdict": "present",
+      "document_id": "document-openalex-3f7dafc66472ebda",
+      "evidence_kind": "adoption",
+      "quote": "The adoption of AI in algorithmic trading has enhanced market efficiency and liquidity by enabling faster and more accurate trade executions."
+    },
+    {
+      "candidate_id": "team-negative-092",
+      "verdict": "present",
+      "document_id": "document-openalex-16c441a0012968c0",
+      "evidence_kind": "adoption",
+      "quote": "Purpose This article provides a systematic review of the implementation of Artificial Intelligence (AI) and Robotic Process Automation (RPA) in the accounting and auditing professions."
+    }
+  ]
+}

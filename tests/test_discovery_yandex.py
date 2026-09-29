@@ -70,10 +70,9 @@ def generator(
 class YandexModelUriTests(unittest.TestCase):
     def test_builds_documented_model_uris(self) -> None:
         cases = (
-            ("YandexGPT Lite 5", "gpt://folder-1/yandexgpt-lite/latest"),
-            ("YandexGPT Pro 5", "gpt://folder-1/yandexgpt/latest"),
-            # 5.1 дословно в URI: тихой подмены нет, неверный сегмент даст громкую 400.
-            ("YandexGPT Pro 5.1", "gpt://folder-1/yandexgpt/5.1"),
+            ("YandexGPT Lite 5", "gpt://folder-1/yandexgpt-5-lite"),
+            ("YandexGPT Pro 5", "gpt://folder-1/yandexgpt-5-pro"),
+            ("YandexGPT Pro 5.1", "gpt://folder-1/yandexgpt-5.1"),
         )
         for model, expected_uri in cases:
             with self.subTest(model=model):
@@ -84,6 +83,14 @@ class YandexModelUriTests(unittest.TestCase):
                 adapter("Технологии в ИИ")
                 self.assertEqual(transport.calls[0][0], YANDEX_COMPLETION_ENDPOINT)
                 self.assertEqual(transport.calls[0][2]["modelUri"], expected_uri)
+
+    def test_never_returns_legacy_slash_uri(self) -> None:
+        from nextwave.discovery.llm import YANDEX_MODEL_URIS
+
+        for model, uri in YANDEX_MODEL_URIS.items():
+            with self.subTest(model=model):
+                self.assertNotEqual(uri, "yandexgpt/5.1")
+                self.assertNotIn("yandexgpt/", uri)
 
     def test_requires_folder_id(self) -> None:
         with self.assertRaisesRegex(ValueError, "folder"):
@@ -117,7 +124,62 @@ class YandexRequestTests(unittest.TestCase):
         )
         self.assertFalse(payload["completionOptions"]["stream"])
         self.assertEqual(payload["completionOptions"]["temperature"], 0)
+        self.assertNotIn("jsonSchema", payload)
+        self.assertEqual(
+            payload,
+            {
+                "modelUri": "gpt://folder-1/yandexgpt-5-lite",
+                "completionOptions": {
+                    "stream": False,
+                    "temperature": 0,
+                    "maxTokens": "500",
+                },
+                "messages": [{"role": "user", "text": "Технологии в ИИ"}],
+                "jsonObject": True,
+            },
+        )
         self.assertNotIn("temporary-secret", json.dumps(payload, ensure_ascii=False))
+
+    def test_server_side_schema_keeps_prompt_and_replaces_json_object(self) -> None:
+        transport = FakeJsonTransport(
+            HttpResponse(200, {"Content-Type": "application/json"}, yandex_body())
+        )
+        schema = {
+            "type": "object",
+            "properties": {"value": {"type": "string"}},
+            "required": ["value"],
+            "additionalProperties": False,
+        }
+        adapter = YandexCompletionJsonGenerator(
+            "temporary-secret",
+            folder_id="folder-1",
+            selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
+            transport=transport,
+            json_schema=schema,
+            schema_name="server_response",
+            server_side_json_schema=True,
+        )
+
+        adapter("Original prompt bytes: target protein annotation")
+
+        payload = transport.calls[0][2]
+        self.assertEqual(
+            payload["messages"][0]["text"],
+            "Original prompt bytes: target protein annotation",
+        )
+        self.assertEqual(payload["jsonSchema"], {"schema": schema})
+        self.assertNotIn("jsonObject", payload)
+        self.assertNotIn("matching this JSON Schema", payload["messages"][0]["text"])
+
+    def test_server_side_schema_requires_schema(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires json_schema"):
+            YandexCompletionJsonGenerator(
+                "temporary-secret",
+                folder_id="folder-1",
+                selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Lite 5"),
+                json_schema=None,
+                server_side_json_schema=True,
+            )
 
     def test_rejects_blank_prompt(self) -> None:
         adapter, _ = generator(
@@ -453,6 +515,9 @@ class YandexSettingsTests(unittest.TestCase):
                 "NEXTWAVE_LLM_PROVIDER": "qwen",
                 "NEXTWAVE_LLM_MODEL": "Qwen3.6 35B-A3B",
                 "NEXTWAVE_LLM_API_KEY": "temporary-secret",
+                "NEXTWAVE_QWEN_BASE_URL": (
+                    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+                ),
             }
         )
         self.assertEqual(settings.selection.provider, LlmProvider.QWEN)

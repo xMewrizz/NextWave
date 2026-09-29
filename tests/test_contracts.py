@@ -240,6 +240,40 @@ class ContractTests(unittest.TestCase):
                 documents=(future_document,),
             )
 
+    def test_index_lag_after_cutoff_keeps_dated_document(self) -> None:
+        lagged_document = SourceDocument(
+            document_id="document-lagged",
+            connector_id="mediacloud",
+            external_id="article-002",
+            snapshot_id="snapshot-historical",
+            title="Pre-cutoff report indexed late",
+            url="https://example.org/lagged",
+            canonical_url="https://example.org/lagged",
+            source_type=SourceType.OTHER,
+            language="en",
+            trust_tier=TrustTier.UNKNOWN,
+            origin_id="url:https://example.org/lagged",
+            published_at=date(2026, 9, 10),
+            observed_at=datetime(2026, 10, 1, tzinfo=UTC),
+        )
+        assessment = CandidateAssessment(
+            candidate_id="candidate-historical",
+            group_id="technology-family-historical",
+            canonical_name="Historical candidate",
+            aliases=(),
+            query="industrial AI",
+            analysis_scope_id="scope-industrial-ai-v1",
+            cutoff_date=date(2026, 9, 15),
+            status=CandidateStatus.WATCHLIST,
+            features=make_features(),
+            prediction=None,
+            explanation="Published before cutoff; crawler lag is not content time.",
+            documents=(lagged_document,),
+        )
+        self.assertEqual(
+            assessment.documents[0].published_at, date(2026, 9, 10)
+        )
+
     def test_excluded_candidate_requires_reason(self) -> None:
         with self.assertRaisesRegex(ValueError, "exclusion_reason"):
             CandidateAssessment(

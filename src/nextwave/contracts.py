@@ -315,10 +315,13 @@ class CandidateAssessment:
         ):
             raise ValueError("documents published after cutoff_date are not allowed")
         if any(
-            document.observed_at is not None
+            document.published_at is None
+            and document.observed_at is not None
             and document.observed_at.date() > self.cutoff_date
             for document in self.documents
         ):
+            # Without a publication date, observation is the only temporal
+            # anchor. For dated content, publication time takes precedence.
             raise ValueError("documents observed after cutoff_date are not allowed")
         if (
             self.features.temporal.first_seen_at is not None

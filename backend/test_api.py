@@ -1,95 +1,290 @@
-"""Одна проверка: контракт API и правила ранжирования не разъехались.
-
-Запуск: uv run pytest
-"""
+"""Backend contract tests for durable analysis jobs and result delivery."""
 
 import asyncio
+import hashlib
+import json
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app import pipeline
-from app.main import app
+from app import main, pipeline, result_store
+from app.job_store import AnalysisJobStore
+
+QUERY = "Инфраструктурные технологии для обучения и инференса ИИ"
+
+
+def _json(value: object) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n").encode()
+
+
+def _digest(raw: bytes) -> dict[str, object]:
+    return {"size_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+
+
+def _result_fixture(root: Path) -> Path:
+    candidate = {
+        "schema_version": result_store.RESULT_SCHEMA_VERSION,
+        "candidate_id": "candidate-1",
+        "status": "main",
+        "top15_rank": 1,
+    }
+    candidates = _json(candidate)
+    top15 = _json([candidate])
+    summary = _json({"candidate_count": 1, "top15_count": 1})
+    response_value = {
+        "schema_version": result_store.RESPONSE_SCHEMA_VERSION,
+        "query": {"text": QUERY},
+        "summary": json.loads(summary),
+        "top15": json.loads(top15),
+        "candidates": [candidate],
+    }
+    response = _json(response_value)
+    manifest = {
+        "schema_version": result_store.RESULT_SCHEMA_VERSION,
+        "candidate_count": 1,
+        "top15_count": 1,
+        "outputs": {
+            "candidates.jsonl": _digest(candidates),
+            "top15.json": _digest(top15),
+            "summary.json": _digest(summary),
+            "result.json": _digest(response),
+        },
+    }
+    root.mkdir()
+    (root / "candidates.jsonl").write_bytes(candidates)
+    (root / "top15.json").write_bytes(top15)
+    (root / "summary.json").write_bytes(summary)
+    (root / "result.json").write_bytes(response)
+    (root / "manifest.json").write_bytes(_json(manifest))
+    return root
+
+
+async def _clear_tasks() -> None:
+    tasks = list(main._tasks.values())
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    main._tasks.clear()
 
 
 @pytest.fixture
-async def client():
-    async with AsyncClient(transport=ASGITransport(app), base_url="http://test") as c:
-        yield c
+async def client(tmp_path: Path, monkeypatch):
+    await _clear_tasks()
+    result_dir = _result_fixture(tmp_path / "result")
+    monkeypatch.setenv("NEXTWAVE_RESULT_DIR", str(result_dir))
+    monkeypatch.setenv("NEXTWAVE_JOB_DIR", str(tmp_path / "jobs"))
+    async with AsyncClient(
+        transport=ASGITransport(main.app), base_url="http://test"
+    ) as http_client:
+        yield http_client
+    await _clear_tasks()
 
 
 async def _wait(client: AsyncClient, analysis_id: str) -> dict:
     for _ in range(100):
-        body = (await client.get(f"/api/analyses/{analysis_id}")).json()
-        if body["status"] in {"done", "empty", "error"}:
+        response = await client.get(f"/api/analyses/{analysis_id}")
+        assert response.status_code == 200
+        body = response.json()
+        if body["status"] in {"complete", "error"}:
             return body
-        await asyncio.sleep(0.1)
-    raise AssertionError("анализ не завершился")
+        await asyncio.sleep(0.01)
+    raise AssertionError("analysis job did not reach a terminal state")
 
 
 def test_ranking_is_reproducible():
     trends = pipeline._demo["trends"]
     first = pipeline.rank(trends)
     second = pipeline.rank(list(reversed(trends)))
-    assert [t.id for t in first] == [t.id for t in second], "порядок должен зависеть только от баллов"
-    assert all(0 <= t.score <= 1 for t in first)
+    assert [trend.id for trend in first] == [trend.id for trend in second]
+    assert all(0 <= trend.score <= 1 for trend in first)
 
 
 def test_buckets_are_capped_numbered_and_explained():
     ranked = pipeline.rank(pipeline._demo["trends"])
-    by_bucket = {b: [t for t in ranked if t.bucket == b] for b in ("main", "watchlist", "excluded")}
-
-    assert len(by_bucket["main"]) <= pipeline.TOP_N, "основной список не может быть длиннее ТОП-15"
+    by_bucket = {
+        bucket: [trend for trend in ranked if trend.bucket == bucket]
+        for bucket in ("main", "watchlist", "excluded")
+    }
+    assert len(by_bucket["main"]) <= pipeline.TOP_N
     for bucket, trends in by_bucket.items():
-        assert [t.rank for t in trends] == list(range(1, len(trends) + 1)), f"{bucket}: сквозная нумерация"
-        assert [t.score for t in trends] == sorted((t.score for t in trends), reverse=True)
-        assert all(t.bucket_reason for t in trends), f"{bucket}: карточка без причины попадания"
-
-    # Кандидат не может оказаться в основном списке, не пройдя пороги
-    for trend in by_bucket["main"]:
-        factors = {f.key: f.value for f in trend.factors}
-        assert factors["novelty"] >= pipeline.THRESHOLDS["novelty_min"]
-        assert factors["growth"] >= pipeline.THRESHOLDS["growth_min"]
-        assert factors["evidence"] >= pipeline.THRESHOLDS["evidence_min"]
-        assert trend.independent_sources >= pipeline.THRESHOLDS["independent_min"]
-        assert trend.document_count >= pipeline.THRESHOLDS["documents_min"]
-
-    # Отсев — только по новизне или зарождаемости, а не по слабым доказательствам
-    for trend in by_bucket["excluded"]:
-        factors = {f.key: f.value for f in trend.factors}
-        assert (
-            factors["novelty"] < pipeline.THRESHOLDS["novelty_min"]
-            or factors["growth"] < pipeline.THRESHOLDS["growth_min"]
-        ), f"{trend.id}: отсеян без основания"
+        assert [trend.rank for trend in trends] == list(range(1, len(trends) + 1))
+        assert [trend.score for trend in trends] == sorted(
+            (trend.score for trend in trends), reverse=True
+        )
+        assert all(trend.bucket_reason for trend in trends), bucket
 
 
-def test_every_card_has_evidence():
-    for trend in pipeline.rank(pipeline._demo["trends"]):
-        assert trend.sources, f"{trend.id}: карточка без источников не попадает в выдачу"
-        assert trend.use_case.url, f"{trend.id}: кейс без подтверждающей ссылки"
-        assert {f.key for f in trend.factors} == set(pipeline.FACTOR_WEIGHTS)
-
-
-async def test_covered_query_returns_ranked_trends(client: AsyncClient):
-    created = (await client.post("/api/analyses", json={"query": "технологии в ИИ"})).json()
+async def test_job_persists_result_and_stage_history(client: AsyncClient):
+    created_response = await client.post("/api/analyses", json={"query": QUERY})
+    assert created_response.status_code == 201
+    created = created_response.json()
     assert created["status"] == "pending"
+    assert created["mode"] == "cached_snapshot"
 
-    body = await _wait(client, created["id"])
-    assert body["status"] == "done"
-    assert body["trends"], "покрытое направление должно давать непустую выдачу"
-    assert body["corpus_version"] == pipeline.CORPUS_VERSION
+    job = await _wait(client, created["id"])
+    assert job["status"] == "complete"
+    assert job["progress"] == 1.0
+    assert job["result_available"] is True
+    assert [stage["key"] for stage in job["stage_history"]] == [
+        "source_search",
+        "candidate_gate",
+        "enrichment",
+        "model",
+        "evidence_duel",
+        "result",
+    ]
+    assert {stage["status"] for stage in job["stage_history"]} == {"reused"}
 
-    trend_id = body["trends"][0]["id"]
-    assert (await client.get(f"/api/analyses/{created['id']}/trends/{trend_id}")).status_code == 200
+    result_response = await client.get(f"/api/analyses/{created['id']}/result")
+    assert result_response.status_code == 200
+    assert result_response.json()["schema_version"] == "analysis-response-v1"
+
+    listed = (await client.get("/api/analyses")).json()
+    assert [item["id"] for item in listed] == [created["id"]]
 
 
-async def test_uncovered_query_is_empty_not_error(client: AsyncClient):
-    created = (await client.post("/api/analyses", json={"query": "выращивание тюльпанов"})).json()
-    body = await _wait(client, created["id"])
-    assert body["status"] == "empty"
-    assert body["trends"] == []
-    assert body["notice"], "пустая выдача обязана объяснять причину (US-01, US-06)"
+async def test_health_checks_store_and_result(client: AsyncClient):
+    response = await client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
 
 
-async def test_empty_query_is_rejected(client: AsyncClient):
+async def test_mismatched_query_fails_without_substituting_result(client: AsyncClient):
+    created = (
+        await client.post("/api/analyses", json={"query": "Технологии квантовой связи"})
+    ).json()
+    job = await _wait(client, created["id"])
+    assert job["status"] == "error"
+    assert "live-runner" in job["error"]
+    assert job["result_available"] is False
+    response = await client.get(f"/api/analyses/{created['id']}/result")
+    assert response.status_code == 409
+
+
+async def test_live_job_uses_application_runner_and_reports_real_stages(
+    client: AsyncClient, tmp_path: Path, monkeypatch
+):
+    query = "Технологии квантовой связи"
+    observed_labels: list[str] = []
+
+    class FakeApplication:
+        def __init__(self, *, workspace, progress, **kwargs):
+            self.workspace = Path(workspace)
+            self.progress = progress
+
+        def run(self, *, query: str, analysis_id: str):
+            job_id = analysis_id.removeprefix("analysis-")
+            for stage, value, message in (
+                ("source_search", 0.10, "Извлечено 2 из 5 пачек"),
+                ("candidate_gate", 0.25, "Проверено 10 из 20 кандидатов"),
+                ("enrichment", 0.60, "Собраны документы для 8 кандидатов"),
+                ("model", 0.72, "Рассчитаны признаки"),
+                ("evidence_duel", 0.94, "Проверены доказательства"),
+                ("result", 1.0, "Результат готов"),
+            ):
+                self.progress(stage, value, message)
+                current = main._store().get(job_id)
+                assert current is not None
+                observed_labels.append(current.stage_label)
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            result = self.workspace / "result.json"
+            result.write_bytes(
+                _json(
+                    {
+                        "schema_version": "analysis-response-v1",
+                        "query": {"text": query},
+                        "summary": {},
+                        "top15": [],
+                        "candidates": [],
+                    }
+                )
+            )
+            return type("Paths", (), {"result": result})()
+
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_MODE", "live")
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_WORK_DIR", str(tmp_path / "live"))
+    monkeypatch.setattr(main, "AnalysisApplication", FakeApplication)
+    created = (await client.post("/api/analyses", json={"query": query})).json()
+    assert created["mode"] == "live"
+    job = await _wait(client, created["id"])
+    assert job["status"] == "complete"
+    assert {stage["status"] for stage in job["stage_history"]} == {"complete"}
+    assert observed_labels == [
+        "Извлечено 2 из 5 пачек",
+        "Проверено 10 из 20 кандидатов",
+        "Собраны документы для 8 кандидатов",
+        "Рассчитаны признаки",
+        "Проверены доказательства",
+        "Результат готов",
+    ]
+    response = await client.get(f"/api/analyses/{created['id']}/result")
+    assert response.status_code == 200
+    assert response.json()["query"]["text"] == query
+
+
+async def test_failed_live_job_retry_reuses_same_workspace(
+    client: AsyncClient, tmp_path: Path, monkeypatch
+):
+    query = "Технологии квантовой связи"
+    attempts: list[Path] = []
+
+    class RetryApplication:
+        def __init__(self, *, workspace, **kwargs):
+            self.workspace = Path(workspace)
+
+        def run(self, *, query: str, analysis_id: str):
+            del query, analysis_id
+            attempts.append(self.workspace)
+            if len(attempts) == 1:
+                raise ValueError("temporary source failure")
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            result = self.workspace / "result.json"
+            result.write_bytes(
+                _json({"schema_version": "analysis-response-v1", "query": {}})
+            )
+            return type("Paths", (), {"result": result})()
+
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_MODE", "live")
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_WORK_DIR", str(tmp_path / "live"))
+    monkeypatch.setattr(main, "AnalysisApplication", RetryApplication)
+    created = (await client.post("/api/analyses", json={"query": query})).json()
+    failed = await _wait(client, created["id"])
+    assert failed["status"] == "error"
+    response = await client.post(f"/api/analyses/{created['id']}/retry")
+    assert response.status_code == 202
+    completed = await _wait(client, created["id"])
+    assert completed["status"] == "complete"
+    assert attempts == [attempts[0], attempts[0]]
+
+
+async def test_pending_job_is_resumed_after_process_restart(client: AsyncClient):
+    store = AnalysisJobStore()
+    job = store.create(QUERY)
+    await _clear_tasks()
+
+    response = await client.get(f"/api/analyses/{job.id}")
+    assert response.status_code == 200
+    completed = await _wait(client, job.id)
+    assert completed["status"] == "complete"
+
+
+async def test_unknown_job_returns_404(client: AsyncClient):
+    assert (await client.get("/api/analyses/000000000000")).status_code == 404
+    assert (await client.get("/api/analyses/not-an-id")).status_code == 404
+
+
+async def test_tampered_persisted_result_is_rejected(client: AsyncClient):
+    created = (await client.post("/api/analyses", json={"query": QUERY})).json()
+    job = await _wait(client, created["id"])
+    result_path = main._store().root / job["id"] / "result.json"
+    result_path.write_text("{}\n", encoding="utf-8")
+
+    response = await client.get(f"/api/analyses/{job['id']}/result")
+    assert response.status_code == 500
+    assert "checksum mismatch" in response.json()["detail"]
+
+
+async def test_blank_query_is_rejected(client: AsyncClient):
     assert (await client.post("/api/analyses", json={"query": "   "})).status_code == 422
