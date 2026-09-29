@@ -86,7 +86,11 @@ export function ResultView({ data }: { data: ResultBundle }) {
                 className={`inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${view === item.key ? 'bg-foreground text-background' : 'bg-card hover:bg-muted'}`}
               >
                 {item.label}
-                <span className={`tabular-nums ${view === item.key ? 'text-background/70' : 'text-muted-foreground'}`}>{item.count}</span>
+                {item.key !== 'top15' && (
+                  <span className={`tabular-nums ${view === item.key ? 'text-background/70' : 'text-muted-foreground'}`}>
+                    {item.count}
+                  </span>
+                )}
               </button>
             ))}
           </div>

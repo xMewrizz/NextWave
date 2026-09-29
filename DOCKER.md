@@ -1,8 +1,10 @@
 # Docker-запуск NextWave
 
-## Демонстрационный каркас
+## Проверенный демонстрационный результат
 
-Текущая конфигурация запускает синтетический UI-каркас и API. Она проверяет сборку и пользовательский сценарий, но не содержит реальных коннекторов, модели и PostgreSQL.
+По умолчанию Compose запускает PostgreSQL, FastAPI и React и показывает
+зафиксированный результат реального открытого поиска из `demo/result`. Bundle
+проверяется по SHA-256. Внешние API и LLM при таком запуске не вызываются.
 
 Из корня репозитория:
 
@@ -12,7 +14,6 @@ docker compose up --build
 
 Интерфейс будет доступен на `http://localhost:8080`, API — на `http://localhost:8000`.
 
-Compose автоматически передаёт backend временный Media Cloud token из `config/hackathon.env`; регистрация и ручной ввод ключа для проверки приватного хакатонного репозитория не требуются. Переменная недоступна frontend-контейнеру. После завершения оценки token отзывается.
 В PowerShell порты можно изменить переменными `FRONTEND_PORT` и `BACKEND_PORT`:
 
 ```powershell
@@ -44,3 +45,17 @@ docker run --rm -p 8080:80 -e BACKEND_ORIGIN=http://host.docker.internal:8000 ne
 ```
 
 Frontend обслуживается nginx и проксирует запросы `/api/*` в `BACKEND_ORIGIN`.
+
+## Произвольный живой запрос
+
+Для live-режима создайте локальный `.env` по `.env.example`, задайте серверные
+`NEXTWAVE_OPENAI_API_KEY`, `NEXTWAVE_EXA_API_KEY` и при наличии
+`NEXTWAVE_OPENALEX_API_KEY`, затем выполните:
+
+```powershell
+$env:NEXTWAVE_ANALYSIS_MODE = "live"
+docker compose up --build -d
+```
+
+Ключи получает только backend. Они не включаются во frontend, snapshots,
+manifest или Git.

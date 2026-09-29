@@ -1,0 +1,1910 @@
+[
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-55950c857471f04d",
+    "canonical_name": "electronic and photonic BIC chips",
+    "case_example": {
+      "claim_id": "claim-f9d7b597cff418a83c0e",
+      "direction": "support",
+      "explanation_ru": "Цитата прямо указывает на электронные и фотонные BIC-чипы как вычислительные прототипы.",
+      "interpretation_generated": true,
+      "kind": "prototype",
+      "quote": "We then describe how diverse signaling rules and structural organizations in BIC architectures support specific computational prototypes, including electronic and photonic BIC chips, and present a technological roadmap",
+      "scope": "full_candidate",
+      "source": {
+        "automatic_translation": false,
+        "document_id": "document-openalex-9ac00161c5de8f23",
+        "generated_summary": false,
+        "language": "en",
+        "name": "Technology Roadmap of Bioinspired Computing Hardware",
+        "published_at": "2026-03-02",
+        "publisher": "ACS Nano",
+        "source_type": "scientific_publication",
+        "trust_tier": "A",
+        "url": "https://doi.org/10.1021/acsnano.5c17087"
+      }
+    },
+    "description_ru": "Прямо указывает на электронные и фотонные BIC-чипы как вычислительные прототипы.",
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 1,
+      "grounded_ab_support": true,
+      "independent_actors": 40,
+      "independent_origins": 1,
+      "status": "complete",
+      "support_claims": 1
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7468456877471145,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.2932685195631422,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": -0.5377006209235697
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.20587081189430123,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": 1.8688977938454867
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [
+      {
+        "claim_id": "claim-f9d7b597cff418a83c0e",
+        "direction": "support",
+        "explanation_ru": "Цитата прямо указывает на электронные и фотонные BIC-чипы как вычислительные прототипы.",
+        "interpretation_generated": true,
+        "kind": "prototype",
+        "quote": "We then describe how diverse signaling rules and structural organizations in BIC architectures support specific computational prototypes, including electronic and photonic BIC chips, and present a technological roadmap",
+        "scope": "full_candidate",
+        "source": {
+          "automatic_translation": false,
+          "document_id": "document-openalex-9ac00161c5de8f23",
+          "generated_summary": false,
+          "language": "en",
+          "name": "Technology Roadmap of Bioinspired Computing Hardware",
+          "published_at": "2026-03-02",
+          "publisher": "ACS Nano",
+          "source_type": "scientific_publication",
+          "trust_tier": "A",
+          "url": "https://doi.org/10.1021/acsnano.5c17087"
+        }
+      }
+    ],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 1
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-2e061e10899cd416",
+    "canonical_name": "AOT Inductor inference",
+    "case_example": {
+      "claim_id": "claim-0529c05fe47465ece00f",
+      "direction": "support",
+      "explanation_ru": "Цитата прямо подтверждает использование AOT Inductor для inference, то есть вывода.",
+      "interpretation_generated": true,
+      "kind": "research",
+      "quote": "AOT Inductor inference and optimized Allegro kernels accelerate molecular dynamics by factors of 5–18 on practical system sizes.",
+      "scope": "full_candidate",
+      "source": {
+        "automatic_translation": false,
+        "document_id": "document-openalex-c2ab1b04c62d3306",
+        "generated_summary": false,
+        "language": "en",
+        "name": "High-performance training and inference for deep equivariant interatomic potentials",
+        "published_at": "2026-01-01",
+        "publisher": "Digital Discovery",
+        "source_type": "scientific_publication",
+        "trust_tier": "A",
+        "url": "https://doi.org/10.1039/d5dd00423c"
+      }
+    },
+    "description_ru": "Использование AOT Inductor для inference, то есть вывода.",
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 1,
+      "grounded_ab_support": true,
+      "independent_actors": 4,
+      "independent_origins": 1,
+      "status": "complete",
+      "support_claims": 1
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7454389669148738,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": -0.007415839527922655,
+          "contribution": -0.007426715872905163,
+          "direction": "opposes_weak_signal",
+          "feature_group": "text",
+          "feature_name": "inference",
+          "label_ru": "текстовый признак: inference",
+          "raw_value": 1,
+          "transformed_value": 1.0014666370464942
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.2932685195631422,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": -0.5377006209235697
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.20587081189430123,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": 1.8688977938454867
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [
+      {
+        "claim_id": "claim-0529c05fe47465ece00f",
+        "direction": "support",
+        "explanation_ru": "Цитата прямо подтверждает использование AOT Inductor для inference, то есть вывода.",
+        "interpretation_generated": true,
+        "kind": "research",
+        "quote": "AOT Inductor inference and optimized Allegro kernels accelerate molecular dynamics by factors of 5–18 on practical system sizes.",
+        "scope": "full_candidate",
+        "source": {
+          "automatic_translation": false,
+          "document_id": "document-openalex-c2ab1b04c62d3306",
+          "generated_summary": false,
+          "language": "en",
+          "name": "High-performance training and inference for deep equivariant interatomic potentials",
+          "published_at": "2026-01-01",
+          "publisher": "Digital Discovery",
+          "source_type": "scientific_publication",
+          "trust_tier": "A",
+          "url": "https://doi.org/10.1039/d5dd00423c"
+        }
+      }
+    ],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 2
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-0f2878eb670bfaee",
+    "canonical_name": "optical digital signal processor (DSP) technologies",
+    "case_example": null,
+    "description_ru": null,
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 0,
+      "grounded_ab_support": false,
+      "independent_actors": 0,
+      "independent_origins": 0,
+      "status": "complete",
+      "support_claims": 0
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7473368970124903,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.3060095481780204,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 1.0986122886681098,
+          "transformed_value": 2.7779584887399347
+        },
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.21697208388916556,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 1.0986122886681098,
+          "transformed_value": -0.3978129817822686
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 3
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-d9265c44ac0c094a",
+    "canonical_name": "lifecycle-aware, emissions-adaptive AI inference scheduling",
+    "case_example": {
+      "claim_id": "claim-128af423e56e0dea61f3",
+      "direction": "support",
+      "explanation_ru": "Цитата прямо заявляет о новом подходе к планированию AI-инференса, учитывающем жизненный цикл и адаптацию к выбросам.",
+      "interpretation_generated": true,
+      "kind": "novelty",
+      "quote": "This work introduces a new paradigm for lifecycle-aware, emissions-adaptive AI inference scheduling—laying the foundation for climate-aligned, self-optimizing AI infrastructure.",
+      "scope": "full_candidate",
+      "source": {
+        "automatic_translation": false,
+        "document_id": "document-openalex-278b3e14bad14554",
+        "generated_summary": false,
+        "language": "en",
+        "name": "Federated carbon intelligence for sustainable AI: Real-time optimization across heterogeneous hardware fleets",
+        "published_at": "2025-11-12",
+        "publisher": "MRS Energy & Sustainability",
+        "source_type": "scientific_publication",
+        "trust_tier": "A",
+        "url": "https://doi.org/10.1557/s43581-025-00146-1"
+      }
+    },
+    "description_ru": "Прямо заявляет о новом подходе к планированию AI-инференса, учитывающем жизненный цикл и адаптацию к выбросам.",
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 1,
+      "grounded_ab_support": true,
+      "independent_actors": 1,
+      "independent_origins": 1,
+      "status": "complete",
+      "support_claims": 1
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7424879649633481,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.08650871177296024,
+          "contribution": -0.02006272126365523,
+          "direction": "opposes_weak_signal",
+          "feature_group": "text",
+          "feature_name": "ai",
+          "label_ru": "текстовый признак: ai",
+          "raw_value": 1,
+          "transformed_value": 0.2319156169647896
+        },
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": -0.007415839527922655,
+          "contribution": -0.002856429181886601,
+          "direction": "opposes_weak_signal",
+          "feature_group": "text",
+          "feature_name": "inference",
+          "label_ru": "текстовый признак: inference",
+          "raw_value": 1,
+          "transformed_value": 0.3851794757871132
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.2932685195631422,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": -0.5377006209235697
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.20587081189430123,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": 1.8688977938454867
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [
+      {
+        "claim_id": "claim-128af423e56e0dea61f3",
+        "direction": "support",
+        "explanation_ru": "Цитата прямо заявляет о новом подходе к планированию AI-инференса, учитывающем жизненный цикл и адаптацию к выбросам.",
+        "interpretation_generated": true,
+        "kind": "novelty",
+        "quote": "This work introduces a new paradigm for lifecycle-aware, emissions-adaptive AI inference scheduling—laying the foundation for climate-aligned, self-optimizing AI infrastructure.",
+        "scope": "full_candidate",
+        "source": {
+          "automatic_translation": false,
+          "document_id": "document-openalex-278b3e14bad14554",
+          "generated_summary": false,
+          "language": "en",
+          "name": "Federated carbon intelligence for sustainable AI: Real-time optimization across heterogeneous hardware fleets",
+          "published_at": "2025-11-12",
+          "publisher": "MRS Energy & Sustainability",
+          "source_type": "scientific_publication",
+          "trust_tier": "A",
+          "url": "https://doi.org/10.1557/s43581-025-00146-1"
+        }
+      }
+    ],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 4
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-a75c8fbcba1a094d",
+    "canonical_name": "IOWN-based All-Photonics Network",
+    "case_example": {
+      "claim_id": "claim-9f6eecc53f531d78fbe3",
+      "direction": "support",
+      "explanation_ru": "Цитата подтверждает планируемый совместный PoC технологии IOWN-based All-Photonics Network между Ишикари и Токио.",
+      "interpretation_generated": true,
+      "kind": "pilot",
+      "quote": "Equinix Japan, NTT East and Sakura Internet have begun planning a joint proof-of-concept project using NTT's IOWN-based All-Photonics Network technology to connect Sakura Internet's Ishikari data center in Hokkaido with Equinix facilities in Tokyo",
+      "scope": "full_candidate",
+      "source": {
+        "automatic_translation": false,
+        "document_id": "document-exa-a5b8eb087dca940b",
+        "generated_summary": false,
+        "language": "und",
+        "name": "Equinix, NTT East, Sakura Internet Plan IOWN APN Ishikari-Tokyo PoC | IBTimes JP",
+        "published_at": "2026-06-30",
+        "publisher": "jp.ibtimes.com",
+        "source_type": "industry_media",
+        "trust_tier": "unknown",
+        "url": "https://jp.ibtimes.com/equinix-ntt-east-sakura-internet-plan-iown-apn-ishikari-tokyo-poc-102120"
+      }
+    },
+    "description_ru": "Планируемый совместный PoC технологии IOWN-based All-Photonics Network между Ишикари и Токио.",
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 1,
+      "grounded_ab_support": false,
+      "independent_actors": 1,
+      "independent_origins": 1,
+      "status": "complete",
+      "support_claims": 1
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7394709064485951,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.4236981378376753,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7768401195561218
+        },
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.034682511515617805,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": 0.3148482713996284
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [
+      {
+        "claim_id": "claim-9f6eecc53f531d78fbe3",
+        "direction": "support",
+        "explanation_ru": "Цитата подтверждает планируемый совместный PoC технологии IOWN-based All-Photonics Network между Ишикари и Токио.",
+        "interpretation_generated": true,
+        "kind": "pilot",
+        "quote": "Equinix Japan, NTT East and Sakura Internet have begun planning a joint proof-of-concept project using NTT's IOWN-based All-Photonics Network technology to connect Sakura Internet's Ishikari data center in Hokkaido with Equinix facilities in Tokyo",
+        "scope": "full_candidate",
+        "source": {
+          "automatic_translation": false,
+          "document_id": "document-exa-a5b8eb087dca940b",
+          "generated_summary": false,
+          "language": "und",
+          "name": "Equinix, NTT East, Sakura Internet Plan IOWN APN Ishikari-Tokyo PoC | IBTimes JP",
+          "published_at": "2026-06-30",
+          "publisher": "jp.ibtimes.com",
+          "source_type": "industry_media",
+          "trust_tier": "unknown",
+          "url": "https://jp.ibtimes.com/equinix-ntt-east-sakura-internet-plan-iown-apn-ishikari-tokyo-poc-102120"
+        }
+      }
+    ],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 5
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-86a170f95f71dfd0",
+    "canonical_name": "tiered, disaggregated storage architectures",
+    "case_example": {
+      "claim_id": "claim-719dd25e2d2f6d4dac1b",
+      "direction": "support",
+      "explanation_ru": "Цитата подтверждает введение валидированных архитектур хранения с многоуровневой и дезагрегированной организацией.",
+      "interpretation_generated": true,
+      "kind": "prototype",
+      "quote": "WD has introduced validated storage reference architectures for artificial intelligence and high-performance computing workloads, focused on tiered and disaggregated storage for data-intensive environments.",
+      "scope": "full_candidate",
+      "source": {
+        "automatic_translation": false,
+        "document_id": "document-exa-784c1faf91d6f2f1",
+        "generated_summary": false,
+        "language": "und",
+        "name": "WD unveils tiered storage architectures for AI workloads",
+        "published_at": "2026-06-24",
+        "publisher": "itbrief.co.uk",
+        "source_type": "industry_media",
+        "trust_tier": "unknown",
+        "url": "https://itbrief.co.uk/story/wd-unveils-tiered-storage-architectures-for-ai-workloads"
+      }
+    },
+    "description_ru": "Введение валидированных архитектур хранения с многоуровневой и дезагрегированной организацией.",
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 1,
+      "grounded_ab_support": false,
+      "independent_actors": 1,
+      "independent_origins": 1,
+      "status": "complete",
+      "support_claims": 1
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7390623258552994,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.4236981378376753,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7768401195561218
+        },
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.034682511515617805,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": 0.3148482713996284
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": "Введение валидированных архитектур хранения с многоуровневой и дезагрегированной организацией.",
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [
+      {
+        "claim_id": "claim-719dd25e2d2f6d4dac1b",
+        "direction": "support",
+        "explanation_ru": "Цитата подтверждает введение валидированных архитектур хранения с многоуровневой и дезагрегированной организацией.",
+        "interpretation_generated": true,
+        "kind": "prototype",
+        "quote": "WD has introduced validated storage reference architectures for artificial intelligence and high-performance computing workloads, focused on tiered and disaggregated storage for data-intensive environments.",
+        "scope": "full_candidate",
+        "source": {
+          "automatic_translation": false,
+          "document_id": "document-exa-784c1faf91d6f2f1",
+          "generated_summary": false,
+          "language": "und",
+          "name": "WD unveils tiered storage architectures for AI workloads",
+          "published_at": "2026-06-24",
+          "publisher": "itbrief.co.uk",
+          "source_type": "industry_media",
+          "trust_tier": "unknown",
+          "url": "https://itbrief.co.uk/story/wd-unveils-tiered-storage-architectures-for-ai-workloads"
+        }
+      }
+    ],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 6
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-e486219bba7f49a7",
+    "canonical_name": "persistent KV cache architectures",
+    "case_example": null,
+    "description_ru": null,
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 0,
+      "grounded_ab_support": false,
+      "independent_actors": 0,
+      "independent_origins": 0,
+      "status": "complete",
+      "support_claims": 0
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7394775037149645,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.4236981378376753,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7768401195561218
+        },
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.034682511515617805,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": 0.3148482713996284
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 7
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-937622a6559d7eba",
+    "canonical_name": "high-capacity HDD-based storage",
+    "case_example": null,
+    "description_ru": null,
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 0,
+      "grounded_ab_support": false,
+      "independent_actors": 0,
+      "independent_origins": 0,
+      "status": "complete",
+      "support_claims": 0
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7394709064485951,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.4236981378376753,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7768401195561218
+        },
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.034682511515617805,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": 0.3148482713996284
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 8
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-383cf5faaa4aa38e",
+    "canonical_name": "high-performance optical connectivity",
+    "case_example": null,
+    "description_ru": null,
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 0,
+      "grounded_ab_support": false,
+      "independent_actors": 0,
+      "independent_origins": 0,
+      "status": "complete",
+      "support_claims": 0
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7390623258552994,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.4236981378376753,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7768401195561218
+        },
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.034682511515617805,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": 0.3148482713996284
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 9
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-9c652001c932d074",
+    "canonical_name": "Purpose-built inference infrastructure",
+    "case_example": null,
+    "description_ru": null,
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 0,
+      "grounded_ab_support": false,
+      "independent_actors": 0,
+      "independent_origins": 0,
+      "status": "complete",
+      "support_claims": 0
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7380380033442693,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": -0.007415839527922655,
+          "contribution": -0.005304797052075115,
+          "direction": "opposes_weak_signal",
+          "feature_group": "text",
+          "feature_name": "inference",
+          "label_ru": "текстовый признак: inference",
+          "raw_value": 1,
+          "transformed_value": 0.7153333121760672
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.4236981378376753,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7768401195561218
+        },
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.034682511515617805,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": 0.3148482713996284
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 10
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-aaa4283159fe5073",
+    "canonical_name": "NeMo Switchyard",
+    "case_example": {
+      "claim_id": "claim-01c2bca47da045b46365",
+      "direction": "support",
+      "explanation_ru": "Цитата подтверждает, что NeMo Switchyard маршрутизирует каждый запрос к подходящей модели по заданным правилам.",
+      "interpretation_generated": true,
+      "kind": "prototype",
+      "quote": "NeMo Switchyard is the routing half. It sits inside your existing agent stack and sends each request to whichever model suits that step, based on rules you set — accuracy, latency, cost, or a router you train on your own data.",
+      "scope": "full_candidate",
+      "source": {
+        "automatic_translation": false,
+        "document_id": "document-exa-ce92147297da59b0",
+        "generated_summary": false,
+        "language": "und",
+        "name": "Nemotron 3.5 Lightning and NeMo Switchyard: What Nvidia Shipped",
+        "published_at": "2026-08-12",
+        "publisher": "www.how2shout.com",
+        "source_type": "industry_media",
+        "trust_tier": "unknown",
+        "url": "https://www.how2shout.com/ai/nvidia-nemotron-3-5-lightning-nemo-switchyard.html"
+      }
+    },
+    "description_ru": "NeMo Switchyard маршрутизирует каждый запрос к подходящей модели по заданным правилам.",
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 3,
+      "grounded_ab_support": false,
+      "independent_actors": 3,
+      "independent_origins": 3,
+      "status": "complete",
+      "support_claims": 3
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7349449597350747,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.4236981378376753,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7768401195561218
+        },
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.42270759963290555,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7876162952157615
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.034682511515617805,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": 0.3148482713996284
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": "NeMo Switchyard маршрутизирует каждый запрос к подходящей модели по заданным правилам.",
+    "reason": "insufficient_trusted_evidence",
+    "reason_ru": "нет подтверждающего источника доверия A/B",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [
+      {
+        "claim_id": "claim-01c2bca47da045b46365",
+        "direction": "support",
+        "explanation_ru": "Цитата подтверждает, что NeMo Switchyard маршрутизирует каждый запрос к подходящей модели по заданным правилам.",
+        "interpretation_generated": true,
+        "kind": "prototype",
+        "quote": "NeMo Switchyard is the routing half. It sits inside your existing agent stack and sends each request to whichever model suits that step, based on rules you set — accuracy, latency, cost, or a router you train on your own data.",
+        "scope": "full_candidate",
+        "source": {
+          "automatic_translation": false,
+          "document_id": "document-exa-ce92147297da59b0",
+          "generated_summary": false,
+          "language": "und",
+          "name": "Nemotron 3.5 Lightning and NeMo Switchyard: What Nvidia Shipped",
+          "published_at": "2026-08-12",
+          "publisher": "www.how2shout.com",
+          "source_type": "industry_media",
+          "trust_tier": "unknown",
+          "url": "https://www.how2shout.com/ai/nvidia-nemotron-3-5-lightning-nemo-switchyard.html"
+        }
+      },
+      {
+        "claim_id": "claim-1239aac35fafe4b3938a",
+        "direction": "support",
+        "explanation_ru": "Цитата прямо идентифицирует NeMo Switchyard как маршрутизатор, ориентированный на корпоративное применение.",
+        "interpretation_generated": true,
+        "kind": "prototype",
+        "quote": "NeMo Switchyard is the GPU giant’s latest overture to enterprise. So what exactly is it? Well, it’s a router.",
+        "scope": "full_candidate",
+        "source": {
+          "automatic_translation": false,
+          "document_id": "document-exa-98ce1ddc2cbea010",
+          "generated_summary": false,
+          "language": "und",
+          "name": "Nvidia's latest solution for soaring enterprise costs: NeMo Switchyard software router",
+          "published_at": "2026-08-12",
+          "publisher": "www.theregister.com",
+          "source_type": "industry_media",
+          "trust_tier": "unknown",
+          "url": "https://www.theregister.com/ai-and-ml/2026/08/12/nvidias-latest-solution-for-soaring-enterprise-costs-nemo-switchyard-software-router/5286911"
+        }
+      },
+      {
+        "claim_id": "claim-f757f37576940b450c5a",
+        "direction": "support",
+        "explanation_ru": "Цитата подтверждает выпуск NeMo Switchyard как открытого маршрутизатора моделей, направляющего запросы к выбранной языковой модели.",
+        "interpretation_generated": true,
+        "kind": "prototype",
+        "quote": "Nvidia has released NeMo Switchyard, an open-source model router that directs each AI request to a selected language model and claims lower costs than relying on frontier models alone.",
+        "scope": "full_candidate",
+        "source": {
+          "automatic_translation": false,
+          "document_id": "document-exa-a9b44ef2949cfe8d",
+          "generated_summary": false,
+          "language": "und",
+          "name": "Nvidia Launches NeMo Switchyard To Cut AI Model Costs By 74% - Dataconomy",
+          "published_at": "2026-08-20",
+          "publisher": "dataconomy.com",
+          "source_type": "industry_media",
+          "trust_tier": "unknown",
+          "url": "https://dataconomy.com/2026/08/20/nvidia-nemo-switchyard-cut-ai-model-costs-74-percent/"
+        }
+      }
+    ],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 11
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-88a96484c1e0617c",
+    "canonical_name": "nonlinear neuron devices",
+    "case_example": {
+      "claim_id": "claim-5f0ffe3e214ce2b1b902",
+      "direction": "support",
+      "explanation_ru": "Цитата прямо подтверждает исследовательский обзор нелинейных нейронных устройств как компонента фотонных нейронных сетей.",
+      "interpretation_generated": true,
+      "kind": "research",
+      "quote": "This review synthesizes a decade of progress in PNNs core components, critically analyzing advances in linear synaptic devices, nonlinear neuron devices, and network architectures, summarizing their respective strengths and persistent challenges.",
+      "scope": "full_candidate",
+      "source": {
+        "automatic_translation": false,
+        "document_id": "document-openalex-e52b5d3a66a75cc6",
+        "generated_summary": false,
+        "language": "en",
+        "name": "Integrated Neuromorphic Photonic Computing for AI Acceleration: Emerging Devices, Network Architectures, and Future Paradigms",
+        "published_at": "2025-10-21",
+        "publisher": "Advanced Materials",
+        "source_type": "scientific_publication",
+        "trust_tier": "A",
+        "url": "https://doi.org/10.1002/adma.202508029"
+      }
+    },
+    "description_ru": "Исследовательский обзор нелинейных нейронных устройств как компонента фотонных нейронных сетей.",
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 1,
+      "grounded_ab_support": true,
+      "independent_actors": 1,
+      "independent_origins": 1,
+      "status": "complete",
+      "support_claims": 1
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.7030472042874609,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.3440805288037069,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 1.252762968495368,
+          "transformed_value": 3.1235673249134193
+        },
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.3002219874288248,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": -0.5593931353170702
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.05753590699257049,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 1.9459101490553132,
+          "transformed_value": -0.1054906710116392
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [
+      {
+        "claim_id": "claim-5f0ffe3e214ce2b1b902",
+        "direction": "support",
+        "explanation_ru": "Цитата прямо подтверждает исследовательский обзор нелинейных нейронных устройств как компонента фотонных нейронных сетей.",
+        "interpretation_generated": true,
+        "kind": "research",
+        "quote": "This review synthesizes a decade of progress in PNNs core components, critically analyzing advances in linear synaptic devices, nonlinear neuron devices, and network architectures, summarizing their respective strengths and persistent challenges.",
+        "scope": "full_candidate",
+        "source": {
+          "automatic_translation": false,
+          "document_id": "document-openalex-e52b5d3a66a75cc6",
+          "generated_summary": false,
+          "language": "en",
+          "name": "Integrated Neuromorphic Photonic Computing for AI Acceleration: Emerging Devices, Network Architectures, and Future Paradigms",
+          "published_at": "2025-10-21",
+          "publisher": "Advanced Materials",
+          "source_type": "scientific_publication",
+          "trust_tier": "A",
+          "url": "https://doi.org/10.1002/adma.202508029"
+        }
+      }
+    ],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 12
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-5425ed179fe12afb",
+    "canonical_name": "hybrid optical/electrical fabrics",
+    "case_example": {
+      "claim_id": "claim-f9475c3c5d05e456ac68",
+      "direction": "support",
+      "explanation_ru": "Цитата прямо указывает на гибридные оптические/электрические фабрики как на исследуемую парадигму инфраструктуры.",
+      "interpretation_generated": true,
+      "kind": "research",
+      "quote": "Emerging paradigms including digital twins, AIOps-driven orchestration, and hybrid optical/electrical fabrics are identified as enablers of more resilient and adaptive infrastructures.",
+      "scope": "full_candidate",
+      "source": {
+        "automatic_translation": false,
+        "document_id": "document-openalex-c344b86f0fc31d7f",
+        "generated_summary": false,
+        "language": "en",
+        "name": "Data centers in the age of AI: A tutorial survey on infrastructure, sustainability, and emerging challenges",
+        "published_at": "2026-06-04",
+        "publisher": "Journal of Network and Computer Applications",
+        "source_type": "scientific_publication",
+        "trust_tier": "A",
+        "url": "https://doi.org/10.1016/j.jnca.2026.104525"
+      }
+    },
+    "description_ru": "Прямо указывает на гибридные оптические/электрические фабрики как на исследуемую парадигму инфраструктуры.",
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 1,
+      "grounded_ab_support": true,
+      "independent_actors": 1,
+      "independent_origins": 1,
+      "status": "complete",
+      "support_claims": 1
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.6874415771866674,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.3002219874288248,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": -0.5593931353170702
+        },
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.2932685195631422,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": -0.5377006209235697
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": 0.034682511515617805,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": 0.3148482713996284
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [
+      {
+        "claim_id": "claim-f9475c3c5d05e456ac68",
+        "direction": "support",
+        "explanation_ru": "Цитата прямо указывает на гибридные оптические/электрические фабрики как на исследуемую парадигму инфраструктуры.",
+        "interpretation_generated": true,
+        "kind": "research",
+        "quote": "Emerging paradigms including digital twins, AIOps-driven orchestration, and hybrid optical/electrical fabrics are identified as enablers of more resilient and adaptive infrastructures.",
+        "scope": "full_candidate",
+        "source": {
+          "automatic_translation": false,
+          "document_id": "document-openalex-c344b86f0fc31d7f",
+          "generated_summary": false,
+          "language": "en",
+          "name": "Data centers in the age of AI: A tutorial survey on infrastructure, sustainability, and emerging challenges",
+          "published_at": "2026-06-04",
+          "publisher": "Journal of Network and Computer Applications",
+          "source_type": "scientific_publication",
+          "trust_tier": "A",
+          "url": "https://doi.org/10.1016/j.jnca.2026.104525"
+        }
+      }
+    ],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 13
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-15cd7400a5193db7",
+    "canonical_name": "high-speed storage for model training",
+    "case_example": null,
+    "description_ru": null,
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 0,
+      "grounded_ab_support": false,
+      "independent_actors": 0,
+      "independent_origins": 0,
+      "status": "complete",
+      "support_claims": 0
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.6786177448372646,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": -0.1365057888630656,
+          "direction": "opposes_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": -0.6931471805599453,
+          "transformed_value": -1.2392012510462298
+        },
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.4236981378376753,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.0,
+          "transformed_value": -0.7768401195561218
+        },
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.3002219874288248,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": -0.5593931353170702
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.021242564903312038,
+          "contribution": 0.021242564903312038,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "scientific_recent_present",
+          "label_ru": "научные публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 14
+  },
+  {
+    "aliases": [],
+    "candidate_id": "alias-group-84589bb7137bbdf6",
+    "canonical_name": "liquid and direct-to-chip cooling technologies",
+    "case_example": null,
+    "description_ru": null,
+    "domain": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "evidence_review": {
+      "counter_claims": 0,
+      "full_candidate_claims": 0,
+      "grounded_ab_support": false,
+      "independent_actors": 0,
+      "independent_origins": 0,
+      "status": "complete",
+      "support_claims": 0
+    },
+    "limitations": [],
+    "model": {
+      "confidence": null,
+      "prediction": 1,
+      "score": 0.6496822664532172,
+      "score_semantics": "uncalibrated_sigmoid_score",
+      "threshold": 0.5,
+      "top_negative_factors": [
+        {
+          "coefficient": 0.11015627102362659,
+          "contribution": -0.06545622476810133,
+          "direction": "opposes_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_count_log_growth",
+          "label_ru": "рост числа научных публикаций",
+          "raw_value": -0.4054651081081645,
+          "transformed_value": -0.5942124234948196
+        },
+        {
+          "coefficient": -0.010305941736646635,
+          "contribution": -0.010305941736646635,
+          "direction": "opposes_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "multiple_source_types_present",
+          "label_ru": "несколько типов источников",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ],
+      "top_positive_factors": [
+        {
+          "coefficient": -0.5454122761833824,
+          "contribution": 0.2932685195631422,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_recent_count_log1p",
+          "label_ru": "число недавних научных публикаций",
+          "raw_value": 0.6931471805599453,
+          "transformed_value": -0.5377006209235697
+        },
+        {
+          "coefficient": -0.5366922982682932,
+          "contribution": 0.22857249741156394,
+          "direction": "supports_weak_signal",
+          "feature_group": "numeric",
+          "feature_name": "scientific_previous_count_log1p",
+          "label_ru": "число ранних научных публикаций",
+          "raw_value": 1.0986122886681098,
+          "transformed_value": -0.42589114498024755
+        },
+        {
+          "coefficient": 0.10218448223091411,
+          "contribution": 0.10218448223091411,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_previous_present",
+          "label_ru": "отраслевые публикации в предыдущем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.0318554985727277,
+          "contribution": 0.0318554985727277,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "industry_recent_present",
+          "label_ru": "отраслевые публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        },
+        {
+          "coefficient": 0.021242564903312038,
+          "contribution": 0.021242564903312038,
+          "direction": "supports_weak_signal",
+          "feature_group": "structured",
+          "feature_name": "scientific_recent_present",
+          "label_ru": "научные публикации в недавнем окне",
+          "raw_value": true,
+          "transformed_value": 1.0
+        }
+      ]
+    },
+    "potential_advantage_ru": null,
+    "reason": "insufficient_origins",
+    "reason_ru": "меньше двух независимых подтверждающих первоисточников",
+    "schema_version": "analysis-result-v2",
+    "signal_case": [],
+    "skeptic_case": [],
+    "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+    "status": "watchlist",
+    "top15_rank": 15
+  }
+]

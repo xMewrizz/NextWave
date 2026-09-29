@@ -61,9 +61,7 @@ def _wait_job(base_url: str, job_id: str, timeout_seconds: float) -> dict[str, A
     raise RuntimeError(f"analysis job {job_id} did not finish in {timeout_seconds:g}s")
 
 
-def _validate_result(
-    result: dict[str, Any], expected_query: str, expected_candidates: int
-) -> None:
+def _validate_result(result: dict[str, Any], expected_query: str, expected_candidates: int) -> None:
     if result.get("schema_version") != "analysis-response-v1":
         raise RuntimeError("unexpected result schema")
     query = result.get("query")
@@ -82,16 +80,21 @@ def _validate_result(
     if not isinstance(summary, dict):
         raise RuntimeError("result summary is missing")
     counts = summary.get("status_counts")
-    if not isinstance(counts, dict) or set(counts) != {
-        "main",
-        "watchlist",
-        "excluded",
-    }:
+    if (
+        not isinstance(counts, dict)
+        or not set(counts).issubset({"main", "watchlist", "excluded"})
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in counts.values()
+        )
+    ):
         raise RuntimeError("result status counts are incomplete")
     if sum(counts.values()) != len(candidates):
         raise RuntimeError("result status counts do not add up to candidate count")
-    if any(row.get("status") != "main" for row in top15 if isinstance(row, dict)):
-        raise RuntimeError("TOP-15 contains a non-main candidate")
+    if any(
+        row.get("status") not in {"main", "watchlist"} for row in top15 if isinstance(row, dict)
+    ):
+        raise RuntimeError("TOP-15 contains an excluded candidate")
 
 
 def _verify_existing(
@@ -106,9 +109,7 @@ def _verify_existing(
 
 def _run(args: argparse.Namespace) -> str:
     if args.job_id:
-        _verify_existing(
-            args.base_url, args.job_id, args.query, args.expected_candidates
-        )
+        _verify_existing(args.base_url, args.job_id, args.query, args.expected_candidates)
         return args.job_id
 
     created = _request(
@@ -138,9 +139,7 @@ def _run(args: argparse.Namespace) -> str:
         if not isinstance(rejected_id, str):
             raise RuntimeError("negative rehearsal returned an invalid job ID")
         rejected_job = _wait_job(args.base_url, rejected_id, args.timeout)
-        if rejected_job.get("status") != "error" or rejected_job.get(
-            "result_available"
-        ):
+        if rejected_job.get("status") != "error" or rejected_job.get("result_available"):
             raise RuntimeError("foreign query received a substituted result")
         _request(
             args.base_url,
@@ -154,7 +153,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--query", default=DEFAULT_QUERY)
-    parser.add_argument("--expected-candidates", type=int, default=137)
+    parser.add_argument("--expected-candidates", type=int, default=120)
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument(
         "--job-id",

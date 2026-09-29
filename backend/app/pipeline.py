@@ -1,8 +1,8 @@
-"""Шов между API и анализом.
+"""Опциональный синтетический контур для изолированной разработки интерфейса.
 
-Сейчас `run` отдаёт синтетический набор для проверки интерфейса. Его числа и
-материалы не являются результатами модели. Production API фиксируется после
-реализации feature builder и Evidence Duel.
+Production API использует сохраняемые analysis jobs и проверенный
+``analysis-response-v1``. Этот модуль доступен только при явном
+``NEXTWAVE_ENABLE_SYNTHETIC_DEMO=1`` и не подменяет продуктовый результат.
 """
 
 import asyncio
@@ -31,7 +31,8 @@ THRESHOLDS = {
     "documents_min": 10,
 }
 
-pct = lambda value: round(value * 100)
+def pct(value: float) -> int:
+    return round(value * 100)
 
 STAGES = [
     Stage(key="collect", label="Загрузка документов из источников"),
