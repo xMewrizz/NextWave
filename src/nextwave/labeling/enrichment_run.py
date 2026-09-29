@@ -398,9 +398,17 @@ def load_validated_plan(plan_dir: str | Path) -> tuple[dict[str, Any], bytes, di
         raise ValueError("enrichment plan bundle must be an object")
     if manifest.get("bundle_id") != bundle_section.get("bundle_id"):
         raise ValueError("enrichment plan bundle_id mismatch with manifest")
-    if plan.get("cutoff_date") != LABELING_CUTOFF_DATE.isoformat():
+    raw_plan_cutoff = plan.get("cutoff_date")
+    try:
+        plan_cutoff = date.fromisoformat(raw_plan_cutoff)
+    except (TypeError, ValueError) as error:
         raise ValueError(
-            f"enrichment plan cutoff {plan.get('cutoff_date')!r} "
+            f"enrichment plan cutoff {raw_plan_cutoff!r} is not an ISO date"
+        ) from error
+    is_analysis_plan = manifest.get("plan_role") == "analysis_candidates"
+    if not is_analysis_plan and plan_cutoff != LABELING_CUTOFF_DATE:
+        raise ValueError(
+            f"enrichment plan cutoff {raw_plan_cutoff!r} "
             f"does not match {LABELING_CUTOFF_DATE.isoformat()!r}"
         )
     if _FORBIDDEN_PLAN_KEYS & set(_walk_keys(plan)):
@@ -451,13 +459,19 @@ def load_validated_plan(plan_dir: str | Path) -> tuple[dict[str, Any], bytes, di
             raise ValueError(
                 f"candidate {entry.get('candidate_id')!r} is invalid: {error}"
             ) from error
+        if cutoff_date != plan_cutoff:
+            raise ValueError(
+                f"candidate {entry.get('candidate_id')!r} cutoff_date "
+                "does not match the plan cutoff"
+            )
     bundle_id = bundle_section.get("bundle_id")
     recomputed = _bundle_id(records)
     if recomputed != bundle_id:
         raise ValueError("enrichment plan bundle_id does not match its candidates")
 
-    full_window = (_windows()["history_from"], _windows()["cutoff_date"])
-    recent_window = (_windows()["recent_window_from"], _windows()["cutoff_date"])
+    windows = _windows(plan_cutoff)
+    full_window = (windows["history_from"], windows["cutoff_date"])
+    recent_window = (windows["recent_window_from"], windows["cutoff_date"])
     search_ids: list[str] = []
     request_ids: list[str] = []
     totals = {"openalex": 0, "mediacloud": 0}

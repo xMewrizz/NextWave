@@ -32,7 +32,7 @@ from ..datasets.contracts import (
 )
 from ..discovery.run_store import (
     DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION,
-    assert_run_labeling_eligible,
+    assert_run_analysis_eligible,
     load_discovery_run,
 )
 from .contracts import (
@@ -253,9 +253,13 @@ def _bundle_id(
         )
         for record in sorted(records, key=lambda item: item.candidate_id)
     ]
+    cutoff_dates = {record.cutoff_date for record in records}
+    if len(cutoff_dates) != 1:
+        raise ValueError("enrichment candidates must share one cutoff date")
+    cutoff_date = next(iter(cutoff_dates))
     digest = hashlib.sha256(
         "\x1f".join(
-            (LABELING_ENRICHMENT_PLAN_VERSION, LABELING_CUTOFF_DATE.isoformat(), *lines)
+            (LABELING_ENRICHMENT_PLAN_VERSION, cutoff_date.isoformat(), *lines)
         ).encode("utf-8")
     ).hexdigest()
     return f"bundle-{digest[:16]}"
@@ -324,10 +328,10 @@ def _digest(data: bytes) -> dict[str, Any]:
     return {"size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
 
 
-def _windows() -> dict[str, Any]:
-    history_from = (LABELING_CUTOFF_DATE - timedelta(days=_HISTORY_DAYS)).isoformat()
-    recent_from = (LABELING_CUTOFF_DATE - timedelta(days=_RECENT_DAYS)).isoformat()
-    cutoff = LABELING_CUTOFF_DATE.isoformat()
+def _windows(cutoff_date: date = LABELING_CUTOFF_DATE) -> dict[str, Any]:
+    history_from = (cutoff_date - timedelta(days=_HISTORY_DAYS)).isoformat()
+    recent_from = (cutoff_date - timedelta(days=_RECENT_DAYS)).isoformat()
+    cutoff = cutoff_date.isoformat()
     return {
         "cutoff_date": cutoff,
         "history_from": history_from,
@@ -590,7 +594,10 @@ def _render_plan(
     extra_inputs: Mapping[str, dict[str, Any]] | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     bundle_id = _bundle_id(records)
-    windows = _windows()
+    cutoff_dates = {record.cutoff_date for record in records}
+    if len(cutoff_dates) != 1:
+        raise ValueError("enrichment candidates must share one cutoff date")
+    windows = _windows(next(iter(cutoff_dates)))
     full_window = (windows["history_from"], windows["cutoff_date"])
     recent_window = (windows["recent_window_from"], windows["cutoff_date"])
     entries: list[dict[str, Any]] = []
@@ -929,7 +936,7 @@ def build_analysis_enrichment_plan(
     result = loaded.result
     if manifest.get("schema_version") != DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION:
         raise ValueError("discovery run manifest version is not supported")
-    assert_run_labeling_eligible(loaded)
+    assert_run_analysis_eligible(loaded)
     if not isinstance(loaded.run_id, str) or not loaded.run_id.strip():
         raise ValueError("discovery run_id must not be blank")
     domain = manifest.get("domain")
@@ -977,6 +984,11 @@ def build_analysis_enrichment_plan(
         raise ValueError("alias resolution must cover every accepted proposal exactly once")
     if not isinstance(groups, list) or not groups:
         raise ValueError("analysis enrichment requires accepted alias groups")
+    cutoff_raw = manifest.get("cutoff_date")
+    try:
+        cutoff_date = date.fromisoformat(cutoff_raw)
+    except (TypeError, ValueError) as error:
+        raise ValueError("discovery cutoff_date is not an ISO date") from error
     records: list[_EnrichmentCandidateRecord] = []
     grouped_proposals: list[str] = []
     for index, group in enumerate(groups, 1):
@@ -1018,7 +1030,7 @@ def build_analysis_enrichment_plan(
                 source_query=source_query,
                 domain=domain,
                 analysis_scope_key=ORGANIZER_SCOPE_KEYS[domain],
-                cutoff_date=LABELING_CUTOFF_DATE,
+                cutoff_date=cutoff_date,
             )
         )
     if len({record.group_id for record in records}) != len(records):

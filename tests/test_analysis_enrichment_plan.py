@@ -14,13 +14,14 @@ from nextwave.labeling.enrichment_plan import (
     build_analysis_enrichment_plan,
     export_analysis_enrichment_plan,
 )
+from nextwave.labeling.enrichment_run import load_validated_plan
 
 
 def _digest(payload: bytes) -> dict[str, object]:
     return {"size_bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
 
 
-def _run(root: Path) -> Path:
+def _run(root: Path, *, cutoff_date: str = "2026-09-15") -> Path:
     run = root / "run-001"
     run.mkdir()
     result = {
@@ -74,7 +75,7 @@ def _run(root: Path) -> Path:
     result_bytes = json.dumps(result, sort_keys=True).encode()
     (run / "pipeline_result.json").write_bytes(result_bytes)
     plan = {
-        "query": {"cutoff_date": "2026-09-15"},
+        "query": {"cutoff_date": cutoff_date},
         "scope": {
             "raw_query": "Инфраструктурные технологии для обучения и инференса ИИ"
         },
@@ -87,7 +88,7 @@ def _run(root: Path) -> Path:
         "analysis_status": "complete",
         "pipeline_version": DISCOVERY_PIPELINE_VERSION,
         "gate_id": QUALIFICATION_GATE_ID,
-        "cutoff_date": "2026-09-15",
+        "cutoff_date": cutoff_date,
         "domain": "Инфраструктура ИИ",
         "raw_query": "Инфраструктурные технологии для обучения и инференса ИИ",
         "outputs": [
@@ -100,6 +101,35 @@ def _run(root: Path) -> Path:
 
 
 class AnalysisEnrichmentPlanTests(unittest.TestCase):
+    def test_historical_run_uses_its_own_cutoff_and_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = export_analysis_enrichment_plan(
+                run_dir=_run(root, cutoff_date="2025-09-15"),
+                output_dir=root / "output",
+            )
+            plan_bytes = paths.plan.read_bytes()
+            validated, _, _ = load_validated_plan(root / "output")
+        plan = json.loads(plan_bytes)
+        self.assertEqual(validated, plan)
+        self.assertEqual(plan["cutoff_date"], "2025-09-15")
+        self.assertEqual(plan["history_from"], "2023-09-16")
+        self.assertEqual(plan["recent_window_from"], "2024-09-15")
+        for candidate in plan["candidates"]:
+            self.assertEqual(candidate["cutoff_date"], "2025-09-15")
+            for search in candidate["searches"]:
+                self.assertEqual(
+                    search["planned_window"],
+                    {"from": "2023-09-16", "until": "2025-09-15"},
+                )
+
+    def test_labeling_cutoff_keeps_existing_plan_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first, _ = build_analysis_enrichment_plan(_run(root))
+            second, _ = build_analysis_enrichment_plan(root / "run-001")
+        self.assertEqual(first, second)
+
     def test_builds_query_specific_plan_from_accepted_groups(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             plan_bytes, provenance = build_analysis_enrichment_plan(
