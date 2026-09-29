@@ -91,6 +91,32 @@ docker compose up --build
 `POST http://localhost:8000/api/analyses`. Каталог результата монтируется read-only;
 API не пересчитывает и не меняет model score, policy или Evidence claims.
 
+### Воспроизводимая web-репетиция
+
+После запуска Compose проверка создаёт job для зафиксированного запроса, ждёт
+результат, сверяет 137 кандидатов, полный TOP-15 и три policy-статуса. Затем она
+убеждается, что другой запрос завершается ошибкой и не получает подставленный
+результат:
+
+```powershell
+docker compose up --build -d
+.\.venv\Scripts\python.exe scripts\web_rehearsal.py
+```
+
+Команда печатает ID успешного job. Его сохранность после рестарта backend
+проверяется отдельно:
+
+```powershell
+docker compose restart backend
+.\.venv\Scripts\python.exe scripts\web_rehearsal.py --job-id <JOB_ID>
+```
+
+Завершение репетиции:
+
+```powershell
+docker compose down
+```
+
 ## Граница MVP
 
 Квалификационная версия должна воспроизводимо показать:
