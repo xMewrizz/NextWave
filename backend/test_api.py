@@ -167,6 +167,7 @@ async def test_live_job_uses_application_runner_and_reports_real_stages(
     client: AsyncClient, tmp_path: Path, monkeypatch
 ):
     query = "Технологии квантовой связи"
+    observed_labels: list[str] = []
 
     class FakeApplication:
         def __init__(self, *, workspace, progress, **kwargs):
@@ -174,16 +175,19 @@ async def test_live_job_uses_application_runner_and_reports_real_stages(
             self.progress = progress
 
         def run(self, *, query: str, analysis_id: str):
-            del analysis_id
-            for stage, value in (
-                ("source_search", 0.10),
-                ("candidate_gate", 0.25),
-                ("enrichment", 0.60),
-                ("model", 0.72),
-                ("evidence_duel", 0.94),
-                ("result", 1.0),
+            job_id = analysis_id.removeprefix("analysis-")
+            for stage, value, message in (
+                ("source_search", 0.10, "Извлечено 2 из 5 пачек"),
+                ("candidate_gate", 0.25, "Проверено 10 из 20 кандидатов"),
+                ("enrichment", 0.60, "Собраны документы для 8 кандидатов"),
+                ("model", 0.72, "Рассчитаны признаки"),
+                ("evidence_duel", 0.94, "Проверены доказательства"),
+                ("result", 1.0, "Результат готов"),
             ):
-                self.progress(stage, value, stage)
+                self.progress(stage, value, message)
+                current = main._store().get(job_id)
+                assert current is not None
+                observed_labels.append(current.stage_label)
             self.workspace.mkdir(parents=True, exist_ok=True)
             result = self.workspace / "result.json"
             result.write_bytes(
@@ -207,6 +211,14 @@ async def test_live_job_uses_application_runner_and_reports_real_stages(
     job = await _wait(client, created["id"])
     assert job["status"] == "complete"
     assert {stage["status"] for stage in job["stage_history"]} == {"complete"}
+    assert observed_labels == [
+        "Извлечено 2 из 5 пачек",
+        "Проверено 10 из 20 кандидатов",
+        "Собраны документы для 8 кандидатов",
+        "Рассчитаны признаки",
+        "Проверены доказательства",
+        "Результат готов",
+    ]
     response = await client.get(f"/api/analyses/{created['id']}/result")
     assert response.status_code == 200
     assert response.json()["query"]["text"] == query

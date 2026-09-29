@@ -115,14 +115,13 @@ def _run_live_analysis(job_id: str) -> dict:
     )
 
     def progress(stage: str, value: float, message: str) -> None:
-        del message
         current = store.get(job_id)
         if current is None:
             raise ValueError("analysis job disappeared during execution")
         store.update_progress(
             current,
             stage=stage,
-            stage_label=_STAGE_LABELS[stage],
+            stage_label=message.strip() or _STAGE_LABELS[stage],
             progress=value,
         )
 

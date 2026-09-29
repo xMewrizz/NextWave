@@ -8,12 +8,13 @@ import threading
 import time
 import unittest
 from collections.abc import Mapping
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 from nextwave.evaluation.temporal_count_plan import export_temporal_count_plan
-from nextwave.evaluation.temporal_count_run import run_temporal_counts
+from nextwave.evaluation.temporal_count_run import _query_from_task, run_temporal_counts
 from nextwave.sources import HttpResponse, OpenAlexConnector
 
 
@@ -157,6 +158,25 @@ class TemporalCountRunTests(unittest.TestCase):
                 concurrency=4,
             )
             self.assertGreater(transport.max_active, 1)
+
+    def test_long_dynamic_scope_expression_stays_in_search_texts(self) -> None:
+        expression = " OR ".join(f'"scope term {index}"' for index in range(20))
+        query = _query_from_task(
+            {
+                "count_id": "count-dynamic-scope",
+                "search_text": expression,
+                "scope_search_text": expression,
+                "analysis_scope_key": "scope-dynamic",
+                "search_mode": "boolean_scope",
+                "published_from": "2025-09-15",
+                "published_until": "2026-09-15",
+            },
+            cutoff=date(2026, 9, 15),
+        )
+
+        self.assertGreater(len(expression), 200)
+        self.assertEqual(query.raw_query, "scope-dynamic")
+        self.assertEqual(query.search_texts, (expression,))
 
     def test_full_run_uses_meta_count_and_builds_candidate_ratios(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

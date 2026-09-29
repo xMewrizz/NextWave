@@ -201,6 +201,61 @@ def _obvious_identity_key(value: str) -> str:
     return " ".join(words)
 
 
+def _evidence_origin_key(document: dict[str, Any]) -> str | None:
+    title = document.get("title")
+    if isinstance(title, str) and title.strip():
+        normalized = " ".join(
+            "".join(
+                char if char.isalnum() else " "
+                for char in unicodedata.normalize("NFKC", title).casefold()
+            ).split()
+        )
+        if normalized:
+            return f"title:{normalized}"
+    origin_id = document.get("origin_id")
+    if isinstance(origin_id, str) and origin_id.strip():
+        return f"origin:{origin_id.strip().casefold()}"
+    return None
+
+
+def _normalized_title_tokens(document: dict[str, Any]) -> tuple[str, ...]:
+    title = document.get("title")
+    if not isinstance(title, str):
+        return ()
+    return tuple(
+        "".join(
+            char if char.isalnum() else " "
+            for char in unicodedata.normalize("NFKC", title).casefold()
+        ).split()
+    )
+
+
+def _independent_origin_count(documents: list[dict[str, Any]]) -> int:
+    representatives: list[tuple[str | None, tuple[str, ...]]] = []
+    for document in documents:
+        origin_key = _evidence_origin_key(document)
+        title_tokens = _normalized_title_tokens(document)
+        mirrored = False
+        for known_origin, known_tokens in representatives:
+            if origin_key is not None and origin_key == known_origin:
+                mirrored = True
+                break
+            if len(title_tokens) >= 6 and len(known_tokens) >= 6:
+                shorter, longer = sorted(
+                    (title_tokens, known_tokens), key=lambda tokens: len(tokens)
+                )
+                width = len(shorter)
+                if any(
+                    longer[index:index + width] == shorter
+                    for index in range(len(longer) - width + 1)
+                ):
+                    mirrored = True
+                    break
+        if not mirrored:
+            representatives.append((origin_key, title_tokens))
+    return len(representatives)
+
+
 def _deduplicate_results(results: list[dict[str, Any]]) -> None:
     owners: dict[str, list[str]] = defaultdict(list)
     rows_by_id = {row["candidate_id"]: row for row in results}
@@ -506,22 +561,26 @@ def build_analysis_result(
         ]
         maturity = [claim for claim in full_claims if claim["kind"] in _MATURITY_KINDS]
         promotion = [claim for claim in full_claims if claim["kind"] == "promotional_claim"]
-        origins: set[str] = set()
+        support_documents: list[dict[str, Any]] = []
         actors: set[str] = set()
         grounded_ab = False
         for claim in support:
             document = documents[(candidate_id, claim["document_id"])]
-            origin_id = document.get("origin_id")
-            if isinstance(origin_id, str) and origin_id:
-                origins.add(origin_id)
-            for organization in document.get("organizations") or []:
-                if isinstance(organization, str) and organization.strip():
-                    actors.add(organization.strip().casefold())
-            publisher = document.get("publisher")
-            if isinstance(publisher, str) and publisher.strip():
-                actors.add(publisher.strip().casefold())
+            support_documents.append(document)
+            document_actors = {
+                organization.strip().casefold()
+                for organization in document.get("organizations") or []
+                if isinstance(organization, str) and organization.strip()
+            }
+            if document_actors:
+                actors.update(document_actors)
+            else:
+                publisher = document.get("publisher")
+                if isinstance(publisher, str) and publisher.strip():
+                    actors.add(publisher.strip().casefold())
             grounded_ab = grounded_ab or document.get("trust_tier") in {"A", "B"}
-        marketing_hype = bool(promotion) and (len(origins) < 2 or not grounded_ab)
+        independent_origins = _independent_origin_count(support_documents)
+        marketing_hype = bool(promotion) and (independent_origins < 2 or not grounded_ab)
         feature_values = features[candidate_id].get("features")
         if not isinstance(feature_values, dict):
             raise ValueError(f"features {candidate_id!r} has no feature object")
@@ -539,7 +598,7 @@ def build_analysis_result(
                     "temporal_count_coverage_complete"
                 )
                 is True,
-                independent_origin_count=len(origins),
+                independent_origin_count=independent_origins,
                 independent_actor_count=len(actors),
                 grounded_ab_support=grounded_ab,
                 model_score=float(score),
@@ -593,7 +652,7 @@ def build_analysis_result(
                 "full_candidate_claims": len(full_claims),
                 "support_claims": len(support),
                 "counter_claims": len(skeptic_claims),
-                "independent_origins": len(origins),
+                "independent_origins": independent_origins,
                 "independent_actors": len(actors),
                 "grounded_ab_support": grounded_ab,
             },

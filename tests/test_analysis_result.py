@@ -324,6 +324,39 @@ class AnalysisResultTests(unittest.TestCase):
         hype = next(row for row in rows if row["candidate_id"] == "candidate-hype")
         self.assertEqual(hype["status"], "main")
 
+    def test_mirrors_of_same_work_are_one_origin_and_one_actor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._fixture(Path(tmp))
+            combined = paths["combined"]
+            document_path = combined / "documents.jsonl"
+            documents = [
+                json.loads(line)
+                for line in document_path.read_text(encoding="utf-8").splitlines()
+            ]
+            for document in documents:
+                if document["candidate_id"] == "candidate-main":
+                    document["title"] = (
+                        "The same artificial intelligence research work"
+                        if document["document_id"].endswith("-1")
+                        else "The same artificial intelligence research work for Journal Example"
+                    )
+                    document["organizations"] = ["The same laboratory"]
+                    document["publisher"] = f"Repository {document['document_id']}"
+            raw = _jsonl(documents)
+            document_path.write_bytes(raw)
+            manifest_path = combined / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["outputs"]["documents.jsonl"] = _digest(raw)
+            manifest_path.write_bytes(_json(manifest))
+
+            rows = list(map(json.loads, self._build(paths)["candidates.jsonl"].splitlines()))
+
+        candidate = next(row for row in rows if row["candidate_id"] == "candidate-main")
+        self.assertEqual(candidate["evidence_review"]["independent_origins"], 1)
+        self.assertEqual(candidate["evidence_review"]["independent_actors"], 1)
+        self.assertEqual(candidate["status"], "watchlist")
+        self.assertEqual(candidate["reason"], "insufficient_origins")
+
     def test_rejects_non_verbatim_claim_before_output(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = self._fixture(Path(tmp))

@@ -104,11 +104,22 @@ class AnalysisApplicationTests(unittest.TestCase):
         def operation(name: str, *, inference=False, result=False):
             def execute(**kwargs):
                 calls.append((name, kwargs))
+                output = Path(kwargs["output_dir"])
                 _bundle(
-                    Path(kwargs["output_dir"]),
+                    output,
                     candidate_count=3 if inference else None,
                     result=result,
                 )
+                if name == "temporal_counts":
+                    (output / "manifest.json").write_bytes(
+                        _bytes(
+                            {
+                                "schema_version": "openalex-temporal-count-result-v4",
+                                "status": "complete",
+                                "outputs": {},
+                            }
+                        )
+                    )
                 return object()
 
             return execute
@@ -197,6 +208,12 @@ class AnalysisApplicationTests(unittest.TestCase):
                 ],
                 8,
             )
+            self.assertEqual(
+                next(kwargs for name, kwargs in calls if name == "temporal_counts")[
+                    "concurrency"
+                ],
+                3,
+            )
             self.assertIn("candidate_gate", {stage for stage, _, _ in progress})
             self.assertEqual(progress[-1][0:2], ("result", 1.0))
 
@@ -260,6 +277,53 @@ class AnalysisApplicationTests(unittest.TestCase):
                 state["artifacts"]["discovery"],
                 "artifacts/discovery/job-1-saved",
             )
+
+    def test_partial_temporal_counts_are_retried_from_completed_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "model").mkdir()
+            (root / "model" / "model.json").write_text("{}\n", encoding="utf-8")
+            calls: list[tuple[str, dict]] = []
+            patches = self._patches(calls)
+            for item in patches:
+                item.start()
+
+            def partial_temporal_counts(**kwargs):
+                output = Path(kwargs["output_dir"])
+                _bundle(output)
+                (output / "manifest.json").write_bytes(
+                    _bytes(
+                        {
+                            "schema_version": "openalex-temporal-count-result-v4",
+                            "status": "partial",
+                            "outputs": {},
+                        }
+                    )
+                )
+
+            try:
+                runner = AnalysisApplication(
+                    workspace=root / "job",
+                    model_dir=root / "model",
+                    environment=_environment(),
+                )
+                with patch(
+                    "nextwave.application.run_temporal_counts",
+                    partial_temporal_counts,
+                ):
+                    with self.assertRaisesRegex(ValueError, "must be complete"):
+                        runner.run(query="AI infrastructure", analysis_id="job-1")
+                state = json.loads(runner.manifest_path.read_text(encoding="utf-8"))
+                self.assertEqual(state["completed_steps"][-1], "temporal_plan")
+
+                result = runner.run(query="AI infrastructure", analysis_id="job-1")
+            finally:
+                for item in reversed(patches):
+                    item.stop()
+
+            self.assertTrue(result.result.is_file())
+            final_state = json.loads(runner.manifest_path.read_text(encoding="utf-8"))
+            self.assertIn("temporal_counts", final_state["completed_steps"])
 
     def test_corrupt_completed_artifact_is_rejected_on_resume(self):
         with tempfile.TemporaryDirectory() as directory:

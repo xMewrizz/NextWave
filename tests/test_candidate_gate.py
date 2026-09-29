@@ -88,6 +88,9 @@ class CandidateGateTests(unittest.TestCase):
             ]
             if "strict second-pass critic" in prompt:
                 calls.append("audit")
+                self.assertIn("commercial product, model number, hardware SKU", prompt)
+                self.assertIn("phrase copied from one paper", prompt)
+                self.assertIn("reason must agree with the decision exactly", prompt)
                 self.assertEqual(
                     {item["name"] for item in proposals}, {"AI accelerator", "AMD"}
                 )

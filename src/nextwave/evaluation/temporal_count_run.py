@@ -198,12 +198,13 @@ def _query_from_task(task: Mapping[str, Any], *, cutoff: date) -> SourceQuery:
         query_expression = search_text
     else:
         raise ValueError(f"temporal count task {count_id} has invalid search_mode")
+    raw_query = search_text if len(search_text) <= 200 else scope
     return SourceQuery(
         query_id=f"query-{count_id.removeprefix('count-')}",
         analysis_scope_id=scope,
         purpose=QueryPurpose.HISTORICAL_ENRICHMENT,
-        raw_query=search_text,
-        normalized_query=search_text.casefold(),
+        raw_query=raw_query,
+        normalized_query=raw_query.casefold(),
         search_texts=(query_expression,),
         published_from=date.fromisoformat(str(task["published_from"])),
         published_until=date.fromisoformat(str(task["published_until"])),
