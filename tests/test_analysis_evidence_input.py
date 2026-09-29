@@ -101,6 +101,7 @@ def build_dirs(
     *,
     shortlist_ranks: list[int] | None = None,
     coverage_rows: list[dict[str, Any]] | None = None,
+    search_terms: list[str] | None = None,
 ) -> tuple[Path, Path, Path]:
     plan_dir = root / "plan"
     combined_dir = root / "combined"
@@ -117,7 +118,7 @@ def build_dirs(
                     {
                         "candidate_id": cid,
                         "cutoff_date": "2026-09-15",
-                        "search_terms": TERMS,
+                        "search_terms": search_terms or TERMS,
                     }
                     for cid in candidates
                 ]
@@ -259,7 +260,9 @@ class AnalysisEvidenceInputTests(unittest.TestCase):
         self.assertEqual(manifest["cutoff_date"], "2026-09-15")
         policy = manifest["selection_policy"]
         self.assertTrue(policy["shortlist_only"])
-        self.assertEqual(policy["minimum_relevance_score"], 40)
+        self.assertEqual(policy["primary_minimum_relevance_score"], 40)
+        self.assertEqual(policy["fallback_minimum_relevance_score"], 30)
+        self.assertEqual(policy["fallback_target_per_source_class"], 2)
         self.assertEqual(policy["max_per_source_class"], 3)
         self.assertEqual(manifest["totals"]["evidence_input_documents"], 3)
         self.assertEqual(
@@ -399,6 +402,80 @@ class AnalysisEvidenceInputTests(unittest.TestCase):
         self.assertEqual(
             coverage[0]["empty_reasons"], ["no_relevant_source_text"]
         )
+
+    def test_adaptive_fallback_fills_sparse_class_to_two(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan, combined, shortlist = build_dirs(
+                root,
+                ["c1"],
+                [
+                    sci_doc("c1", 1, title="Quantum error correction platform"),
+                    sci_doc(
+                        "c1",
+                        2,
+                        title="Quantum error correction advances",
+                        excerpt="Industrial systems are improving.",
+                    ),
+                    sci_doc(
+                        "c1",
+                        3,
+                        title="Quantum error systems",
+                        excerpt="Industrial systems are improving.",
+                    ),
+                ],
+                search_terms=["quantum error correction platform"],
+            )
+            files = build_analysis_evidence_input(
+                analysis_plan_dir=plan,
+                combined_result_dir=combined,
+                shortlist_dir=shortlist,
+            )
+            documents = [
+                json.loads(line)
+                for line in files["evidence_input_documents.jsonl"].splitlines()
+            ]
+
+        self.assertEqual(len(documents), 2)
+        self.assertEqual([row["relevance_score"] for row in documents], [100, 30])
+        self.assertNotIn("sci-c1-3", {row["document_id"] for row in documents})
+
+    def test_fallback_does_not_displace_three_primary_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan, combined, shortlist = build_dirs(
+                root,
+                ["c1"],
+                [
+                    sci_doc(
+                        "c1",
+                        number,
+                        title="Quantum error correction platform",
+                    )
+                    for number in range(1, 4)
+                ]
+                + [
+                    sci_doc(
+                        "c1",
+                        4,
+                        title="Quantum error correction",
+                        excerpt="Industrial systems are improving.",
+                    )
+                ],
+                search_terms=["quantum error correction platform"],
+            )
+            files = build_analysis_evidence_input(
+                analysis_plan_dir=plan,
+                combined_result_dir=combined,
+                shortlist_dir=shortlist,
+            )
+            documents = [
+                json.loads(line)
+                for line in files["evidence_input_documents.jsonl"].splitlines()
+            ]
+
+        self.assertEqual(len(documents), 3)
+        self.assertTrue(all(row["relevance_score"] >= 40 for row in documents))
 
     def test_tampered_checksum_is_rejected_before_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

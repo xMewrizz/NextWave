@@ -19,10 +19,12 @@ from nextwave.labeling.relevance_plan import score_document
 from .analysis_shortlist import ANALYSIS_SHORTLIST_VERSION
 from .exa_enrichment_merge import ANALYSIS_COMBINED_ENRICHMENT_VERSION
 
-ANALYSIS_EVIDENCE_INPUT_VERSION = "analysis-evidence-input-v1"
+ANALYSIS_EVIDENCE_INPUT_VERSION = "analysis-evidence-input-v2"
 _ANALYSIS_PLAN_VERSION = "labeling-enrichment-plan-v2"
 _MAX_PER_CLASS = 3
-_MIN_SCORE = 40
+_PRIMARY_MIN_SCORE = 40
+_FALLBACK_MIN_SCORE = 30
+_FALLBACK_TARGET_PER_CLASS = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,13 +121,28 @@ def _rank_key(row: dict[str, Any]) -> tuple[Any, ...]:
 def _select(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     selected: list[dict[str, Any]] = []
     origins: set[str] = set()
-    for row in sorted(rows, key=_rank_key):
+    ranked = sorted(rows, key=_rank_key)
+    for row in ranked:
+        if row["relevance_score"] < _PRIMARY_MIN_SCORE:
+            continue
         origin = row["origin_id"]
         if origin in origins:
             continue
         origins.add(origin)
         selected.append(row)
         if len(selected) == _MAX_PER_CLASS:
+            break
+    if len(selected) >= _FALLBACK_TARGET_PER_CLASS:
+        return selected
+    for row in ranked:
+        if row["relevance_score"] >= _PRIMARY_MIN_SCORE:
+            continue
+        origin = row["origin_id"]
+        if origin in origins:
+            continue
+        origins.add(origin)
+        selected.append(row)
+        if len(selected) == _FALLBACK_TARGET_PER_CLASS:
             break
     return selected
 
@@ -248,7 +265,7 @@ def build_analysis_evidence_input(
         score, term, reason, matched, _ = score_document(
             tuple(candidates[candidate_id]["search_terms"]), title, excerpt
         )
-        if score < _MIN_SCORE:
+        if score < _FALLBACK_MIN_SCORE:
             continue
         source_class = "scientific" if connector == "openalex" else "industry"
         trust_tier = row.get("trust_tier")
@@ -320,7 +337,9 @@ def build_analysis_evidence_input(
         "selection_policy": {
             "mode": ANALYSIS_EVIDENCE_INPUT_VERSION,
             "shortlist_only": True,
-            "minimum_relevance_score": _MIN_SCORE,
+            "primary_minimum_relevance_score": _PRIMARY_MIN_SCORE,
+            "fallback_minimum_relevance_score": _FALLBACK_MIN_SCORE,
+            "fallback_target_per_source_class": _FALLBACK_TARGET_PER_CLASS,
             "max_per_source_class": _MAX_PER_CLASS,
             "deduplicate_origin_within_source_class": True,
         },
