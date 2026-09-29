@@ -56,8 +56,19 @@ _REASON_RU = {
     "insufficient_actors": "меньше двух независимых организаций или издателей",
     "insufficient_trusted_evidence": "нет подтверждающего источника доверия A/B",
     "model_below_threshold": "оценка модели ниже зафиксированного порога",
-    "passed": "пройдены модельный порог и обязательные проверки evidence",
+    "passed": "тема получила признаки слабого сигнала и подтверждена независимыми источниками",
 }
+_BENEFIT_CUES = re.compile(
+    r"ускор|повыш|сниж|уменьш|улучш|эффектив|точност|производ|эконом|"
+    r"энергосбереж|безопас|масштаб|преимуществ|faster|lower|reduce|improv|"
+    r"efficien|accur|scalab|saving|performance",
+    re.IGNORECASE,
+)
+_EXPLANATION_PREFIX = re.compile(
+    r"^Цитата\s+(?:прямо\s+)?(?:подтверждает(?:,?\s+что)?|показывает|"
+    r"определяет|называет|описывает)\s+",
+    re.IGNORECASE,
+)
 _TRAILING_ACRONYM = re.compile(r"\s*\(([^()]*)\)\s*$")
 _IDENTITY_SEPARATORS = re.compile(r"[-‐‑‒–—−_]+")
 
@@ -151,6 +162,7 @@ def _claim_view(claim: dict[str, Any], document: dict[str, Any]) -> dict[str, An
         "scope": claim["scope"],
         "quote": claim["quote"],
         "explanation_ru": claim["explanation_ru"],
+        "interpretation_generated": True,
         "source": _source(document),
     }
 
@@ -163,6 +175,32 @@ def _best_claim(
             if claim["kind"] == kind:
                 return claim
     return claims[0] if claims else None
+
+
+def _plain_explanation(value: str) -> str:
+    cleaned = _EXPLANATION_PREFIX.sub("", value.strip())
+    cleaned = re.sub(
+        r"^Цитата\s+(?:прямо\s+)?сообщает\s+об\s+",
+        "Есть сведения об ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"^Цитата\s+(?:прямо\s+)?сообщает\s+о\s+",
+        "Есть сведения о ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"^Цитата\s+", "", cleaned, flags=re.IGNORECASE)
+    return cleaned[:1].upper() + cleaned[1:] if cleaned else value.strip()
+
+
+def _benefit_claim(claims: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for claim in claims:
+        text = f"{claim.get('explanation_ru', '')} {claim.get('quote', '')}"
+        if _BENEFIT_CUES.search(text):
+            return claim
+    return None
 
 
 def _obvious_identity_key(value: str) -> str:
@@ -621,7 +659,7 @@ def build_analysis_result(
             for claim in skeptic_claims
         ]
         description_claim = _best_claim(support, ("novelty", "research", "growth"))
-        advantage_claim = _best_claim(support, ("novelty", "growth", "prototype", "pilot"))
+        advantage_claim = _benefit_claim(support)
         case_claim = _best_claim(full_claims, _CASE_KINDS)
         explanation = prediction.get("explanation")
         if not isinstance(explanation, dict):
@@ -657,10 +695,14 @@ def build_analysis_result(
                 "grounded_ab_support": grounded_ab,
             },
             "description_ru": (
-                description_claim["explanation_ru"] if description_claim else None
+                _plain_explanation(description_claim["explanation_ru"])
+                if description_claim
+                else None
             ),
             "potential_advantage_ru": (
-                advantage_claim["explanation_ru"] if advantage_claim else None
+                _plain_explanation(advantage_claim["explanation_ru"])
+                if advantage_claim
+                else None
             ),
             "case_example": (
                 _claim_view(

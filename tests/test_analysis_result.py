@@ -7,8 +7,10 @@ from pathlib import Path
 
 from nextwave.evaluation.analysis_result import (
     ANALYSIS_RESULT_VERSION,
+    _benefit_claim,
     _deduplicate_results,
     _obvious_identity_key,
+    _plain_explanation,
     build_analysis_result,
     export_analysis_result,
 )
@@ -25,6 +27,22 @@ def _jsonl(rows: list[dict[str, object]]) -> bytes:
 
 
 class AnalysisResultTests(unittest.TestCase):
+    def test_plain_explanation_removes_model_meta_language(self) -> None:
+        self.assertEqual(
+            _plain_explanation("Цитата прямо подтверждает использование фотонных ускорителей."),
+            "Использование фотонных ускорителей.",
+        )
+
+    def test_benefit_claim_requires_an_explicit_benefit(self) -> None:
+        claims = [
+            {"explanation_ru": "Наличие замкнутой системы охлаждения.", "quote": "closed loop"},
+            {
+                "explanation_ru": "Система снижает расход энергии на охлаждение.",
+                "quote": "lower energy use",
+            },
+        ]
+        self.assertIs(_benefit_claim(claims), claims[1])
+
     def test_obvious_identity_key_collapses_acronym_and_plural_variants(self) -> None:
         self.assertEqual(
             _obvious_identity_key("Digital Twins (DTw)"),
