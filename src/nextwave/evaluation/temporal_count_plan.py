@@ -205,6 +205,9 @@ def _collect_candidates(
         if not isinstance(terms, list) or not terms:
             raise ValueError(f"candidate {candidate_id} needs reviewed search terms")
         search_text = _normalized_term(terms[0], f"candidate {candidate_id} search term")
+        search_text = " ".join(search_text.replace('"', " ").split())
+        if not search_text:
+            raise ValueError(f"candidate {candidate_id} search term has no usable text")
         if raw.get("cutoff_date") != cutoff_raw:
             raise ValueError(f"candidate {candidate_id} cutoff differs from plan")
         candidates[candidate_id] = {

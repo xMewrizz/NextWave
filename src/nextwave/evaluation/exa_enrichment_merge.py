@@ -207,8 +207,8 @@ def build_combined_enrichment(
     documents.sort(key=lambda row: (row["candidate_id"], row["connector"], row["document_id"]))
     excluded.sort(key=lambda row: (row["candidate_id"], row["document_id"] or ""))
 
-    science_complete: dict[str, bool] = {
-        candidate_id: False for candidate_id in candidate_ids
+    science_status: dict[str, str] = {
+        candidate_id: "unknown" for candidate_id in candidate_ids
     }
     science_coverage_seen: set[str] = set()
     for row in science_coverage:
@@ -220,11 +220,14 @@ def build_combined_enrichment(
         if candidate_id in science_coverage_seen:
             raise ValueError("scientific coverage duplicates a candidate")
         science_coverage_seen.add(candidate_id)
-        science_complete[candidate_id] = row.get("status") == "complete"
+        status = row.get("status")
+        if status not in {"complete", "partial", "unknown"}:
+            raise ValueError("scientific coverage has an invalid status")
+        science_status[candidate_id] = status
     if science_coverage_seen != candidate_ids:
         raise ValueError("scientific coverage misses candidates")
-    exa_complete: dict[str, bool] = {
-        candidate_id: False for candidate_id in candidate_ids
+    exa_status: dict[str, str] = {
+        candidate_id: "unknown" for candidate_id in candidate_ids
     }
     exa_seen: set[str] = set()
     for row in exa_coverage:
@@ -234,17 +237,26 @@ def build_combined_enrichment(
         if candidate_id in exa_seen:
             raise ValueError("Exa coverage duplicates a candidate")
         exa_seen.add(candidate_id)
-        exa_complete[candidate_id] = row.get("status") == "complete"
+        status = row.get("status")
+        if status not in {"complete", "partial", "unknown"}:
+            raise ValueError("Exa coverage has an invalid status")
+        exa_status[candidate_id] = status
     if exa_seen != candidate_ids:
         raise ValueError("Exa coverage misses candidates")
-    if not all(science_complete.values()) or not all(exa_complete.values()):
-        raise ValueError("combined enrichment requires complete coverage for every candidate")
     coverage = []
     for candidate_id in sorted(candidate_ids):
         coverage.extend(
             (
-                {"candidate_id": candidate_id, "source_class": "scientific", "status": "complete"},
-                {"candidate_id": candidate_id, "source_class": "industry", "status": "complete"},
+                {
+                    "candidate_id": candidate_id,
+                    "source_class": "scientific",
+                    "status": science_status[candidate_id],
+                },
+                {
+                    "candidate_id": candidate_id,
+                    "source_class": "industry",
+                    "status": exa_status[candidate_id],
+                },
             )
         )
     files = {
@@ -263,6 +275,12 @@ def build_combined_enrichment(
             "scientific_documents": sum(row["connector"] == "openalex" for row in documents),
             "industry_documents": sum(row["connector"] == "exa" for row in documents),
             "excluded_exa_documents": len(excluded),
+            "scientific_coverage_complete": sum(
+                status == "complete" for status in science_status.values()
+            ),
+            "industry_coverage_complete": sum(
+                status == "complete" for status in exa_status.values()
+            ),
         },
         "inputs": {
             "analysis_plan": _digest(analysis_plan_bytes),

@@ -204,18 +204,18 @@ def build_analysis_evidence_input(
     combined_coverage = _rows(
         _checked(combined_root, combined_manifest, "coverage.jsonl"), "coverage"
     )
-    complete_pairs = {
+    coverage_pairs = {
         (row.get("candidate_id"), row.get("source_class"))
         for row in combined_coverage
-        if row.get("status") == "complete"
+        if row.get("status") in {"complete", "partial", "unknown"}
     }
     expected_pairs = {
         (candidate_id, source_class)
         for candidate_id in candidates
         for source_class in ("scientific", "industry")
     }
-    if complete_pairs != expected_pairs or len(combined_coverage) != len(expected_pairs):
-        raise ValueError("combined enrichment coverage is not exactly complete")
+    if coverage_pairs != expected_pairs or len(combined_coverage) != len(expected_pairs):
+        raise ValueError("combined enrichment coverage is not exactly defined")
 
     shortlist_root = Path(shortlist_dir)
     shortlist_manifest, shortlist_manifest_raw = _read_json(

@@ -143,6 +143,32 @@ class TemporalCountPlanTests(unittest.TestCase):
         self.assertEqual({task["per_page"] for task in tasks}, {1})
         self.assertEqual({task["count_field"] for task in tasks}, {"meta.count"})
 
+    def test_candidate_quotes_are_normalized_for_openalex_expression(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            analysis = root / "analysis"
+            _write_plan(
+                analysis,
+                "analysis-bundle",
+                [
+                    _candidate(
+                        "alias-group-001",
+                        "fintech-v1",
+                        '"Buy Now, Pay Later" (BNPL) services',
+                    )
+                ],
+                plan_role="analysis_candidates",
+            )
+            plan = json.loads(
+                build_analysis_temporal_count_plan(analysis_plan_dir=analysis)[0]
+            )
+
+        tasks = [row for row in plan["tasks"] if row["entity_type"] == "candidate"]
+        self.assertEqual(
+            {row["search_text"] for row in tasks},
+            {"Buy Now, Pay Later (BNPL) services"},
+        )
+
     def test_candidate_order_does_not_change_plan_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

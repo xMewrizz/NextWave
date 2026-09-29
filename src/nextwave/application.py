@@ -6,7 +6,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -24,7 +23,6 @@ from nextwave.discovery import (
     save_discovery_run,
 )
 from nextwave.evaluation import (
-    TEMPORAL_COUNT_RESULT_VERSION,
     export_analysis_evidence_input,
     export_analysis_feature_table,
     export_analysis_inference,
@@ -227,7 +225,7 @@ class AnalysisApplication:
                 output_dir=output,
                 environment=self.environment,
                 connectors=("openalex",),
-                concurrency=8,
+                concurrency=1,
             ),
         )
         exa_plan = self._publish(
@@ -277,7 +275,7 @@ class AnalysisApplication:
                 analysis_plan_dir=analysis_plan, output_dir=output
             ),
         )
-        self._discard_partial_temporal_counts(state)
+        temporal_limit = None if self._scientific_complete(scientific) else 0
         temporal_counts = self._publish(
             state,
             "temporal_counts",
@@ -289,9 +287,9 @@ class AnalysisApplication:
                 work_dir=self.workspace / "work" / "temporal_counts",
                 output_dir=output,
                 environment=self.environment,
-                concurrency=3,
+                max_new_tasks=temporal_limit,
+                concurrency=1,
             ),
-            validator=self._require_complete_temporal_counts,
         )
         features = self._publish(
             state,
@@ -569,39 +567,14 @@ class AnalysisApplication:
         self.progress(stage, progress, message)
         return output
 
-    def _discard_partial_temporal_counts(self, state: dict[str, Any]) -> None:
-        step = "temporal_counts"
-        output = self.workspace / "artifacts" / step
-        if not output.exists():
-            return
-        _validate_bundle(output)
-        manifest = _read_object(output / "manifest.json", "temporal count manifest")
-        if (
-            manifest.get("schema_version") == TEMPORAL_COUNT_RESULT_VERSION
-            and manifest.get("status") == "complete"
-        ):
-            return
-        if (
-            manifest.get("schema_version") != TEMPORAL_COUNT_RESULT_VERSION
-            or manifest.get("status") != "partial"
-        ):
-            raise ValueError("temporal count checkpoint is invalid")
-        if step in state["completed_steps"]:
-            if state["completed_steps"][-1] != step:
-                raise ValueError("partial temporal count checkpoint has dependent steps")
-            state["completed_steps"].pop()
-            state["artifacts"].pop(step, None)
-            _atomic_json(self.manifest_path, state)
-        shutil.rmtree(output)
-
     @staticmethod
-    def _require_complete_temporal_counts(output: Path) -> None:
-        manifest = _read_object(output / "manifest.json", "temporal count manifest")
-        if (
-            manifest.get("schema_version") != TEMPORAL_COUNT_RESULT_VERSION
-            or manifest.get("status") != "complete"
-        ):
-            raise ValueError("temporal count result must be complete v4")
+    def _scientific_complete(output: Path) -> bool:
+        manifest = _read_object(output / "manifest.json", "scientific enrichment manifest")
+        totals = manifest.get("totals")
+        failed = totals.get("failed_requests") if isinstance(totals, dict) else None
+        if isinstance(failed, bool) or not isinstance(failed, int) or failed < 0:
+            raise ValueError("scientific enrichment result has invalid totals")
+        return failed == 0
 
     def _complete_step(self, state: dict[str, Any], step: str, path: Path) -> None:
         expected = _STEPS[len(state["completed_steps"])]

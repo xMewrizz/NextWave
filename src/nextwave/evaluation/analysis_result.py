@@ -49,6 +49,7 @@ _CASE_KINDS = ("pilot", "prototype", "adoption", "investment", "research")
 _REASON_RU = {
     "duplicate": "тот же технологический объект уже представлен основной карточкой",
     "evidence_review_incomplete": "Evidence-проверка не завершена",
+    "not_substantive": "источники не подтверждают связь темы с запросом",
     "mature": "найдены признаки зрелости, внедрения, стандарта или рынка",
     "marketing_hype": "маркетинговое утверждение не подтверждено независимыми основаниями",
     "temporal_coverage_incomplete": "неполное временное покрытие",
@@ -71,6 +72,27 @@ _EXPLANATION_PREFIX = re.compile(
 )
 _TRAILING_ACRONYM = re.compile(r"\s*\(([^()]*)\)\s*$")
 _IDENTITY_SEPARATORS = re.compile(r"[-‐‑‒–—−_]+")
+_SCOPE_TOKEN = re.compile(r"[^\W_]+", re.UNICODE)
+_GENERIC_SCOPE_TERMS = {
+    "artificial",
+    "intelligence",
+    "machine",
+    "learning",
+    "technology",
+    "technologies",
+    "system",
+    "systems",
+    "application",
+    "applications",
+    "using",
+    "with",
+    "from",
+    "into",
+    "для",
+    "технологии",
+    "система",
+    "системы",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,11 +405,56 @@ def _top15_eligible(row: dict[str, Any]) -> bool:
     score = row["model"].get("score")
     threshold = row["model"].get("threshold")
     return (
-        row["status"] != CandidateStatus.EXCLUDED.value
+        row["status"] == CandidateStatus.MAIN.value
         and row["evidence_review"].get("status") == "complete"
         and type(score) in {int, float}
         and type(threshold) in {int, float}
         and float(score) >= float(threshold)
+    )
+
+
+def _scope_relevance_terms(plan: dict[str, Any]) -> tuple[str, ...]:
+    scope = plan.get("analysis_scope")
+    if not isinstance(scope, dict):
+        return ()
+    query = scope.get("normalized_query")
+    if not isinstance(query, str):
+        return ()
+    terms = {
+        token
+        for token in _SCOPE_TOKEN.findall(
+            unicodedata.normalize("NFKC", query).casefold()
+        )
+        if len(token) >= 3
+        and token not in _GENERIC_SCOPE_TERMS
+        and token not in {"and", "the"}
+    }
+    return tuple(sorted(terms))
+
+
+def _supports_query_scope(
+    *,
+    candidate: dict[str, Any],
+    support_documents: list[dict[str, Any]],
+    scope_terms: tuple[str, ...],
+) -> bool:
+    if not scope_terms:
+        return True
+    text_parts = [candidate.get("canonical_name"), *(candidate.get("aliases") or [])]
+    for document in support_documents:
+        text_parts.extend((document.get("title"), document.get("excerpt")))
+    tokens = set(
+        _SCOPE_TOKEN.findall(
+            unicodedata.normalize(
+                "NFKC",
+                " ".join(value for value in text_parts if isinstance(value, str)),
+            ).casefold()
+        )
+    )
+    return any(
+        token == term or (len(term) >= 5 and token.startswith(term))
+        for term in scope_terms
+        for token in tokens
     )
 
 
@@ -607,6 +674,7 @@ def build_analysis_result(
         documents=documents,
         cutoff=cutoff,
     )
+    scope_terms = _scope_relevance_terms(plan)
 
     results: list[dict[str, Any]] = []
     for candidate_id in sorted(candidate_ids):
@@ -648,6 +716,11 @@ def build_analysis_result(
                     actors.add(publisher.strip().casefold())
             grounded_ab = grounded_ab or document.get("trust_tier") in {"A", "B"}
         independent_origins = _independent_origin_count(support_documents)
+        query_relevance_verified = _supports_query_scope(
+            candidate=candidates[candidate_id],
+            support_documents=support_documents,
+            scope_terms=scope_terms,
+        )
         marketing_hype = bool(promotion) and (independent_origins < 2 or not grounded_ab)
         feature_values = features[candidate_id].get("features")
         if not isinstance(feature_values, dict):
@@ -658,7 +731,7 @@ def build_analysis_result(
                 candidate_id=candidate_id,
                 gate_decision="accept",
                 duplicate=False,
-                substantive=True,
+                substantive=query_relevance_verified,
                 evidence_review_complete=coverage_status == "complete",
                 mature=bool(maturity),
                 marketing_hype=marketing_hype,
@@ -723,6 +796,7 @@ def build_analysis_result(
                 "independent_origins": independent_origins,
                 "independent_actors": len(actors),
                 "grounded_ab_support": grounded_ab,
+                "query_relevance_verified": query_relevance_verified,
             },
             "description_ru": (
                 _plain_explanation(description_claim["explanation_ru"])

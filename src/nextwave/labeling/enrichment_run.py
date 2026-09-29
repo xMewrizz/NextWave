@@ -162,6 +162,8 @@ def _validate_search_task(
     terms: list[str],
     full_window: tuple[str, str],
     recent_window: tuple[str, str],
+    *,
+    validate_connector_contract: bool = True,
 ) -> None:
     """Validate one planned search against the scheduler's exact shape."""
 
@@ -322,6 +324,8 @@ def _validate_search_task(
             f"candidate {candidate_id!r} {connector} requests "
             "do not match the scheduler recomputation"
         )
+    if not validate_connector_contract:
+        return
     window = search["planned_window"]
     for request in requests:
         try:
@@ -352,7 +356,11 @@ def _validate_search_task(
             ) from error
 
 
-def load_validated_plan(plan_dir: str | Path) -> tuple[dict[str, Any], bytes, dict[str, Any]]:
+def load_validated_plan(
+    plan_dir: str | Path,
+    *,
+    connector_contracts: Collection[str] | None = None,
+) -> tuple[dict[str, Any], bytes, dict[str, Any]]:
     """Load and strictly validate an enrichment plan before any request.
 
     Returns the plan, its raw bytes and digest. Raises before anything is
@@ -458,6 +466,17 @@ def load_validated_plan(plan_dir: str | Path) -> tuple[dict[str, Any], bytes, di
     } != {scope_id}:
         raise ValueError("analysis candidates differ from analysis_scope")
 
+    validated_connectors = set(
+        connector_contracts or ("openalex", "mediacloud")
+    )
+    if not validated_connectors or not validated_connectors <= {
+        "openalex",
+        "mediacloud",
+    }:
+        raise ValueError(
+            "connector_contracts must contain openalex and/or mediacloud"
+        )
+
     records = []
     for entry in candidates:
         try:
@@ -548,7 +567,15 @@ def load_validated_plan(plan_dir: str | Path) -> tuple[dict[str, Any], bytes, di
             )
         for search in searches:
             _validate_search_task(
-                entry, search, record.candidate_id, terms, full_window, recent_window
+                entry,
+                search,
+                record.candidate_id,
+                terms,
+                full_window,
+                recent_window,
+                validate_connector_contract=(
+                    search["connector"] in validated_connectors
+                ),
             )
             search_ids.append(search["search_id"])
             request_ids.extend(request["request_id"] for request in search["requests"])
@@ -1328,7 +1355,6 @@ def run_enrichment(
 
     now = clock or (lambda: datetime.now(UTC))
     sleep = sleeper or time.sleep
-    plan, _plan_bytes, plan_digest = load_validated_plan(plan_dir)
     selected_connectors = set(connectors or ("openalex", "mediacloud"))
     if not 1 <= concurrency <= 16:
         raise ValueError("enrichment concurrency must be between 1 and 16")
@@ -1341,6 +1367,9 @@ def run_enrichment(
         )
     if concurrency > 1 and selected_connectors != {"openalex"}:
         raise ValueError("parallel enrichment is supported only for OpenAlex")
+    plan, _plan_bytes, plan_digest = load_validated_plan(
+        plan_dir, connector_contracts=selected_connectors
+    )
     bundle_id = plan["bundle"]["bundle_id"]
     output = Path(output_dir)
     if output.exists():

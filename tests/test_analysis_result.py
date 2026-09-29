@@ -12,6 +12,8 @@ from nextwave.evaluation.analysis_result import (
     _main_rank_key,
     _obvious_identity_key,
     _plain_explanation,
+    _scope_relevance_terms,
+    _supports_query_scope,
     _top15_eligible,
     build_analysis_result,
     export_analysis_result,
@@ -29,20 +31,49 @@ def _jsonl(rows: list[dict[str, object]]) -> bytes:
 
 
 class AnalysisResultTests(unittest.TestCase):
-    def test_top15_can_rank_verified_watchlist_without_calling_it_main(self) -> None:
+    def test_top15_contains_only_verified_main_candidates(self) -> None:
         row = {
             "status": "watchlist",
             "model": {"score": 0.72, "threshold": 0.5},
             "evidence_review": {"status": "complete", "support_claims": 1},
         }
 
-        self.assertTrue(_top15_eligible(row))
+        self.assertFalse(_top15_eligible(row))
+        self.assertTrue(_top15_eligible({**row, "status": "main"}))
         self.assertFalse(
             _top15_eligible(
                 {
                     **row,
                     "evidence_review": {"status": "failed", "support_claims": 1},
                 }
+            )
+        )
+
+    def test_scope_relevance_rejects_unrelated_generic_evidence(self) -> None:
+        terms = _scope_relevance_terms(
+            {"analysis_scope": {"normalized_query": "artificial intelligence in fintech"}}
+        )
+        self.assertEqual(terms, ("fintech",))
+        self.assertFalse(
+            _supports_query_scope(
+                candidate={"canonical_name": "Random forest", "aliases": []},
+                support_documents=[
+                    {
+                        "title": "Land-use prediction",
+                        "excerpt": "Random forests model road development.",
+                    }
+                ],
+                scope_terms=terms,
+            )
+        )
+        self.assertTrue(
+            _supports_query_scope(
+                candidate={
+                    "canonical_name": "AI agents in fintech",
+                    "aliases": [],
+                },
+                support_documents=[],
+                scope_terms=terms,
             )
         )
 

@@ -494,7 +494,7 @@ class AnalysisEvidenceInputTests(unittest.TestCase):
                 )
             self.assertFalse((root / "out").exists())
 
-    def test_incomplete_coverage_is_rejected(self) -> None:
+    def test_partial_coverage_keeps_available_documents(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             plan, combined, shortlist = build_dirs(
@@ -505,18 +505,22 @@ class AnalysisEvidenceInputTests(unittest.TestCase):
                     {
                         "candidate_id": "c1",
                         "source_class": "scientific",
-                        "status": "complete",
-                    }
+                        "status": "partial",
+                    },
+                    {
+                        "candidate_id": "c1",
+                        "source_class": "industry",
+                        "status": "unknown",
+                    },
                 ],
             )
-            with self.assertRaisesRegex(
-                ValueError, "coverage is not exactly complete"
-            ):
-                build_analysis_evidence_input(
-                    analysis_plan_dir=plan,
-                    combined_result_dir=combined,
-                    shortlist_dir=shortlist,
-                )
+            files = build_analysis_evidence_input(
+                analysis_plan_dir=plan,
+                combined_result_dir=combined,
+                shortlist_dir=shortlist,
+            )
+            documents = files["evidence_input_documents.jsonl"].splitlines()
+            self.assertEqual(len(documents), 1)
 
     def test_broken_shortlist_ranks_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

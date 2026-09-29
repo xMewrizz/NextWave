@@ -106,8 +106,6 @@ def build_analysis_feature_table(
         recent_start=recent_start,
         cutoff=cutoff,
     )
-    if any(not all(classes.values()) for classes in coverage.values()):
-        raise ValueError("analysis enrichment coverage must be complete for every candidate")
 
     temporal_dir = Path(temporal_count_dir)
     temporal_manifest = _read_json(
@@ -126,14 +124,24 @@ def build_analysis_feature_table(
         raise ValueError("analysis temporal result candidate roster differs from plan")
     for candidate_id, candidate in candidates.items():
         temporal = temporal_raw[candidate_id]
+        search_terms = candidate.get("search_terms")
+        expected_search = (
+            " ".join(search_terms[0].replace('"', " ").split())
+            if isinstance(search_terms, list)
+            and search_terms
+            and isinstance(search_terms[0], str)
+            else None
+        )
         if (
             temporal.get("analysis_scope_key") != candidate.get("analysis_scope_key")
             or temporal.get("domain") != candidate.get("domain")
-            or temporal.get("search_text") != candidate.get("search_terms", [None])[0]
+            or temporal.get("search_text") != expected_search
             or temporal.get("role") != "analysis"
         ):
             raise ValueError(f"analysis temporal identity differs for {candidate_id}")
-    temporal = _temporal_feature_index(temporal_dir, candidate_ids)
+    temporal = _temporal_feature_index(
+        temporal_dir, candidate_ids, allow_partial=True
+    )
 
     rows: list[dict[str, Any]] = []
     for candidate_id in sorted(candidate_ids):

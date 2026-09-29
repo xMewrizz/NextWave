@@ -120,6 +120,16 @@ class AnalysisApplicationTests(unittest.TestCase):
                             }
                         )
                     )
+                if name == "scientific_enrichment":
+                    (output / "manifest.json").write_bytes(
+                        _bytes(
+                            {
+                                "schema_version": "labeling-enrichment-result-v2",
+                                "totals": {"failed_requests": 0},
+                                "outputs": {},
+                            }
+                        )
+                    )
                 return object()
 
             return execute
@@ -206,13 +216,13 @@ class AnalysisApplicationTests(unittest.TestCase):
                 next(kwargs for name, kwargs in calls if name == "scientific_enrichment")[
                     "concurrency"
                 ],
-                8,
+                1,
             )
             self.assertEqual(
                 next(kwargs for name, kwargs in calls if name == "temporal_counts")[
                     "concurrency"
                 ],
-                3,
+                1,
             )
             self.assertIn("candidate_gate", {stage for stage, _, _ in progress})
             self.assertEqual(progress[-1][0:2], ("result", 1.0))
@@ -278,7 +288,7 @@ class AnalysisApplicationTests(unittest.TestCase):
                 "artifacts/discovery/job-1-saved",
             )
 
-    def test_partial_temporal_counts_are_retried_from_completed_cache(self):
+    def test_partial_temporal_counts_continue_with_missing_features(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "model").mkdir()
@@ -311,12 +321,9 @@ class AnalysisApplicationTests(unittest.TestCase):
                     "nextwave.application.run_temporal_counts",
                     partial_temporal_counts,
                 ):
-                    with self.assertRaisesRegex(ValueError, "must be complete"):
-                        runner.run(query="AI infrastructure", analysis_id="job-1")
+                    result = runner.run(query="AI infrastructure", analysis_id="job-1")
                 state = json.loads(runner.manifest_path.read_text(encoding="utf-8"))
-                self.assertEqual(state["completed_steps"][-1], "temporal_plan")
-
-                result = runner.run(query="AI infrastructure", analysis_id="job-1")
+                self.assertEqual(state["completed_steps"][-1], "result")
             finally:
                 for item in reversed(patches):
                     item.stop()
@@ -324,6 +331,46 @@ class AnalysisApplicationTests(unittest.TestCase):
             self.assertTrue(result.result.is_file())
             final_state = json.loads(runner.manifest_path.read_text(encoding="utf-8"))
             self.assertIn("temporal_counts", final_state["completed_steps"])
+
+    def test_incomplete_scientific_source_skips_new_temporal_requests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "model").mkdir()
+            (root / "model" / "model.json").write_text("{}\n", encoding="utf-8")
+            calls: list[tuple[str, dict]] = []
+            patches = self._patches(calls)
+            for item in patches:
+                item.start()
+
+            def partial_scientific(**kwargs):
+                output = Path(kwargs["output_dir"])
+                _bundle(output)
+                (output / "manifest.json").write_bytes(
+                    _bytes(
+                        {
+                            "schema_version": "labeling-enrichment-result-v2",
+                            "totals": {"failed_requests": 2},
+                            "outputs": {},
+                        }
+                    )
+                )
+
+            try:
+                with patch("nextwave.application.run_enrichment", partial_scientific):
+                    result = AnalysisApplication(
+                        workspace=root / "job",
+                        model_dir=root / "model",
+                        environment=_environment(),
+                    ).run(query="AI infrastructure", analysis_id="job-1")
+            finally:
+                for item in reversed(patches):
+                    item.stop()
+
+            self.assertTrue(result.result.is_file())
+            temporal = next(
+                kwargs for name, kwargs in calls if name == "temporal_counts"
+            )
+            self.assertEqual(temporal["max_new_tasks"], 0)
 
     def test_corrupt_completed_artifact_is_rejected_on_resume(self):
         with tempfile.TemporaryDirectory() as directory:

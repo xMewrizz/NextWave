@@ -173,7 +173,7 @@ class AnalysisFeatureTests(unittest.TestCase):
         self.assertTrue(row["features"]["scientific_previous_present"])
         self.assertFalse(row["features"]["scientific_recent_present"])
 
-    def test_rejects_incomplete_enrichment_coverage(self) -> None:
+    def test_preserves_incomplete_enrichment_coverage_as_model_feature(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             plan, result, temporal = self._fixture(root)
@@ -185,12 +185,86 @@ class AnalysisFeatureTests(unittest.TestCase):
             manifest = json.loads((result / "manifest.json").read_text())
             manifest["outputs"]["coverage.jsonl"] = _digest(payload)
             (result / "manifest.json").write_bytes(_bytes(manifest))
-            with self.assertRaisesRegex(ValueError, "coverage must be complete"):
-                build_analysis_feature_table(
-                    analysis_plan_dir=plan,
-                    enrichment_result_dir=result,
-                    temporal_count_dir=temporal,
-                )
+            output, _ = build_analysis_feature_table(
+                analysis_plan_dir=plan,
+                enrichment_result_dir=result,
+                temporal_count_dir=temporal,
+            )
+            row = json.loads(output)
+            self.assertTrue(row["features"]["scientific_coverage_complete"])
+            self.assertFalse(row["features"]["industry_coverage_complete"])
+
+    def test_partial_temporal_coverage_uses_missing_value_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan, result, temporal = self._fixture(root)
+            path = temporal / "candidate_temporal_features.jsonl"
+            row = json.loads(path.read_text(encoding="utf-8"))
+            row["coverage"] = "unknown"
+            row["counts"] = {
+                "candidate_previous": None,
+                "candidate_recent": None,
+                "scope_previous": None,
+                "scope_recent": None,
+            }
+            for key in (
+                "candidate_log_growth",
+                "scope_share_previous",
+                "scope_share_recent",
+                "scope_share_delta",
+            ):
+                row[key] = None
+            payload = _jsonl([row])
+            path.write_bytes(payload)
+            manifest = json.loads((temporal / "manifest.json").read_text())
+            manifest["status"] = "partial"
+            manifest["outputs"]["candidate_temporal_features.jsonl"] = _digest(
+                payload
+            )
+            (temporal / "manifest.json").write_bytes(_bytes(manifest))
+
+            output, _ = build_analysis_feature_table(
+                analysis_plan_dir=plan,
+                enrichment_result_dir=result,
+                temporal_count_dir=temporal,
+            )
+            features = json.loads(output)["features"]
+            self.assertFalse(features["temporal_count_coverage_complete"])
+            self.assertIsNone(features["scientific_count_log_growth"])
+
+    def test_temporal_identity_accepts_normalized_candidate_quotes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan, result, temporal = self._fixture(root)
+            plan_path = plan / "plan.json"
+            plan_value = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan_value["candidates"][0]["search_terms"][0] = '"Quantum" platform'
+            plan_payload = _bytes(plan_value)
+            plan_path.write_bytes(plan_payload)
+            plan_manifest = json.loads((plan / "manifest.json").read_text())
+            plan_manifest["outputs"]["plan.json"] = _digest(plan_payload)
+            (plan / "manifest.json").write_bytes(_bytes(plan_manifest))
+            result_manifest = json.loads((result / "manifest.json").read_text())
+            result_manifest["plan"] = _digest(plan_payload)
+            (result / "manifest.json").write_bytes(_bytes(result_manifest))
+
+            temporal_path = temporal / "candidate_temporal_features.jsonl"
+            temporal_row = json.loads(temporal_path.read_text(encoding="utf-8"))
+            temporal_row["search_text"] = "Quantum platform"
+            temporal_payload = _jsonl([temporal_row])
+            temporal_path.write_bytes(temporal_payload)
+            temporal_manifest = json.loads((temporal / "manifest.json").read_text())
+            temporal_manifest["outputs"]["candidate_temporal_features.jsonl"] = (
+                _digest(temporal_payload)
+            )
+            (temporal / "manifest.json").write_bytes(_bytes(temporal_manifest))
+
+            rows, _ = build_analysis_feature_table(
+                analysis_plan_dir=plan,
+                enrichment_result_dir=result,
+                temporal_count_dir=temporal,
+            )
+            self.assertEqual(json.loads(rows)["candidate_id"], "alias-group-001")
 
     def test_rejects_temporal_identity_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

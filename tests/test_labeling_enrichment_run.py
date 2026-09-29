@@ -379,6 +379,29 @@ class EnrichmentRunTests(unittest.TestCase):
             self.assertEqual(industry["status"], "unknown")
             self.assertFalse(any("mediacloud" in call[0] for call in transport.calls))
 
+    def test_openalex_only_ignores_unselected_mediacloud_query_syntax(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(
+                root,
+                "quoted-media-term",
+                [candidate_row(1, canonical_name='"Buy Now, Pay Later" services')],
+            )
+            transport = FakeTransport()
+
+            run_with_fakes(
+                plan,
+                root / "work",
+                root / "output",
+                transport,
+                env={"NEXTWAVE_OPENALEX_MAILTO": FAKE_MAILTO},
+                connectors=("openalex",),
+            )
+
+            results = read_jsonl(root / "output" / "request_results.jsonl")
+            self.assertTrue(results)
+            self.assertEqual({row["connector"] for row in results}, {"openalex"})
+
     def test_all_success_including_empty_is_complete(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

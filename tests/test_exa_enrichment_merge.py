@@ -64,7 +64,7 @@ class ExaEnrichmentMergeTests(unittest.TestCase):
                 {
                     "candidate_id": "candidate-1",
                     "source_class": "scientific",
-                    "status": "complete",
+                    "status": "partial",
                 }
             )
             write_bundle(
@@ -159,6 +159,13 @@ class ExaEnrichmentMergeTests(unittest.TestCase):
             self.assertEqual(news["source_type"], "industry_media")
             self.assertEqual(excluded[0]["document_id"], "exa-paper")
             self.assertEqual(excluded[0]["reason"], "academic_domain")
+            coverage = [
+                json.loads(line) for line in output["coverage.jsonl"].splitlines()
+            ]
+            self.assertEqual(
+                {row["source_class"]: row["status"] for row in coverage},
+                {"scientific": "partial", "industry": "complete"},
+            )
 
 
 if __name__ == "__main__":

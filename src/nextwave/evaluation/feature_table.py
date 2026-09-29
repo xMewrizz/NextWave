@@ -328,7 +328,10 @@ def _document_features(
 
 
 def _temporal_feature_index(
-    directory: Path | None, candidate_ids: set[str]
+    directory: Path | None,
+    candidate_ids: set[str],
+    *,
+    allow_partial: bool = False,
 ) -> dict[str, dict[str, bool | float | None]]:
     empty = {
         candidate_id: {
@@ -340,9 +343,9 @@ def _temporal_feature_index(
     if directory is None:
         return empty
     manifest = _read_json(directory / MANIFEST_FILENAME, "temporal count manifest")
-    if (
-        manifest.get("schema_version") != _TEMPORAL_COUNT_RESULT_VERSION
-        or manifest.get("status") != "complete"
+    if manifest.get("schema_version") != _TEMPORAL_COUNT_RESULT_VERSION or (
+        manifest.get("status") != "complete"
+        and not (allow_partial and manifest.get("status") == "partial")
     ):
         raise ValueError("temporal count result must be complete v4")
     rows = _rows_from_bytes(
@@ -361,6 +364,9 @@ def _temporal_feature_index(
     for candidate_id in candidate_ids:
         row = index[candidate_id]
         counts = row.get("counts")
+        if row.get("coverage") != "complete" and allow_partial:
+            result[candidate_id] = empty[candidate_id]
+            continue
         if row.get("coverage") != "complete" or not isinstance(counts, dict):
             raise ValueError(f"temporal count coverage is not complete for {candidate_id}")
         expected_count_keys = {
