@@ -294,6 +294,7 @@ class AnalysisResultTests(unittest.TestCase):
         self.assertEqual(summary["analysis_status"], "insufficient_main")
         self.assertEqual(unified["status"], "insufficient_main")
         self.assertEqual(unified["summary"], summary)
+        self.assertEqual(summary["candidate_gate"]["evaluated_proposals"], 4)
         self.assertEqual(len(unified["candidates"]), 4)
         self.assertEqual(len(unified["top15"]), 1)
 

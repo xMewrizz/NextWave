@@ -969,10 +969,10 @@ def _run_discovery_run(
     coverage = result.to_dict().get("gate_coverage") or {}
     if coverage.get("status") == "partial":
         print(
-            "Поиск сохранён с неполным покрытием Candidate Gate: "
-            f"проверено {coverage.get('checked_proposals', 0)} из "
-            f"{coverage.get('total_proposals', 0)}. "
-            "Запуск нельзя использовать для итогового рейтинга или разметки."
+            "Candidate Gate проверил "
+            f"{coverage.get('checked_proposals', 0)} предложений и достиг "
+            "вычислительного предела. Продуктовый анализ может продолжить работу; "
+            "для обучающей разметки требуется полный Gate."
         )
     else:
         print("Поиск завершён, запуск сохранён.")

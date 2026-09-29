@@ -16,6 +16,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable, Collection, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from enum import Enum
@@ -1135,6 +1136,154 @@ def _deduplicate_document_rows(
     return list(chosen.values())
 
 
+def _run_planned_request(
+    *,
+    entry: dict[str, Any],
+    search: dict[str, Any],
+    request: dict[str, Any],
+    work: Path,
+    bundle_id: str,
+    openalex_connector: OpenAlexConnector,
+    mediacloud_connector: MediaCloudConnector | None,
+    clock: Callable[[], datetime],
+    sleeper: Callable[[float], None],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    window = search["planned_window"]
+    snapshot_version = (
+        "openalex-discovery-v1"
+        if search["connector"] == "openalex"
+        else "media-discovery-v1"
+    )
+    spec = _request_spec(entry, search, request)
+    spec_digest = _spec_digest(spec)
+    completed_dir = work / "completed" / request["request_id"]
+    if completed_dir.exists():
+        cached = _check_completed_cache(completed_dir, spec)
+        reused = True
+        status = "success"
+        attempts = cached.get("attempts") or []
+        documents = cached.get("documents") or []
+        http_status = cached.get("http_status")
+        returned_records = cached.get("returned_records")
+        parsed_documents = cached.get("parsed_documents", len(documents))
+        parse_issue_count = cached.get("parse_issue_count", 0)
+        error = None
+        snapshot_id = cached.get("snapshot_id")
+    else:
+        outcome, record, staging = _execute_request(
+            candidate=entry,
+            search=search,
+            request=request,
+            window=window,
+            openalex_connector=openalex_connector,
+            mediacloud_connector=mediacloud_connector,
+            staging_parent=work,
+            snapshot_version=snapshot_version,
+            bundle_id=bundle_id,
+            clock=clock,
+            sleeper=sleeper,
+        )
+        if outcome == "success":
+            documents = [
+                {
+                    **document,
+                    "candidate_id": entry["candidate_id"],
+                    "search_id": search["search_id"],
+                    "request_id": request["request_id"],
+                    "connector": search["connector"],
+                    "snapshot_id": "snapshot",
+                }
+                for document in record.get("documents") or []
+            ]
+            stored = {
+                "schema_version": ENRICHMENT_REQUEST_VERSION,
+                "request_id": request["request_id"],
+                "candidate_id": entry["candidate_id"],
+                "search_id": search["search_id"],
+                "connector": search["connector"],
+                "role": search.get("role"),
+                "search_text": request["search_text"],
+                "languages": list(request["languages"]),
+                "spec_digest": spec_digest,
+                "snapshot_id": "snapshot",
+                "status": "success",
+                "http_status": record.get("http_status"),
+                "returned_records": record.get("returned_records"),
+                "parsed_documents": record.get("parsed_documents"),
+                "parse_issue_count": record.get("parse_issue_count"),
+                "parse_issues": record.get("parse_issues"),
+                "attempts": record.get("runs"),
+                "documents": documents,
+            }
+            if completed_dir.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+                raise FileExistsError(
+                    "completed request already exists and must never be replaced: "
+                    f"{completed_dir}"
+                )
+            result_bytes = (
+                json.dumps(stored, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+            ).encode("utf-8")
+            (staging / "result.json").write_bytes(result_bytes)
+            snapshot_manifest_bytes = (staging / "snapshot" / "manifest.json").read_bytes()
+            cache = {
+                "schema_version": ENRICHMENT_CACHE_VERSION,
+                "request_id": request["request_id"],
+                "candidate_id": entry["candidate_id"],
+                "search_id": search["search_id"],
+                "spec_digest": spec_digest,
+                "result": _digest(result_bytes),
+                "snapshot_manifest": _digest(snapshot_manifest_bytes),
+            }
+            (staging / CACHE_MANIFEST_FILENAME).write_bytes(
+                (
+                    json.dumps(cache, ensure_ascii=False, indent=2, sort_keys=True)
+                    + "\n"
+                ).encode("utf-8")
+            )
+            publish_staging(staging, completed_dir)
+            reused = False
+            status = "success"
+            attempts = record.get("runs")
+            http_status = record.get("http_status")
+            returned_records = record.get("returned_records")
+            parsed_documents = record.get("parsed_documents")
+            parse_issue_count = record.get("parse_issue_count")
+            error = None
+            snapshot_id = "snapshot"
+        else:
+            _publish_failure(work, request["request_id"], record, staging)
+            reused = False
+            status = "failed"
+            attempts = record.get("runs")
+            documents = []
+            http_status = (record.get("error") or {}).get("http_status")
+            returned_records = None
+            parsed_documents = 0
+            parse_issue_count = 0
+            error = record.get("error")
+            snapshot_id = None
+    row = {
+        "candidate_id": entry["candidate_id"],
+        "search_id": search["search_id"],
+        "request_id": request["request_id"],
+        "connector": search["connector"],
+        "role": search.get("role"),
+        "search_text": request["search_text"],
+        "languages": list(request["languages"]),
+        "status": status,
+        "reused": reused,
+        "attempts": len(attempts or []),
+        "http_status": http_status,
+        "returned_records": returned_records,
+        "returned_documents": parsed_documents if status == "success" else 0,
+        "parse_issue_count": parse_issue_count if status == "success" else 0,
+        "snapshot_id": snapshot_id,
+        "error": error,
+    }
+    return row, list(documents)
+
+
 def run_enrichment(
     *,
     plan_dir: str | Path,
@@ -1147,6 +1296,7 @@ def run_enrichment(
     monotonic_clock: Callable[[], float] | None = None,
     sleeper: Callable[[float], None] | None = None,
     connectors: Collection[str] | None = None,
+    concurrency: int = 1,
 ) -> LabelingEnrichmentRunPaths:
     """Execute every planned request once, reusing verified work, and publish."""
 
@@ -1154,6 +1304,8 @@ def run_enrichment(
     sleep = sleeper or time.sleep
     plan, _plan_bytes, plan_digest = load_validated_plan(plan_dir)
     selected_connectors = set(connectors or ("openalex", "mediacloud"))
+    if not 1 <= concurrency <= 16:
+        raise ValueError("enrichment concurrency must be between 1 and 16")
     if not selected_connectors or not selected_connectors <= {
         "openalex",
         "mediacloud",
@@ -1161,6 +1313,8 @@ def run_enrichment(
         raise ValueError(
             "enrichment connectors must contain openalex and/or mediacloud"
         )
+    if concurrency > 1 and selected_connectors != {"openalex"}:
+        raise ValueError("parallel enrichment is supported only for OpenAlex")
     bundle_id = plan["bundle"]["bundle_id"]
     output = Path(output_dir)
     if output.exists():
@@ -1210,171 +1364,43 @@ def run_enrichment(
         else None
     )
 
-    request_rows: list[dict[str, Any]] = []
-    document_rows: list[dict[str, Any]] = []
-    for entry in sorted(plan["candidates"], key=lambda item: item["candidate_id"]):
-        for search in entry["searches"]:
-            if search["connector"] not in selected_connectors:
-                continue
-            window = search["planned_window"]
-            snapshot_version = (
-                "openalex-discovery-v1"
-                if search["connector"] == "openalex"
-                else "media-discovery-v1"
-            )
-            for request in search["requests"]:
-                spec = _request_spec(entry, search, request)
-                spec_digest = _spec_digest(spec)
-                completed_dir = work / "completed" / request["request_id"]
-                if completed_dir.exists():
-                    cached = _check_completed_cache(completed_dir, spec)
-                    reused = True
-                    status = "success"
-                    attempts = cached.get("attempts") or []
-                    documents = cached.get("documents") or []
-                    http_status = cached.get("http_status")
-                    returned_records = cached.get("returned_records")
-                    parsed_documents = cached.get(
-                        "parsed_documents", len(documents)
-                    )
-                    parse_issue_count = cached.get("parse_issue_count", 0)
-                    error = None
-                    snapshot_id = cached.get("snapshot_id")
-                else:
-                    outcome, record, staging = _execute_request(
-                        candidate=entry,
-                        search=search,
-                        request=request,
-                        window=window,
-                        openalex_connector=openalex_connector,
-                        mediacloud_connector=mediacloud_connector,
-                        staging_parent=work,
-                        snapshot_version=snapshot_version,
-                        bundle_id=bundle_id,
-                        clock=now,
-                        sleeper=sleep,
-                    )
-                    if outcome == "success":
-                        provenance_rows = [
-                            {
-                                **document,
-                                "candidate_id": entry["candidate_id"],
-                                "search_id": search["search_id"],
-                                "request_id": request["request_id"],
-                                "connector": search["connector"],
-                                "snapshot_id": "snapshot",
-                            }
-                            for document in record.get("documents") or []
-                        ]
-                        stored = {
-                            "schema_version": ENRICHMENT_REQUEST_VERSION,
-                            "request_id": request["request_id"],
-                            "candidate_id": entry["candidate_id"],
-                            "search_id": search["search_id"],
-                            "connector": search["connector"],
-                            "role": search.get("role"),
-                            "search_text": request["search_text"],
-                            "languages": list(request["languages"]),
-                            "spec_digest": spec_digest,
-                            "snapshot_id": "snapshot",
-                            "status": "success",
-                            "http_status": record.get("http_status"),
-                            "returned_records": record.get("returned_records"),
-                            "parsed_documents": record.get("parsed_documents"),
-                            "parse_issue_count": record.get("parse_issue_count"),
-                            "parse_issues": record.get("parse_issues"),
-                            "attempts": record.get("runs"),
-                            "documents": provenance_rows,
-                        }
-                        if completed_dir.exists():
-                            shutil.rmtree(staging, ignore_errors=True)
-                            raise FileExistsError(
-                                "completed request already exists and must "
-                                f"never be replaced: {completed_dir}"
-                            )
-                        result_bytes = (
-                            json.dumps(
-                                stored,
-                                ensure_ascii=False,
-                                indent=2,
-                                sort_keys=True,
-                            )
-                            + "\n"
-                        ).encode("utf-8")
-                        (staging / "result.json").write_bytes(result_bytes)
-                        snapshot_manifest_bytes = (
-                            staging / "snapshot" / "manifest.json"
-                        ).read_bytes()
-                        (staging / CACHE_MANIFEST_FILENAME).write_bytes(
-                            (
-                                json.dumps(
-                                    {
-                                        "schema_version": ENRICHMENT_CACHE_VERSION,
-                                        "request_id": request["request_id"],
-                                        "candidate_id": entry["candidate_id"],
-                                        "search_id": search["search_id"],
-                                        "spec_digest": spec_digest,
-                                        "result": _digest(result_bytes),
-                                        "snapshot_manifest": _digest(
-                                            snapshot_manifest_bytes
-                                        ),
-                                    },
-                                    ensure_ascii=False,
-                                    indent=2,
-                                    sort_keys=True,
-                                )
-                                + "\n"
-                            ).encode("utf-8")
-                        )
-                        publish_staging(staging, completed_dir)
-                        reused = False
-                        status = "success"
-                        attempts = record.get("runs")
-                        documents = provenance_rows
-                        http_status = record.get("http_status")
-                        returned_records = record.get("returned_records")
-                        parsed_documents = record.get("parsed_documents")
-                        parse_issue_count = record.get("parse_issue_count")
-                        error = None
-                        snapshot_id = "snapshot"
-                    else:
-                        _publish_failure(work, request["request_id"], record, staging)
-                        reused = False
-                        status = "failed"
-                        attempts = record.get("runs")
-                        documents = []
-                        http_status = (record.get("error") or {}).get("http_status")
-                        returned_records = None
-                        parsed_documents = 0
-                        parse_issue_count = 0
-                        error = record.get("error")
-                        snapshot_id = None
-                request_rows.append(
-                    {
-                        "candidate_id": entry["candidate_id"],
-                        "search_id": search["search_id"],
-                        "request_id": request["request_id"],
-                        "connector": search["connector"],
-                        "role": search.get("role"),
-                        "search_text": request["search_text"],
-                        "languages": list(request["languages"]),
-                        "status": status,
-                        "reused": reused,
-                        "attempts": len(attempts or []),
-                        "http_status": http_status,
-                        "returned_records": returned_records,
-                        "returned_documents": parsed_documents
-                        if status == "success"
-                        else 0,
-                        "parse_issue_count": parse_issue_count
-                        if status == "success"
-                        else 0,
-                        "snapshot_id": snapshot_id,
-                        "error": error,
-                    }
-                )
-                for document in documents or []:
-                    document_rows.append(document)
+    planned_requests = [
+        (entry, search, request)
+        for entry in sorted(plan["candidates"], key=lambda item: item["candidate_id"])
+        for search in entry["searches"]
+        if search["connector"] in selected_connectors
+        for request in search["requests"]
+    ]
+
+    def execute_planned(
+        item: tuple[dict[str, Any], dict[str, Any], dict[str, Any]],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        entry, search, request = item
+        return _run_planned_request(
+            entry=entry,
+            search=search,
+            request=request,
+            work=work,
+            bundle_id=bundle_id,
+            openalex_connector=openalex_connector,
+            mediacloud_connector=mediacloud_connector,
+            clock=now,
+            sleeper=sleep,
+        )
+
+    if concurrency == 1:
+        executed = [execute_planned(item) for item in planned_requests]
+    else:
+        with ThreadPoolExecutor(
+            max_workers=min(concurrency, max(1, len(planned_requests)))
+        ) as pool:
+            executed = list(pool.map(execute_planned, planned_requests))
+    request_rows = [row for row, _documents in executed]
+    document_rows = [
+        document
+        for _row, documents in executed
+        for document in documents
+    ]
 
     document_rows = _deduplicate_document_rows(document_rows)
     coverage_rows: list[dict[str, Any]] = []

@@ -14,7 +14,11 @@ from nextwave.discovery import (
     load_gate_llm_settings,
     load_llm_runtime_settings,
 )
-from nextwave.discovery.candidate_gate import QUALIFICATION_GATE_ID
+from nextwave.discovery.candidate_gate import (
+    PRODUCT_GATE_ID,
+    QUALIFICATION_GATE_ID,
+    QUALIFICATION_GATE_VERSION,
+)
 from nextwave.discovery.candidates import CandidateProposalBatch
 
 
@@ -84,8 +88,8 @@ class GateLlmConfigTests(unittest.TestCase):
             CandidateProposalBatch(analysis_scope_id=scope.scope_id, proposals=(), exclusions=()),
             (),
         )
-        self.assertEqual(result.gate_id, QUALIFICATION_GATE_ID)
-        self.assertEqual(result.gate_id, "yandex-yandexgpt-pro-5-candidate-gate-v4")
+        self.assertEqual(result.gate_id, PRODUCT_GATE_ID)
+        self.assertEqual(result.gate_id, "yandex-yandexgpt-pro-5-candidate-gate-v5")
 
     def test_resolver_and_evidence_stay_on_main_lite(self) -> None:
         env = base_env() | {
@@ -99,6 +103,17 @@ class GateLlmConfigTests(unittest.TestCase):
         self.assertIn("lite 5", extractor)
         self.assertNotIn("pro 5", extractor)
         self.assertEqual(load_llm_runtime_settings(env).selection.model, "YandexGPT Lite 5")
+
+    def test_frozen_qualification_builder_keeps_gate_v4(self) -> None:
+        env = base_env() | {
+            "NEXTWAVE_GATE_LLM_PROVIDER": "yandex",
+            "NEXTWAVE_GATE_LLM_MODEL": "YandexGPT Pro 5",
+        }
+        gate = build_candidate_gate_from_environment(
+            env,
+            version=QUALIFICATION_GATE_VERSION,
+        )
+        self.assertEqual(gate.gate_id, QUALIFICATION_GATE_ID)
 
     def test_secrets_absent_from_repr_and_serialized_result(self) -> None:
         env = base_env() | {

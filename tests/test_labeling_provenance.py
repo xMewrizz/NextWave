@@ -14,6 +14,7 @@ from nextwave.__main__ import main
 from nextwave.discovery.candidate_gate import (
     CANDIDATE_GATE_VERSION,
     QUALIFICATION_GATE_ID,
+    QUALIFICATION_GATE_VERSION,
 )
 from nextwave.discovery.pipeline import DISCOVERY_PIPELINE_VERSION
 from nextwave.discovery.run_store import DiscoveryRun, assert_run_labeling_eligible
@@ -157,7 +158,8 @@ class ProvenanceEligibilityTests(unittest.TestCase):
         run = provenance_run("run-new")
         assert_run_labeling_eligible(run)
         self.assertEqual(DISCOVERY_PIPELINE_VERSION, "discovery-pipeline-v10")
-        self.assertEqual(CANDIDATE_GATE_VERSION, "candidate-gate-v4")
+        self.assertEqual(QUALIFICATION_GATE_VERSION, "candidate-gate-v4")
+        self.assertEqual(CANDIDATE_GATE_VERSION, "candidate-gate-v5")
 
     def test_old_gate_v1_is_rejected(self) -> None:
         run = provenance_run("run-old-gate", gate_id=OLD_GATE_ID)
@@ -250,8 +252,8 @@ class ProvenanceEligibilityTests(unittest.TestCase):
 
     def test_fake_gate_suffix_is_rejected(self) -> None:
         fake = "fakecandidate-gate-v4"
-        self.assertTrue(fake.endswith(CANDIDATE_GATE_VERSION))
-        self.assertFalse(fake.endswith("-" + CANDIDATE_GATE_VERSION))
+        self.assertTrue(fake.endswith(QUALIFICATION_GATE_VERSION))
+        self.assertFalse(fake.endswith("-" + QUALIFICATION_GATE_VERSION))
         run = provenance_run(
             "run-fake-gate",
             gate_id=fake,

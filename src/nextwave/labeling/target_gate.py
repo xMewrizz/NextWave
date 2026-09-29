@@ -24,6 +24,7 @@ from nextwave.contracts import SourceDocument, SourceType, TrustTier
 from nextwave.datasets.artifacts import publish_artifact_bundle
 from nextwave.discovery import (
     QUALIFICATION_GATE_ID,
+    QUALIFICATION_GATE_VERSION,
     AnalysisScope,
     CandidateGateResult,
     CandidateMentionKind,
@@ -624,7 +625,10 @@ def run_target_gate(
         proposal = _proposal(candidate, scope.scope_id, groundings)
         proposals_to_run.append((candidate, proposal))
 
-    runner = gate or build_candidate_gate_from_environment(environment)
+    runner = gate or build_candidate_gate_from_environment(
+        environment,
+        version=QUALIFICATION_GATE_VERSION,
+    )
     if runner.gate_id != QUALIFICATION_GATE_ID:
         raise ValueError(
             f"target Gate {runner.gate_id!r} does not match qualification Gate "

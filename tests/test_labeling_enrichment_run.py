@@ -7,6 +7,8 @@ import json
 import os
 import shutil
 import tempfile
+import threading
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from datetime import UTC, datetime, timedelta
@@ -170,6 +172,25 @@ class FakeTransport:
         )
 
 
+class ConcurrentFakeTransport(FakeTransport):
+    def __init__(self) -> None:
+        super().__init__()
+        self.active = 0
+        self.max_active = 0
+        self.lock = threading.Lock()
+
+    def get(self, url: str, *, headers, timeout_seconds: float) -> HttpResponse:
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            time.sleep(0.02)
+            return super().get(url, headers=headers, timeout_seconds=timeout_seconds)
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
 class FakeClock:
     def __init__(self) -> None:
         self.now = FIXED_NOW
@@ -264,6 +285,7 @@ def run_with_fakes(
     mediacloud_transport=None,
     env: dict[str, str] | None = None,
     connectors=None,
+    concurrency=1,
 ):
     return run_enrichment(
         plan_dir=plan,
@@ -276,6 +298,7 @@ def run_with_fakes(
         monotonic_clock=monotonic or FakeMonotonic(),
         sleeper=sleeper or FakeSleeper(),
         connectors=connectors,
+        concurrency=concurrency,
     )
 
 
@@ -296,6 +319,34 @@ def scan_bytes(root: Path) -> bytes:
 
 
 class EnrichmentRunTests(unittest.TestCase):
+    def test_openalex_only_requests_run_concurrently(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(root, "parallel", [candidate_row(1)])
+            transport = ConcurrentFakeTransport()
+            run_with_fakes(
+                plan,
+                root / "work",
+                root / "output",
+                openalex_transport=transport,
+                connectors=("openalex",),
+                concurrency=4,
+            )
+            self.assertGreater(transport.max_active, 1)
+
+    def test_parallel_mode_rejects_rate_limited_mediacloud(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = build_plan_output(root, "parallel-media", [candidate_row(1)])
+            with self.assertRaisesRegex(ValueError, "only for OpenAlex"):
+                run_with_fakes(
+                    plan,
+                    root / "work",
+                    root / "output",
+                    transport=FakeTransport(),
+                    concurrency=2,
+                )
+
     def test_openalex_only_skips_mediacloud_without_its_key(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

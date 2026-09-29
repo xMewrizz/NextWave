@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from nextwave.discovery import QUALIFICATION_GATE_ID
+from nextwave.discovery import PRODUCT_GATE_ID
 from nextwave.discovery.pipeline import DISCOVERY_PIPELINE_VERSION
 from nextwave.discovery.run_store import DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION
 from nextwave.labeling.enrichment_plan import (
@@ -34,7 +34,7 @@ def _run(root: Path, *, cutoff_date: str = "2026-09-15") -> Path:
             "skipped_proposal_ids": [],
         },
         "candidate_gate": {
-            "gate_id": QUALIFICATION_GATE_ID,
+            "gate_id": PRODUCT_GATE_ID,
             "input_proposal_ids": ["proposal-1", "proposal-2", "proposal-3"],
             "decisions": [
                 {"proposal_id": "proposal-1", "decision": "accept"},
@@ -87,9 +87,10 @@ def _run(root: Path, *, cutoff_date: str = "2026-09-15") -> Path:
         "run_id": "run-001",
         "analysis_status": "complete",
         "pipeline_version": DISCOVERY_PIPELINE_VERSION,
-        "gate_id": QUALIFICATION_GATE_ID,
+        "gate_id": PRODUCT_GATE_ID,
         "cutoff_date": cutoff_date,
         "domain": "Инфраструктура ИИ",
+        "analysis_scope_key": "ai-infrastructure-v1",
         "raw_query": "Инфраструктурные технологии для обучения и инференса ИИ",
         "outputs": [
             {"filename": "plan.json", **_digest(plan_bytes)},
@@ -150,6 +151,21 @@ class AnalysisEnrichmentPlanTests(unittest.TestCase):
             ["Speculative decoding", "speculative-decoding"],
         )
 
+    def test_user_query_scope_does_not_require_an_organizer_domain(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            run = _run(Path(temporary))
+            manifest_path = run / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["domain"] = "Произвольная пользовательская область"
+            manifest["analysis_scope_key"] = "scope-query-123"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            plan_bytes, _ = build_analysis_enrichment_plan(run)
+        plan = json.loads(plan_bytes)
+        self.assertEqual(
+            {row["analysis_scope_key"] for row in plan["candidates"]},
+            {"scope-query-123"},
+        )
+
     def test_export_marks_analysis_candidate_role(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -160,26 +176,41 @@ class AnalysisEnrichmentPlanTests(unittest.TestCase):
         self.assertEqual(manifest["plan_role"], "analysis_candidates")
         self.assertEqual(manifest["candidate_count"], 2)
 
-    def test_rejects_partial_gate_coverage_before_output(self) -> None:
+    def test_product_analysis_accepts_bounded_gate_coverage(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             run = _run(root)
             result_path = run / "pipeline_result.json"
             result = json.loads(result_path.read_text(encoding="utf-8"))
             result["gate_coverage"]["status"] = "partial"
+            result["gate_coverage"]["total_proposals"] = 4
+            result["gate_coverage"]["skipped_proposals"] = 1
+            result["gate_coverage"]["skipped_proposal_ids"] = ["proposal-4"]
+            result["candidate_proposals"]["proposals"].append(
+                {"proposal_id": "proposal-4"}
+            )
             payload = json.dumps(result, sort_keys=True).encode()
             result_path.write_bytes(payload)
             manifest_path = run / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["analysis_status"] = "partial"
             manifest["outputs"][1] = {
                 "filename": "pipeline_result.json",
                 **_digest(payload),
             }
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             output = root / "output"
-            with self.assertRaisesRegex(ValueError, "analysis_status mismatch"):
-                export_analysis_enrichment_plan(run_dir=run, output_dir=output)
-            self.assertFalse(output.exists())
+            paths = export_analysis_enrichment_plan(run_dir=run, output_dir=output)
+            exported = json.loads(paths.manifest.read_text(encoding="utf-8"))
+            self.assertEqual(
+                exported["inputs"]["discovery_run"]["gate_coverage"],
+                {
+                    "status": "partial",
+                    "checked_proposals": 3,
+                    "total_proposals": 4,
+                    "skipped_proposals": 1,
+                },
+            )
 
     def test_rejects_alias_groups_that_do_not_partition_accepts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

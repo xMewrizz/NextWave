@@ -57,7 +57,8 @@ export function ResultView({ data }: { data: ResultBundle }) {
         </AlertDescription>
       </Alert>
 
-      <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <Stat label="Проверено предложений" value={summary.candidate_gate?.evaluated_proposals ?? 0} />
         <Stat label="Кандидатов" value={summary.candidate_count} />
         <Stat label="В TOP-15" value={summary.top15_count} />
         <Stat label="Уникальных документов" value={summary.processed_unique_documents} />

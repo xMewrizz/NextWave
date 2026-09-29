@@ -32,7 +32,7 @@ app.add_middleware(
 _tasks: dict[str, asyncio.Task[None]] = {}
 _RESULT_STAGES = (
     ("source_search", "Поиск источников"),
-    ("candidate_gate", "Candidate Gate"),
+    ("candidate_gate", "Отбор технологических кандидатов"),
     ("enrichment", "Обогащение кандидатов"),
     ("model", "Расчёт оценки модели"),
     ("evidence_duel", "Evidence Duel"),
@@ -217,6 +217,22 @@ async def get_analysis(analysis_id: str) -> AnalysisJob:
     if job.status in {"pending", "running"}:
         _schedule(job)
     return job
+
+
+@app.post("/api/analyses/{analysis_id}/retry", status_code=202)
+async def retry_analysis(analysis_id: str) -> AnalysisJob:
+    store = _store()
+    try:
+        job = store.get(analysis_id)
+    except ValueError as error:
+        raise HTTPException(500, str(error)) from error
+    if job is None:
+        raise HTTPException(404, "Анализ не найден.")
+    if job.status != "error":
+        raise HTTPException(409, "Повторить можно только анализ с ошибкой.")
+    retried = store.retry(job)
+    _schedule(retried)
+    return retried
 
 
 @app.get("/api/analyses/{analysis_id}/result")

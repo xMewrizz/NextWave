@@ -387,6 +387,30 @@ def build_analysis_result(
     bundle_id = plan_manifest.get("bundle_id") or (plan.get("bundle") or {}).get("bundle_id")
     if not isinstance(bundle_id, str) or not bundle_id:
         raise ValueError("analysis plan has no bundle_id")
+    discovery_input = (plan_manifest.get("inputs") or {}).get("discovery_run") or {}
+    gate_coverage = discovery_input.get("gate_coverage") or {
+        "status": "complete",
+        "checked_proposals": len(raw_candidates),
+        "total_proposals": len(raw_candidates),
+        "skipped_proposals": 0,
+    }
+    if (
+        not isinstance(gate_coverage, dict)
+        or gate_coverage.get("status") not in {"complete", "partial"}
+        or any(
+            isinstance(gate_coverage.get(field), bool)
+            or not isinstance(gate_coverage.get(field), int)
+            or gate_coverage[field] < 0
+            for field in (
+                "checked_proposals",
+                "total_proposals",
+                "skipped_proposals",
+            )
+        )
+        or gate_coverage["total_proposals"]
+        != gate_coverage["checked_proposals"] + gate_coverage["skipped_proposals"]
+    ):
+        raise ValueError("analysis plan has invalid Candidate Gate coverage")
 
     combined_root = Path(combined_result_dir)
     combined_manifest, combined_manifest_raw = _read_object(
@@ -652,6 +676,9 @@ def build_analysis_result(
         "confidence_note": (
             "model_score is not calibrated; counts above 0.75 are score counters"
         ),
+        "candidate_gate": {
+            "evaluated_proposals": gate_coverage["checked_proposals"],
+        },
     }
     candidate_bytes = _jsonl(results)
     top15_bytes = (

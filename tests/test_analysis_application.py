@@ -191,6 +191,12 @@ class AnalysisApplicationTests(unittest.TestCase):
                 ],
                 ("openalex",),
             )
+            self.assertEqual(
+                next(kwargs for name, kwargs in calls if name == "scientific_enrichment")[
+                    "concurrency"
+                ],
+                8,
+            )
             self.assertIn("candidate_gate", {stage for stage, _, _ in progress})
             self.assertEqual(progress[-1][0:2], ("result", 1.0))
 

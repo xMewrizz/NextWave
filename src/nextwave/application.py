@@ -225,6 +225,7 @@ class AnalysisApplication:
                 output_dir=output,
                 environment=self.environment,
                 connectors=("openalex",),
+                concurrency=8,
             ),
         )
         exa_plan = self._publish(
@@ -285,6 +286,7 @@ class AnalysisApplication:
                 work_dir=self.workspace / "work" / "temporal_counts",
                 output_dir=output,
                 environment=self.environment,
+                concurrency=8,
             ),
         )
         features = self._publish(

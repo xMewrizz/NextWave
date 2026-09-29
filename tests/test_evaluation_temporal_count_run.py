@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
+import time
 import unittest
 from collections.abc import Mapping
 from pathlib import Path
@@ -81,6 +83,31 @@ class InvalidCountTransport(CountTransport):
         return HttpResponse(200, {"Content-Type": "application/json"}, body)
 
 
+class ConcurrentCountTransport(CountTransport):
+    def __init__(self) -> None:
+        super().__init__()
+        self.active = 0
+        self.max_active = 0
+        self.lock = threading.Lock()
+
+    def get(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str],
+        timeout_seconds: float,
+    ) -> HttpResponse:
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            time.sleep(0.02)
+            return super().get(url, headers=headers, timeout_seconds=timeout_seconds)
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
 class CandidateExceedsScopeTransport(CountTransport):
     def get(
         self,
@@ -117,6 +144,19 @@ class TemporalCountRunTests(unittest.TestCase):
             output_dir=plan,
         )
         return plan
+
+    def test_concurrency_runs_independent_openalex_counts_in_parallel(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            transport = ConcurrentCountTransport()
+            run_temporal_counts(
+                plan_dir=self._plan(root),
+                work_dir=root / "work",
+                output_dir=root / "output",
+                connector=OpenAlexConnector(transport=transport),
+                concurrency=4,
+            )
+            self.assertGreater(transport.max_active, 1)
 
     def test_full_run_uses_meta_count_and_builds_candidate_ratios(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

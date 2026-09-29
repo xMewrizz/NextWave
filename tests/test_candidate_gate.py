@@ -75,6 +75,7 @@ def decision(proposal, status, reason, *, basis=None, explanation="Grounded in t
     }
 
 
+
 class CandidateGateTests(unittest.TestCase):
     def test_accepts_concrete_technology_and_rejects_generic_area(self) -> None:
         scope, documents, batch = fixture("Speculative decoding", "Data science")
@@ -127,10 +128,13 @@ class CandidateGateTests(unittest.TestCase):
         scope, documents, batch = fixture("Post-Training Quantization")
 
         def generate(prompt):
-            self.assertIn("Silently apply two checks", prompt)
-            self.assertIn("A cited title or excerpt directly links", prompt)
-            self.assertIn("using AI in an unrelated domain", prompt)
-            self.assertIn("Do not output checklist fields", prompt)
+            self.assertIn("silently apply these checks", prompt)
+            self.assertIn("direct functional role", prompt)
+            self.assertIn("The same name may be accepted for one query", prompt)
+            self.assertIn("tactile sensor", prompt)
+            self.assertIn("fraud-detection method", prompt)
+            self.assertIn("does not become an Edge technology", prompt)
+            self.assertIn("Do not output analysis", prompt)
             proposal = json.loads(prompt.split("Input data as JSON:\n", 1)[1])["proposals"][0]
             return json.dumps({
                 "decisions": [
@@ -191,6 +195,61 @@ class CandidateGateTests(unittest.TestCase):
 
         self.assertEqual(result.decisions[0].decision, GateDecision.ACCEPT)
 
+    def test_context_prefers_document_grounded_in_user_scope(self) -> None:
+        scope = build_analysis_scope(
+            raw_query="Технологии цифровых платежей",
+            normalized_query="digital payment technologies",
+            search_texts=("digital payments",),
+            languages=("en",),
+            granularity=ScopeGranularity.DIRECTION,
+        )
+        documents = tuple(
+            SourceDocument(
+                document_id=f"document-{index}",
+                connector_id="openalex",
+                external_id=f"W{index}",
+                snapshot_id="snapshot-payments",
+                title=title,
+                url=f"https://example.org/{index}",
+                canonical_url=f"https://example.org/{index}",
+                source_type=SourceType.SCIENTIFIC_PUBLICATION,
+                language="en",
+                trust_tier=TrustTier.A,
+                origin_id=f"doi:10.1234/{index}",
+            )
+            for index, title in enumerate(
+                (
+                    "Smart contracts in general software engineering",
+                    "Smart contracts for secure digital payments",
+                ),
+                1,
+            )
+        )
+        mentions = tuple(
+            build_candidate_mention(
+                document,
+                text="Smart contracts",
+                kind=CandidateMentionKind.TITLE,
+                locator="title[0:15]",
+                extractor_id="test-extractor",
+            )
+            for document in documents
+        )
+        batch = build_candidate_proposals(scope, documents, mentions)
+
+        def generate(prompt):
+            proposal = json.loads(prompt.split("Input data as JSON:\n", 1)[1])["proposals"][0]
+            self.assertEqual(
+                proposal["documents"][0]["title"],
+                "Smart contracts for secure digital payments",
+            )
+            return json.dumps(
+                {"decisions": [decision(proposal, "accept", "technical_mechanism")]}
+            )
+
+        result = gate(generate).evaluate(scope, batch, documents)
+        self.assertEqual(result.decisions[0].decision, GateDecision.ACCEPT)
+
     def test_missing_and_duplicate_decisions_require_review(self) -> None:
         scope, documents, batch = fixture("Speculative decoding", "Photonic inference")
 
@@ -246,6 +305,25 @@ class CandidateGateTests(unittest.TestCase):
         )
         self.assertEqual(result.decisions[0].decision, GateDecision.REVIEW)
         self.assertEqual(result.issues[0].code, GateIssueCode.INVALID_RESPONSE)
+
+    def test_invalid_first_response_is_retried_once(self) -> None:
+        scope, documents, batch = fixture("Speculative decoding")
+        calls = 0
+
+        def generate(prompt):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return '{"decisions":[],"unapproved":true}'
+            proposal = json.loads(prompt.split("Input data as JSON:\n", 1)[1])["proposals"][0]
+            return json.dumps(
+                {"decisions": [decision(proposal, "accept", "technical_mechanism")]}
+            )
+
+        result = gate(generate).evaluate(scope, batch, documents)
+        self.assertEqual(calls, 2)
+        self.assertEqual(result.issues, ())
+        self.assertEqual(result.decisions[0].decision, GateDecision.ACCEPT)
 
     def test_seven_proposals_are_processed_in_two_bounded_batches(self) -> None:
         scope, documents, batch = fixture(*(f"Technology {index}" for index in range(7)))

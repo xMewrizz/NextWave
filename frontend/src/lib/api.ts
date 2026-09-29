@@ -203,6 +203,9 @@ export interface ResultSummary {
   confidence_available: false
   status_counts: Record<Bucket, number>
   reason_counts: Record<string, number>
+  candidate_gate?: {
+    evaluated_proposals: number
+  }
 }
 
 export interface ResultBundle {

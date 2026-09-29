@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -478,11 +479,14 @@ def run_temporal_counts(
     output_dir: str | Path,
     environment: Mapping[str, str] | None = None,
     max_new_tasks: int | None = None,
+    concurrency: int = 1,
     connector: OpenAlexConnector | None = None,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> dict[str, Path]:
     if max_new_tasks is not None and max_new_tasks < 0:
         raise ValueError("max_new_tasks must be non-negative")
+    if not 1 <= concurrency <= 16:
+        raise ValueError("concurrency must be between 1 and 16")
     plan, tasks, plan_digest = _load_plan(Path(plan_dir))
     cutoff = date.fromisoformat(plan["cutoff_date"])
     output = Path(output_dir)
@@ -496,6 +500,7 @@ def run_temporal_counts(
         api_key=env.get("NEXTWAVE_OPENALEX_API_KEY"),
     )
     results: list[dict[str, Any]] = []
+    pending: list[dict[str, Any]] = []
     new_tasks = 0
     for task in tasks:
         completed = work / "completed" / task["count_id"]
@@ -525,17 +530,24 @@ def run_temporal_counts(
                 }
             )
             continue
-        results.append(
-            _execute_task(
+        pending.append(task)
+        new_tasks += 1
+    with ThreadPoolExecutor(max_workers=min(concurrency, max(1, len(pending)))) as pool:
+        futures = {
+            pool.submit(
+                _execute_task,
                 task,
                 work_dir=work,
                 connector=active_connector,
                 sleeper=sleeper,
                 cutoff=cutoff,
-            )
-        )
-        new_tasks += 1
+            ): task
+            for task in pending
+        }
+        for future in as_completed(futures):
+            results.append(future.result())
     result_index = {row["task"]["count_id"]: row for row in results}
+    results = [result_index[task["count_id"]] for task in tasks]
     features = _candidate_features(plan, result_index)
     output_results = [
         {key: value for key, value in row.items() if key != "reused"} for row in results

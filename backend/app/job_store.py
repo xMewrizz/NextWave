@@ -83,6 +83,27 @@ def _failed_job(job: AnalysisJob, message: str) -> AnalysisJob:
     )
 
 
+def _retried_job(job: AnalysisJob) -> AnalysisJob:
+    now = datetime.now(UTC)
+    return job.model_copy(
+        update={
+            "status": "pending",
+            "stage": None,
+            "stage_label": None,
+            "progress": 0.0,
+            "updated_at": now,
+            "finished_at": None,
+            "result_available": False,
+            "result_sha256": None,
+            "stage_history": [
+                stage.model_copy(update={"status": "pending"})
+                for stage in job.stage_history
+            ],
+            "error": None,
+        }
+    )
+
+
 def _running_job(job: AnalysisJob) -> AnalysisJob:
     if job.mode == "live":
         return _progressed_job(
@@ -240,6 +261,11 @@ class AnalysisJobStore:
         self.save(running)
         return running
 
+    def retry(self, job: AnalysisJob) -> AnalysisJob:
+        retried = _retried_job(job)
+        self.save(retried)
+        return retried
+
     def load_result(self, job: AnalysisJob) -> dict[str, Any]:
         if not job.result_available or not job.result_sha256:
             raise ValueError("analysis result is not available")
@@ -394,6 +420,11 @@ class PostgresAnalysisJobStore:
         )
         self.save(running)
         return running
+
+    def retry(self, job: AnalysisJob) -> AnalysisJob:
+        retried = _retried_job(job)
+        self.save(retried)
+        return retried
 
     def load_result(self, job: AnalysisJob) -> dict[str, Any]:
         if not job.result_available or not job.result_sha256:

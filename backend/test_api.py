@@ -212,6 +212,41 @@ async def test_live_job_uses_application_runner_and_reports_real_stages(
     assert response.json()["query"]["text"] == query
 
 
+async def test_failed_live_job_retry_reuses_same_workspace(
+    client: AsyncClient, tmp_path: Path, monkeypatch
+):
+    query = "Технологии квантовой связи"
+    attempts: list[Path] = []
+
+    class RetryApplication:
+        def __init__(self, *, workspace, **kwargs):
+            self.workspace = Path(workspace)
+
+        def run(self, *, query: str, analysis_id: str):
+            del query, analysis_id
+            attempts.append(self.workspace)
+            if len(attempts) == 1:
+                raise ValueError("temporary source failure")
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            result = self.workspace / "result.json"
+            result.write_bytes(
+                _json({"schema_version": "analysis-response-v1", "query": {}})
+            )
+            return type("Paths", (), {"result": result})()
+
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_MODE", "live")
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_WORK_DIR", str(tmp_path / "live"))
+    monkeypatch.setattr(main, "AnalysisApplication", RetryApplication)
+    created = (await client.post("/api/analyses", json={"query": query})).json()
+    failed = await _wait(client, created["id"])
+    assert failed["status"] == "error"
+    response = await client.post(f"/api/analyses/{created['id']}/retry")
+    assert response.status_code == 202
+    completed = await _wait(client, created["id"])
+    assert completed["status"] == "complete"
+    assert attempts == [attempts[0], attempts[0]]
+
+
 async def test_pending_job_is_resumed_after_process_restart(client: AsyncClient):
     store = AnalysisJobStore()
     job = store.create(QUERY)

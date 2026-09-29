@@ -23,7 +23,7 @@ from typing import Any
 
 from nextwave.sources import publish_staging
 
-from .candidate_gate import QUALIFICATION_GATE_ID
+from .candidate_gate import PRODUCT_GATE_ID, QUALIFICATION_GATE_ID
 from .contracts import DiscoveryPlan
 from .pipeline import DISCOVERY_PIPELINE_VERSION, DiscoveryPipelineResult
 
@@ -186,7 +186,13 @@ def _require_strict_count(run_id: str, field: str, value: Any) -> int:
     return value
 
 
-def _assert_run_complete(run: DiscoveryRun, *, purpose: str) -> None:
+def _assert_run_complete(
+    run: DiscoveryRun,
+    *,
+    purpose: str,
+    expected_gate_id: str,
+    allow_partial_gate: bool = False,
+) -> None:
     """Require one complete, internally consistent current-pipeline run.
 
     Unlike the labeling export, product analysis may intentionally use an
@@ -227,7 +233,8 @@ def _assert_run_complete(run: DiscoveryRun, *, purpose: str) -> None:
             f"analysis_status mismatch manifest {manifest_status!r} "
             f"vs result {derived_status!r}"
         )
-    if manifest_status != "complete":
+    allowed_statuses = {"complete", "partial"} if allow_partial_gate else {"complete"}
+    if manifest_status not in allowed_statuses:
         raise ValueError(
             f"run {run.run_id!r} is not eligible for {purpose}; "
             f"candidate gate coverage is {manifest_status!r}"
@@ -259,7 +266,7 @@ def _assert_run_complete(run: DiscoveryRun, *, purpose: str) -> None:
             "gate_coverage is missing or not an object"
         )
     coverage_status = coverage.get("status")
-    if coverage_status != "complete":
+    if coverage_status != manifest_status or coverage_status not in allowed_statuses:
         raise ValueError(
             f"run {run.run_id!r} is not eligible for {purpose}; "
             f"candidate gate coverage is {coverage_status!r}"
@@ -275,7 +282,7 @@ def _assert_run_complete(run: DiscoveryRun, *, purpose: str) -> None:
             f"run {run.run_id!r} is not eligible for {purpose}; "
             f"gate_coverage.skipped_proposals must be int, got {skipped!r}"
         )
-    if skipped != 0:
+    if not allow_partial_gate and skipped != 0:
         raise ValueError(
             f"run {run.run_id!r} is not eligible for {purpose}; "
             f"gate has {skipped!r} skipped proposals"
@@ -291,10 +298,11 @@ def _assert_run_complete(run: DiscoveryRun, *, purpose: str) -> None:
             f"run {run.run_id!r} is not eligible for {purpose}; "
             f"gate_coverage.skipped_proposal_ids must be list, got {skipped_ids!r}"
         )
-    if len(skipped_ids) != 0:
+    if len(skipped_ids) != skipped:
         raise ValueError(
             f"run {run.run_id!r} is not eligible for {purpose}; "
-            f"gate has {len(skipped_ids)} skipped proposal ids"
+            f"gate skipped count {skipped!r} differs from "
+            f"{len(skipped_ids)} skipped proposal ids"
         )
     if "total_proposals" not in coverage or "checked_proposals" not in coverage:
         raise ValueError(
@@ -347,19 +355,25 @@ def _assert_run_complete(run: DiscoveryRun, *, purpose: str) -> None:
             f"run {run.run_id!r} is not eligible for {purpose}; "
             f"gate id mismatch manifest {manifest_gate!r} vs result {result_gate!r}"
         )
-    if result_gate != QUALIFICATION_GATE_ID:
+    if result_gate != expected_gate_id:
+        gate_label = "qualification gate" if purpose == "labeling" else "product gate"
         raise ValueError(
             f"run {run.run_id!r} is not eligible for {purpose}; "
             f"candidate gate {result_gate!r} does not match "
-            f"qualification gate {QUALIFICATION_GATE_ID!r}"
+            f"{gate_label} {expected_gate_id!r}"
         )
 
 
 
 def assert_run_analysis_eligible(run: DiscoveryRun) -> None:
-    """Accept a complete current-pipeline run with any consistent cutoff."""
+    """Accept an internally consistent bounded product run at any cutoff."""
 
-    _assert_run_complete(run, purpose="analysis")
+    _assert_run_complete(
+        run,
+        purpose="analysis",
+        expected_gate_id=PRODUCT_GATE_ID,
+        allow_partial_gate=True,
+    )
 
 def assert_run_labeling_eligible(run: DiscoveryRun) -> None:
     """Reject anything but a current complete run before queue construction.
@@ -388,7 +402,11 @@ def assert_run_labeling_eligible(run: DiscoveryRun) -> None:
             f"run {run.run_id!r} is not eligible for labeling; "
             f"cutoff mismatch manifest {manifest_cutoff!r} vs plan {plan_cutoff!r}"
         )
-    _assert_run_complete(run, purpose="labeling")
+    _assert_run_complete(
+        run,
+        purpose="labeling",
+        expected_gate_id=QUALIFICATION_GATE_ID,
+    )
 
 
 def iter_nested_documents(result_dict: dict[str, Any]) -> list[dict[str, Any]]:

@@ -92,7 +92,9 @@ export function SearchPage() {
         {result.data ? (
           <span>
             {result.data.summary.processed_unique_documents.toLocaleString('ru-RU')} уникальных
-            документов · {result.data.summary.candidate_count} кандидатов ·{' '}
+            документов · проверено предложений:{' '}
+            {(result.data.summary.candidate_gate?.evaluated_proposals ?? 0).toLocaleString('ru-RU')}{' '}
+            предложений · {result.data.summary.candidate_count} кандидатов ·{' '}
             {result.data.summary.release_status}
           </span>
         ) : null}

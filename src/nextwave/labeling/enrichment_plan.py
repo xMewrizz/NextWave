@@ -940,8 +940,13 @@ def build_analysis_enrichment_plan(
     if not isinstance(loaded.run_id, str) or not loaded.run_id.strip():
         raise ValueError("discovery run_id must not be blank")
     domain = manifest.get("domain")
-    if domain not in ORGANIZER_SCOPE_KEYS:
-        raise ValueError("analysis domain has no shared feature scope")
+    if not isinstance(domain, str) or not domain.strip():
+        raise ValueError("analysis domain must not be blank")
+    analysis_scope_key = manifest.get("analysis_scope_key")
+    if not isinstance(analysis_scope_key, str) or not analysis_scope_key.strip():
+        analysis_scope_key = ORGANIZER_SCOPE_KEYS.get(domain)
+    if not isinstance(analysis_scope_key, str) or not analysis_scope_key.strip():
+        raise ValueError("analysis run has no feature scope key")
     source_query = (loaded.plan.get("scope") or {}).get("raw_query")
     if not isinstance(source_query, str) or not source_query.strip():
         raise ValueError("discovery plan raw_query must not be blank")
@@ -953,8 +958,11 @@ def build_analysis_enrichment_plan(
     coverage = result.get("gate_coverage")
     if not isinstance(gate, dict) or not isinstance(aliases, dict):
         raise ValueError("discovery result misses gate or alias resolution")
-    if not isinstance(coverage, dict) or coverage.get("status") != "complete":
-        raise ValueError("analysis enrichment requires complete Gate coverage")
+    if not isinstance(coverage, dict) or coverage.get("status") not in {
+        "complete",
+        "partial",
+    }:
+        raise ValueError("analysis enrichment requires valid Gate coverage")
     accepted = gate.get("accepted_proposal_ids")
     gate_inputs = gate.get("input_proposal_ids")
     decisions = gate.get("decisions")
@@ -1029,7 +1037,7 @@ def build_analysis_enrichment_plan(
                 group_id=group_id,
                 source_query=source_query,
                 domain=domain,
-                analysis_scope_key=ORGANIZER_SCOPE_KEYS[domain],
+                analysis_scope_key=analysis_scope_key.strip(),
                 cutoff_date=cutoff_date,
             )
         )
@@ -1044,7 +1052,17 @@ def build_analysis_enrichment_plan(
         manifest_path=manifest_path,
         candidates_bytes=result_bytes,
         candidates_input_key="pipeline_result",
-        extra_inputs={"discovery_run": {"run_id": loaded.run_id}},
+        extra_inputs={
+            "discovery_run": {
+                "run_id": loaded.run_id,
+                "gate_coverage": {
+                    "status": coverage["status"],
+                    "checked_proposals": coverage["checked_proposals"],
+                    "total_proposals": coverage["total_proposals"],
+                    "skipped_proposals": coverage["skipped_proposals"],
+                },
+            }
+        },
     )
 
 

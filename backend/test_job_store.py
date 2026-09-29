@@ -93,3 +93,17 @@ def test_live_job_progress_marks_prior_stages_complete(tmp_path: Path):
         "running",
         "pending",
     ]
+
+
+def test_failed_job_can_be_reset_for_checkpoint_resume(tmp_path: Path):
+    store = AnalysisJobStore(tmp_path / "jobs")
+    stages = [
+        AnalysisStageState(key="source_search", label="Sources", status="pending")
+    ]
+    failed = store.fail(store.create("test", stages, mode="live"), "temporary")
+    retried = store.retry(failed)
+    assert retried.status == "pending"
+    assert retried.error is None
+    assert retried.finished_at is None
+    assert retried.progress == 0.0
+    assert [stage.status for stage in retried.stage_history] == ["pending"]
