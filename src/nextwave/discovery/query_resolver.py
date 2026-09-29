@@ -23,6 +23,8 @@ from .contracts import (
 )
 from .llm import (
     LOCAL_ADAPTER_VERSION,
+    OPENAI_ADAPTER_VERSION,
+    QWEN_ADAPTER_VERSION,
     YANDEX_ADAPTER_VERSION,
     JsonHttpTransport,
     LlmProvider,
@@ -411,14 +413,16 @@ def build_query_resolver_from_environment(
             transport=llm_transport,
         )
         selection = settings.selection
+    adapter_versions = {
+        LlmProvider.HUGGINGFACE: LOCAL_ADAPTER_VERSION,
+        LlmProvider.OPENAI: OPENAI_ADAPTER_VERSION,
+        LlmProvider.QWEN: QWEN_ADAPTER_VERSION,
+        LlmProvider.YANDEX: YANDEX_ADAPTER_VERSION,
+    }
     interpreter = StructuredQueryInterpreter(
         generator,
         selection=selection,
-        version=(
-            LOCAL_ADAPTER_VERSION
-            if settings.selection.provider is LlmProvider.HUGGINGFACE
-            else YANDEX_ADAPTER_VERSION
-        ),
+        version=adapter_versions[settings.selection.provider],
     )
     return QueryResolver(
         interpreter,

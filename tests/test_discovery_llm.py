@@ -42,6 +42,8 @@ class LlmSelectionTests(unittest.TestCase):
             (LlmProvider.YANDEX, "YandexGPT Pro 5.1"),
             (LlmProvider.QWEN, "Qwen3.6 35B-A3B"),
             (LlmProvider.QWEN, "Qwen3 235B"),
+            (LlmProvider.OPENAI, "GPT-4.1"),
+            (LlmProvider.OPENAI, "GPT-5.6 Luna"),
             (LlmProvider.GIGACHAT, "GigaChat 2 Lite"),
             (LlmProvider.GIGACHAT, "GigaChat 2 Pro"),
             (LlmProvider.GIGACHAT, "GigaChat 2 Max"),

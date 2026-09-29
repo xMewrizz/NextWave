@@ -25,7 +25,7 @@ from .llm import (
 CANDIDATE_GATE_VERSION = "candidate-gate-v6"
 QUALIFICATION_GATE_VERSION = "candidate-gate-v4"
 QUALIFICATION_GATE_ID = "yandex-yandexgpt-pro-5-candidate-gate-v4"
-PRODUCT_GATE_ID = "qwen-qwen3-235b-candidate-gate-v6"
+PRODUCT_GATE_ID = "openai-gpt-5-6-luna-candidate-gate-v6"
 MAX_GATE_BATCH_PROPOSALS = 6
 # Emergency server guard, not a normal retrieval budget. Grounded unique
 # proposals below this ceiling are all judged. Reaching the ceiling makes the

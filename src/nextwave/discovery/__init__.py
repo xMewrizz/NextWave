@@ -82,6 +82,9 @@ from .executor import (
 )
 from .llm import (
     ALLOWED_CLOUD_MODELS,
+    OPENAI_ADAPTER_VERSION,
+    OPENAI_COMPLETION_ENDPOINT,
+    OPENAI_MODEL_IDS,
     QUERY_INTERPRETATION_JSON_SCHEMA,
     QWEN_ADAPTER_VERSION,
     QWEN_MODEL_IDS,
@@ -92,6 +95,7 @@ from .llm import (
     LlmProvider,
     LlmRuntimeSettings,
     LlmSelection,
+    OpenAICompletionJsonGenerator,
     QwenCompletionJsonGenerator,
     UrllibJsonHttpTransport,
     YandexCompletionJsonGenerator,
@@ -284,6 +288,10 @@ __all__ = [
     "LlmProvider",
     "LlmRuntimeSettings",
     "LlmSelection",
+    "OPENAI_ADAPTER_VERSION",
+    "OPENAI_COMPLETION_ENDPOINT",
+    "OPENAI_MODEL_IDS",
+    "OpenAICompletionJsonGenerator",
     "QWEN_ADAPTER_VERSION",
     "QWEN_MODEL_IDS",
     "QwenCompletionJsonGenerator",

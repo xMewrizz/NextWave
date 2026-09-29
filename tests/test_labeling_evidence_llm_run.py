@@ -1508,7 +1508,7 @@ class SafetyTests(unittest.TestCase):
         text = module_path.read_text(encoding="utf-8")
         lowered = text.casefold()
         for token in (
-            "urllib", "requests", "socket", "http.client", "openai",
+            "urllib", "requests", "socket", "http.client",
             "anthropic", "Api-Key", "Authorization", "Bearer",
             "folder_id", "folder id", "os.environ", "getenv",
         ):
