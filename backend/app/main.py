@@ -9,15 +9,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from nextwave.application import AnalysisApplication
 
-from . import pipeline
 from .job_store import configured_analysis_job_store
-from .models import (
-    AnalysisJob,
-    AnalysisRequest,
-    AnalysisStageState,
-    Coverage,
-    Stage,
-)
+from .models import AnalysisJob, AnalysisRequest, AnalysisStageState, JobMode
 from .result_store import configured_result_dir, load_result_bundle
 
 app = FastAPI(title="Радар зарождающихся технологий", version="0.1.0")
@@ -41,9 +34,8 @@ _RESULT_STAGES = (
 _STAGE_LABELS = dict(_RESULT_STAGES)
 
 
-def _require_synthetic_demo() -> None:
-    if os.getenv("NEXTWAVE_ENABLE_SYNTHETIC_DEMO") != "1":
-        raise HTTPException(404, "Синтетический API отключён в release mode.")
+def _analysis_mode() -> JobMode:
+    return "live" if os.getenv("NEXTWAVE_ANALYSIS_MODE") == "live" else "cached_snapshot"
 
 
 def _store():
@@ -150,12 +142,6 @@ def _schedule(job: AnalysisJob) -> None:
     task.add_done_callback(lambda _task, job_id=job.id: _tasks.pop(job_id, None))
 
 
-@app.get("/api/coverage")
-def get_coverage() -> Coverage:
-    _require_synthetic_demo()
-    return pipeline.coverage()
-
-
 @app.get("/api/result/current")
 def get_current_result() -> dict:
     """Return the checked immutable CLI result without recomputing model policy."""
@@ -171,18 +157,14 @@ def get_current_result() -> dict:
 
 @app.get("/api/health")
 def get_health() -> dict[str, str]:
+    """Готовность сервиса и режим анализа: интерфейс показывает его до создания job."""
+
     try:
         _store().healthcheck()
         load_result_bundle()
     except (OSError, ValueError, psycopg.Error) as error:
         raise HTTPException(503, "Сервис анализа не готов.") from error
-    return {"status": "ok"}
-
-
-@app.get("/api/stages")
-def get_stages() -> list[Stage]:
-    _require_synthetic_demo()
-    return pipeline.STAGES
+    return {"status": "ok", "mode": _analysis_mode()}
 
 
 @app.post("/api/analyses", status_code=201)
@@ -194,8 +176,7 @@ async def create_analysis(body: AnalysisRequest) -> AnalysisJob:
         AnalysisStageState(key=key, label=label, status="pending")
         for key, label in _RESULT_STAGES
     ]
-    mode = "live" if os.getenv("NEXTWAVE_ANALYSIS_MODE") == "live" else "cached_snapshot"
-    job = _store().create(query, stages, mode=mode)
+    job = _store().create(query, stages, mode=_analysis_mode())
     _schedule(job)
     return job
 

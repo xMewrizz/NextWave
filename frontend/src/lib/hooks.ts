@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { api, JOB_TERMINAL, TERMINAL, type Analysis, type AnalysisJob } from '@/lib/api'
+import { useCallback, useEffect, useState } from 'react'
+import { api, ApiError, JOB_TERMINAL, type AnalysisJob } from '@/lib/api'
 
 export interface Resource<T> {
   data: T | null
@@ -26,54 +26,43 @@ export function useResource<T>(load: () => Promise<T>, key: string): Resource<T>
   return state
 }
 
-/** Опрос статуса анализа до терминального состояния. */
-export function useAnalysis(id: string | undefined): Resource<Analysis> {
-  const [state, setState] = useState<Resource<Analysis>>({ data: null, error: null, loading: true })
+const POLL_MS = 500
+const RETRY_MS = 2000
+const MAX_FAILURES = 5
 
-  useEffect(() => {
-    if (!id) return
-    let timer: number
-    let alive = true
-
-    const poll = async () => {
-      try {
-        const data = await api.analysis(id)
-        if (!alive) return
-        setState({ data, error: null, loading: false })
-        // Короткий опрос нужен только демонстрационному контуру; production job использует SSE.
-        if (!TERMINAL.includes(data.status)) timer = setTimeout(poll, 400)
-      } catch (e) {
-        if (alive) setState({ data: null, error: (e as Error).message, loading: false })
-      }
-    }
-
-    poll()
-    return () => {
-      alive = false
-      clearTimeout(timer)
-    }
-  }, [id])
-
-  return state
-}
-
-/** Опрос сохраняемого backend job до терминального состояния. */
-export function useAnalysisJob(id: string | undefined): Resource<AnalysisJob> {
+/**
+ * Данные могут принадлежать прежнему id, пока не пришёл ответ для нового: страница сверяет `data.id`.
+ * Опрос сохраняемого backend job до терминального состояния. Переживает кратковременный
+ * сбой сети (рестарт backend): ошибка показывается после MAX_FAILURES подряд или сразу при 404.
+ * `restart` возобновляет опрос после retry.
+ */
+export function useAnalysisJob(id: string | undefined): Resource<AnalysisJob> & { restart: () => void } {
   const [state, setState] = useState<Resource<AnalysisJob>>({ data: null, error: null, loading: true })
+  const [nonce, setNonce] = useState(0)
+  const restart = useCallback(() => setNonce((value) => value + 1), [])
 
   useEffect(() => {
     if (!id) return
     let timer: number
     let alive = true
+    let failures = 0
 
     const poll = async () => {
       try {
         const data = await api.analysisJob(id)
         if (!alive) return
+        failures = 0
         setState({ data, error: null, loading: false })
-        if (!JOB_TERMINAL.includes(data.status)) timer = setTimeout(poll, 500)
+        if (!JOB_TERMINAL.includes(data.status)) timer = window.setTimeout(poll, POLL_MS)
       } catch (error) {
-        if (alive) setState({ data: null, error: (error as Error).message, loading: false })
+        if (!alive) return
+        failures += 1
+        const fatal = error instanceof ApiError && error.status === 404
+        if (fatal || failures >= MAX_FAILURES) {
+          setState({ data: null, error: (error as Error).message, loading: false })
+        } else {
+          timer = window.setTimeout(poll, RETRY_MS)
+        }
       }
     }
 
@@ -82,7 +71,7 @@ export function useAnalysisJob(id: string | undefined): Resource<AnalysisJob> {
       alive = false
       clearTimeout(timer)
     }
-  }, [id])
+  }, [id, nonce])
 
-  return state
+  return { ...state, restart }
 }

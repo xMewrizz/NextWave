@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { ArrowUp, Database, Loader2 } from 'lucide-react'
+import { ArrowUp, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
+import { AsciiGlobe, AsciiLogo } from '@/components/ascii-art'
+import { ModeNotice } from '@/components/mode-notice'
 import { api } from '@/lib/api'
 import { useResource } from '@/lib/hooks'
 
@@ -9,10 +11,20 @@ export function SearchPage() {
   const [query, setQuery] = useState('')
   const [starting, setStarting] = useState(false)
   const navigate = useNavigate()
-  const result = useResource(api.currentResult, 'current-result')
+  const health = useResource(api.health, 'health')
+  const mode = health.data?.mode
+  // Сохранённый результат существует только в режиме снимка; в live он бы вводил в заблуждение.
+  const result = useResource(
+    () => (mode === 'cached_snapshot' ? api.currentResult() : Promise.resolve(null)),
+    `current-result:${mode}`,
+  )
 
   async function start() {
-    if (!query.trim() || starting) return
+    if (starting) return
+    if (!query.trim()) {
+      toast.error('Введите технологическое направление')
+      return
+    }
     setStarting(true)
     try {
       const analysis = await api.startAnalysis(query.trim())
@@ -24,10 +36,13 @@ export function SearchPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-4 sm:px-8">
-      <div className="flex flex-1 flex-col items-center justify-center py-14 sm:py-20">
-        <img src="/nextwave_logo.svg" alt="NextWave" className="mb-5 size-16 object-contain" />
-        <h1 className="text-center text-3xl font-semibold tracking-[-0.04em] text-balance sm:text-4xl">
+    <div className="relative flex min-h-full flex-col overflow-hidden">
+      <AsciiGlobe className="pointer-events-none absolute inset-x-0 bottom-0 h-[44vh] w-full" />
+      <div className="relative mx-auto flex w-full max-w-4xl flex-1 flex-col px-4 sm:px-8">
+        <div className="flex flex-1 flex-col items-center justify-center pt-14 pb-[30vh] sm:pt-20">
+        <AsciiLogo className="mb-6 size-14" />
+        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">NextWave · радар технологий</p>
+        <h1 className="mt-3 text-center text-2xl font-normal text-balance sm:text-3xl">
           Что будем исследовать?
         </h1>
         <p className="mt-3 max-w-lg text-center text-sm leading-relaxed text-muted-foreground sm:text-base">
@@ -42,10 +57,11 @@ export function SearchPage() {
             start()
           }}
         >
-          <div className="rounded-[26px] border border-foreground/20 bg-card p-2.5 shadow-[0_12px_45px_rgba(0,0,0,0.08)] transition-shadow focus-within:border-foreground/45 focus-within:shadow-[0_16px_55px_rgba(0,0,0,0.11)] dark:shadow-[0_16px_55px_rgba(0,0,0,0.45)]">
+          <div className="rounded-lg border border-border bg-background/85 p-2.5 backdrop-blur-sm transition-colors focus-within:border-foreground/70">
             <textarea
               value={query}
               rows={2}
+              maxLength={200}
               autoFocus
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -66,7 +82,7 @@ export function SearchPage() {
                 type="submit"
                 disabled={!query.trim() || starting}
                 aria-label="Начать исследование"
-                className="flex size-9 shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-transform hover:scale-[1.04] disabled:cursor-not-allowed disabled:opacity-25"
+                className="flex size-9 shrink-0 items-center justify-center rounded-md bg-foreground text-background transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-25"
               >
                 {starting ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
               </button>
@@ -74,30 +90,34 @@ export function SearchPage() {
           </div>
         </form>
 
+        {health.error && (
+          <p role="alert" className="mt-4 max-w-2xl text-center text-xs text-destructive">
+            Сервис недоступен: {health.error}
+          </p>
+        )}
+        {mode && <ModeNotice mode={mode} className="mt-4 w-full max-w-2xl" />}
+        {result.error && (
+          <p role="alert" className="mt-3 max-w-2xl text-center text-xs text-destructive">
+            Сохранённый результат недоступен: {result.error}
+          </p>
+        )}
+
         {result.data && (
           <button
             type="button"
-            className="mt-3 text-xs text-muted-foreground underline underline-offset-4"
+            className="mt-4 rounded-md border border-border bg-background/85 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/60 hover:text-foreground"
             onClick={() => setQuery(result.data!.summary.source_query)}
           >
-            Подставить зафиксированный запрос реального прогона
+            Подставить запрос сохранённого результата
           </button>
         )}
-      </div>
-
-      <div className="mx-auto mb-6 flex max-w-2xl items-center justify-center gap-2 text-center text-xs text-muted-foreground">
-        <Database className="size-3.5 shrink-0" />
-        {result.loading && <span>Проверяем доступность результата…</span>}
-        {result.error && <span>Проверенный результат временно недоступен</span>}
-        {result.data ? (
-          <span>
-            {result.data.summary.processed_unique_documents.toLocaleString('ru-RU')} уникальных
-            документов · проверено предложений:{' '}
-            {(result.data.summary.candidate_gate?.evaluated_proposals ?? 0).toLocaleString('ru-RU')}{' '}
-            предложений · {result.data.summary.candidate_count} кандидатов ·{' '}
-            {result.data.summary.release_status}
-          </span>
-        ) : null}
+        </div>
+        {result.data && (
+          <p className="relative mx-auto mb-6 max-w-2xl text-center text-xs text-muted-foreground">
+            Проверено {result.data.summary.processed_unique_documents.toLocaleString('ru-RU')} документов ·{' '}
+            {result.data.summary.candidate_count} кандидатов
+          </p>
+        )}
       </div>
     </div>
   )

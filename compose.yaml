@@ -34,6 +34,7 @@ services:
       NEXTWAVE_YANDEX_FOLDER_ID: ${NEXTWAVE_YANDEX_FOLDER_ID:-}
       NEXTWAVE_OPENALEX_API_KEY: ${NEXTWAVE_OPENALEX_API_KEY:-}
       NEXTWAVE_EXA_API_KEY: ${NEXTWAVE_EXA_API_KEY:-}
+      NEXTWAVE_MEDIACLOUD_API_KEY: ${NEXTWAVE_MEDIACLOUD_API_KEY:-}
     volumes:
       - ${NEXTWAVE_RESULT_DIR:-./demo/result}:/data/result:ro
       - ${NEXTWAVE_MODEL_DIR:-./demo/model}:/data/model:ro

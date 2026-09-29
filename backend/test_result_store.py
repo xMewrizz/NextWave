@@ -113,10 +113,3 @@ async def test_api_returns_503_for_missing_result(tmp_path: Path, monkeypatch):
     async with AsyncClient(transport=ASGITransport(app), base_url="http://test") as client:
         response = await client.get("/api/result/current")
     assert response.status_code == 503
-
-
-async def test_synthetic_routes_are_disabled_by_default(monkeypatch):
-    monkeypatch.delenv("NEXTWAVE_ENABLE_SYNTHETIC_DEMO", raising=False)
-    async with AsyncClient(transport=ASGITransport(app), base_url="http://test") as client:
-        response = await client.get("/api/coverage")
-    assert response.status_code == 404
