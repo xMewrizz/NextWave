@@ -48,6 +48,7 @@ def _write_plan(
     *,
     plan_role: str | None = None,
     cutoff_date: str = "2026-09-15",
+    analysis_scope: dict | None = None,
 ) -> None:
     directory.mkdir()
     value = {
@@ -55,6 +56,8 @@ def _write_plan(
         "cutoff_date": cutoff_date,
         "candidates": candidates,
     }
+    if analysis_scope is not None:
+        value["analysis_scope"] = analysis_scope
     payload = (json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n").encode()
     (directory / "plan.json").write_bytes(payload)
     manifest = {
@@ -296,15 +299,21 @@ class TemporalCountPlanTests(unittest.TestCase):
                     ),
                 ],
                 plan_role="analysis_candidates",
+                analysis_scope={
+                    "scope_id": scope,
+                    "normalized_query": query,
+                    "search_texts": [query, "AI training infrastructure"],
+                },
             )
             plan_bytes, _ = build_analysis_temporal_count_plan(
                 analysis_plan_dir=analysis
             )
 
         plan = json.loads(plan_bytes)
-        self.assertEqual(plan["scope_queries"], {scope: query})
+        expected = f'"{query}" OR "AI training infrastructure"'
+        self.assertEqual(plan["scope_queries"], {scope: expected})
         self.assertEqual(
-            {task["scope_search_text"] for task in plan["tasks"]}, {query}
+            {task["scope_search_text"] for task in plan["tasks"]}, {expected}
         )
 
     def test_analysis_plan_rejects_inconsistent_dynamic_scope_queries(self) -> None:
@@ -315,13 +324,15 @@ class TemporalCountPlanTests(unittest.TestCase):
             _write_plan(
                 analysis,
                 "analysis-bundle",
-                [
-                    _candidate("one", scope, "one", source_query="first query"),
-                    _candidate("two", scope, "two", source_query="second query"),
-                ],
+                [_candidate("one", scope, "one", source_query="first query")],
                 plan_role="analysis_candidates",
+                analysis_scope={
+                    "scope_id": "another-scope",
+                    "normalized_query": "first query",
+                    "search_texts": ["first query"],
+                },
             )
-            with self.assertRaisesRegex(ValueError, "inconsistent source queries"):
+            with self.assertRaisesRegex(ValueError, "differs from analysis_scope"):
                 build_analysis_temporal_count_plan(analysis_plan_dir=analysis)
 
     def test_analysis_plan_rejects_training_or_multiple_scopes(self) -> None:

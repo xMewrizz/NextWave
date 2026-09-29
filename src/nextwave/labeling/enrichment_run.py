@@ -412,6 +412,28 @@ def load_validated_plan(plan_dir: str | Path) -> tuple[dict[str, Any], bytes, di
             f"enrichment plan cutoff {raw_plan_cutoff!r} "
             f"does not match {LABELING_CUTOFF_DATE.isoformat()!r}"
         )
+    if is_analysis_plan:
+        analysis_scope = plan.get("analysis_scope")
+        if not isinstance(analysis_scope, dict):
+            raise ValueError("analysis enrichment plan misses analysis_scope")
+        scope_id = analysis_scope.get("scope_id")
+        normalized_query = analysis_scope.get("normalized_query")
+        scope_search_texts = analysis_scope.get("search_texts")
+        if not isinstance(scope_id, str) or not scope_id:
+            raise ValueError("analysis enrichment plan has invalid scope_id")
+        if not isinstance(normalized_query, str) or not normalized_query.strip():
+            raise ValueError("analysis enrichment plan has invalid normalized_query")
+        if (
+            not isinstance(scope_search_texts, list)
+            or not scope_search_texts
+            or any(
+                not isinstance(value, str) or not value.strip()
+                for value in scope_search_texts
+            )
+            or len({value.casefold() for value in scope_search_texts})
+            != len(scope_search_texts)
+        ):
+            raise ValueError("analysis enrichment plan has invalid search_texts")
     if _FORBIDDEN_PLAN_KEYS & set(_walk_keys(plan)):
         raise ValueError("enrichment plan claims an executed search")
 
@@ -431,6 +453,10 @@ def load_validated_plan(plan_dir: str | Path) -> tuple[dict[str, Any], bytes, di
         raise ValueError("enrichment plan candidate_id values must be non-blank strings")
     if len(set(candidate_ids)) != len(candidate_ids):
         raise ValueError("duplicate candidate_id in enrichment plan")
+    if is_analysis_plan and {
+        entry.get("analysis_scope_key") for entry in candidates
+    } != {scope_id}:
+        raise ValueError("analysis candidates differ from analysis_scope")
 
     records = []
     for entry in candidates:

@@ -592,6 +592,7 @@ def _render_plan(
     candidates_input_key: str,
     search_term_overrides: Mapping[str, tuple[str, ...]] | None = None,
     extra_inputs: Mapping[str, dict[str, Any]] | None = None,
+    analysis_scope: Mapping[str, Any] | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     bundle_id = _bundle_id(records)
     cutoff_dates = {record.cutoff_date for record in records}
@@ -651,6 +652,8 @@ def _render_plan(
         "totals": totals,
         "candidates": entries,
     }
+    if analysis_scope is not None:
+        plan["analysis_scope"] = dict(analysis_scope)
     plan_bytes = (
         json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
@@ -952,6 +955,24 @@ def build_analysis_enrichment_plan(
         raise ValueError("discovery plan raw_query must not be blank")
     if manifest.get("raw_query") != source_query:
         raise ValueError("discovery raw_query differs between plan and manifest")
+    raw_scope = loaded.plan.get("scope")
+    if not isinstance(raw_scope, dict):
+        raise ValueError("discovery plan scope must be an object")
+    normalized_query = raw_scope.get("normalized_query")
+    search_texts = raw_scope.get("search_texts")
+    if not isinstance(normalized_query, str) or not normalized_query.strip():
+        raise ValueError("discovery normalized query must not be blank")
+    if (
+        not isinstance(search_texts, list)
+        or not search_texts
+        or any(not isinstance(value, str) or not value.strip() for value in search_texts)
+    ):
+        raise ValueError("discovery search_texts must be non-blank strings")
+    normalized_search_texts = [" ".join(value.split()) for value in search_texts]
+    if len({value.casefold() for value in normalized_search_texts}) != len(
+        normalized_search_texts
+    ):
+        raise ValueError("discovery search_texts must be unique")
     result_bytes = (run / "pipeline_result.json").read_bytes()
     gate = result.get("candidate_gate")
     aliases = result.get("alias_resolution")
@@ -1062,6 +1083,11 @@ def build_analysis_enrichment_plan(
                     "skipped_proposals": coverage["skipped_proposals"],
                 },
             }
+        },
+        analysis_scope={
+            "scope_id": analysis_scope_key.strip(),
+            "normalized_query": " ".join(normalized_query.split()),
+            "search_texts": normalized_search_texts,
         },
     )
 

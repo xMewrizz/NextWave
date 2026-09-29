@@ -41,6 +41,24 @@ _SCOPE_QUERIES = {
 }
 
 
+def _dynamic_scope_query(search_texts: object, label: str) -> str:
+    if not isinstance(search_texts, list) or not search_texts:
+        raise ValueError(f"{label} search_texts must be a non-empty list")
+    clauses: list[str] = []
+    seen: set[str] = set()
+    for index, value in enumerate(search_texts, 1):
+        normalized = _normalized_term(value, f"{label} search_text {index}")
+        normalized = " ".join(normalized.replace('"', " ").split())
+        key = normalized.casefold()
+        if not normalized or key in seen:
+            continue
+        seen.add(key)
+        clauses.append(f'"{normalized}"')
+    if not clauses:
+        raise ValueError(f"{label} search_texts do not contain usable text")
+    return " OR ".join(clauses)
+
+
 @dataclass(frozen=True, slots=True)
 class TemporalCountPlanPaths:
     plan: Path
@@ -154,6 +172,17 @@ def _collect_candidates(
         "bundle_id": bundle_id,
         "candidate_count": len(plan["candidates"]),
     }
+    if dynamic_scope_queries is not None:
+        analysis_scope = plan.get("analysis_scope")
+        if analysis_scope is not None:
+            if not isinstance(analysis_scope, dict):
+                raise ValueError(f"{directory.name} analysis_scope must be an object")
+            scope_id = analysis_scope.get("scope_id")
+            if not isinstance(scope_id, str) or not scope_id:
+                raise ValueError(f"{directory.name} analysis_scope has invalid scope_id")
+            dynamic_scope_queries[scope_id] = _dynamic_scope_query(
+                analysis_scope.get("search_texts"), f"{directory.name} analysis_scope"
+            )
     for raw in plan["candidates"]:
         if not isinstance(raw, dict):
             raise ValueError(f"{directory.name} candidate must be an object")
@@ -168,19 +197,10 @@ def _collect_candidates(
         if scope not in _SCOPE_QUERIES:
             if dynamic_scope_queries is None:
                 raise ValueError(f"candidate {candidate_id} has unknown analysis scope")
-            origin = raw.get("origin")
-            if not isinstance(origin, dict):
-                raise ValueError(f"candidate {candidate_id} misses analysis source query")
-            scope_query = _normalized_term(
-                origin.get("source_query"),
-                f"candidate {candidate_id} analysis source query",
-            )
-            existing_query = dynamic_scope_queries.get(scope)
-            if existing_query is not None and existing_query != scope_query:
+            if scope not in dynamic_scope_queries:
                 raise ValueError(
-                    f"analysis scope {scope!r} has inconsistent source queries"
+                    f"candidate {candidate_id} differs from analysis_scope"
                 )
-            dynamic_scope_queries[scope] = scope_query
         terms = raw.get("search_terms")
         if not isinstance(terms, list) or not terms:
             raise ValueError(f"candidate {candidate_id} needs reviewed search terms")

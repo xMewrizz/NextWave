@@ -77,7 +77,13 @@ def _run(root: Path, *, cutoff_date: str = "2026-09-15") -> Path:
     plan = {
         "query": {"cutoff_date": cutoff_date},
         "scope": {
-            "raw_query": "Инфраструктурные технологии для обучения и инференса ИИ"
+            "raw_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+            "normalized_query": "infrastructure technologies for AI training and inference",
+            "search_texts": [
+                "infrastructure technologies for AI training and inference",
+                "AI training infrastructure",
+                "AI inference infrastructure",
+            ],
         },
     }
     plan_bytes = json.dumps(plan, sort_keys=True).encode()
@@ -149,6 +155,20 @@ class AnalysisEnrichmentPlanTests(unittest.TestCase):
         self.assertEqual(
             plan["candidates"][0]["search_terms"],
             ["Speculative decoding", "speculative-decoding"],
+        )
+        self.assertEqual(
+            plan["analysis_scope"],
+            {
+                "scope_id": "ai-infrastructure-v1",
+                "normalized_query": (
+                    "infrastructure technologies for AI training and inference"
+                ),
+                "search_texts": [
+                    "infrastructure technologies for AI training and inference",
+                    "AI training infrastructure",
+                    "AI inference infrastructure",
+                ],
+            },
         )
 
     def test_user_query_scope_does_not_require_an_organizer_domain(self) -> None:
