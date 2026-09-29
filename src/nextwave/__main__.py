@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from . import __version__
+from .application import AnalysisApplication
 from .datasets import (
     DATASET_VERSION,
     OrganizerArtifactError,
@@ -194,6 +195,38 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("data") / "development" / "discovery",
         help="корень для каталогов запусков",
+    )
+    analysis_run = commands.add_parser(
+        "analysis-run",
+        help="выполнить или продолжить полный query-local анализ",
+    )
+    analysis_run.add_argument(
+        "--query",
+        required=True,
+        help="технологическое направление пользователя",
+    )
+    analysis_run.add_argument(
+        "--analysis-id",
+        required=True,
+        help="устойчивый идентификатор анализа",
+    )
+    analysis_run.add_argument(
+        "--workspace",
+        type=Path,
+        required=True,
+        help="каталог checkpoint-артефактов анализа",
+    )
+    analysis_run.add_argument(
+        "--model",
+        type=Path,
+        default=Path("data") / "development" / "model-report-development-v6",
+        help="каталог замороженной модели",
+    )
+    analysis_run.add_argument(
+        "--env-file",
+        type=Path,
+        default=Path("config") / "hackathon.env",
+        help="файл runtime-настроек; переменные процесса имеют приоритет",
     )
     labeling_export = commands.add_parser(
         "labeling-export",
@@ -947,6 +980,34 @@ def _run_discovery_run(
     return 0
 
 
+def _run_analysis(
+    query: str,
+    analysis_id: str,
+    workspace: Path,
+    model: Path,
+    env_file: Path,
+) -> int:
+    def report(stage: str, value: float, message: str) -> None:
+        print(f"[{value:>5.1%}] {stage}: {message}")
+
+    try:
+        application = AnalysisApplication(
+            workspace=workspace,
+            model_dir=model,
+            environment=_runtime_environment(env_file),
+            progress=report,
+        )
+        paths = application.run(query=query, analysis_id=analysis_id)
+    except (OSError, RuntimeError, ValueError) as error:
+        print(f"Не удалось выполнить анализ: {error}", file=sys.stderr)
+        return 1
+
+    print("Анализ завершён.")
+    print(f"Результат: {paths.result}")
+    print(f"Checkpoint: {paths.manifest}")
+    return 0
+
+
 def _parse_domain_map(entries: list[str]) -> dict[str, str]:
     """Parse RUN_ID=Domain entries into an audited run-domain mapping."""
     mapping: dict[str, str] = {}
@@ -1650,6 +1711,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.published_from,
             arguments.env_file,
             arguments.output_root,
+        )
+    if arguments.command == "analysis-run":
+        return _run_analysis(
+            arguments.query,
+            arguments.analysis_id,
+            arguments.workspace,
+            arguments.model,
+            arguments.env_file,
         )
     if arguments.command == "labeling-export":
         return _run_labeling_export(

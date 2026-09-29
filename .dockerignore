@@ -1,0 +1,15 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+.omo
+**/__pycache__
+**/*.py[cod]
+backend/.venv
+frontend/node_modules
+frontend/dist
+data
+runtime
+tests
+test_*.py
+*.xlsx

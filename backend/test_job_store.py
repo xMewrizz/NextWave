@@ -67,3 +67,29 @@ def test_configured_store_uses_postgres_when_configured(monkeypatch):
     monkeypatch.setenv("NEXTWAVE_DATABASE_URL", "postgresql://example")
     monkeypatch.setattr(job_store, "_postgres_store", lambda value: marker)
     assert job_store.configured_analysis_job_store() is marker
+
+
+def test_live_job_progress_marks_prior_stages_complete(tmp_path: Path):
+    store = AnalysisJobStore(tmp_path / "jobs")
+    stages = [
+        AnalysisStageState(key="source_search", label="Sources", status="pending"),
+        AnalysisStageState(key="candidate_gate", label="Gate", status="pending"),
+        AnalysisStageState(key="result", label="Result", status="pending"),
+    ]
+    job = store.create("test", stages, mode="live")
+    running = store.mark_running(job)
+    assert running.stage == "source_search"
+    assert running.progress == 0.01
+    updated = store.update_progress(
+        running,
+        stage="candidate_gate",
+        stage_label="Gate",
+        progress=0.25,
+    )
+    assert updated.mode == "live"
+    assert updated.stage == "candidate_gate"
+    assert [stage.status for stage in updated.stage_history] == [
+        "complete",
+        "running",
+        "pending",
+    ]

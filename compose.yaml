@@ -18,14 +18,23 @@ services:
 
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     env_file:
       - ./config/hackathon.env
     environment:
       NEXTWAVE_RESULT_DIR: /data/result
       NEXTWAVE_DATABASE_URL: postgresql://nextwave:${NEXTWAVE_POSTGRES_PASSWORD:-nextwave-local}@postgres:5432/nextwave?connect_timeout=5
+      NEXTWAVE_ANALYSIS_MODE: ${NEXTWAVE_ANALYSIS_MODE:-cached_snapshot}
+      NEXTWAVE_ANALYSIS_WORK_DIR: /data/analysis-work
+      NEXTWAVE_MODEL_DIR: /data/model
+      NEXTWAVE_ANALYSIS_CUTOFF: ${NEXTWAVE_ANALYSIS_CUTOFF:-2026-09-15}
+      NEXTWAVE_OPENALEX_API_KEY: ${NEXTWAVE_OPENALEX_API_KEY:-}
+      NEXTWAVE_EXA_API_KEY: ${NEXTWAVE_EXA_API_KEY:-}
     volumes:
       - ${NEXTWAVE_RESULT_DIR:-./data/development/analysis-result-aiinfra-004-unified-v2}:/data/result:ro
+      - ${NEXTWAVE_MODEL_DIR:-./data/development/model-report-development-v6}:/data/model:ro
+      - nextwave-analysis-work:/data/analysis-work
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -35,7 +44,7 @@ services:
     healthcheck:
       test:
         - CMD
-        - /app/.venv/bin/python
+        - /app/backend/.venv/bin/python
         - -c
         - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)
       interval: 10s
@@ -57,3 +66,4 @@ services:
 
 volumes:
   nextwave-postgres:
+  nextwave-analysis-work:

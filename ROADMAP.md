@@ -23,7 +23,7 @@
 | V1-07 | Проверенный отрицательный корпус | 24 сен | Из сохранённых предложений, исключений и ошибок discovery сформирована очередь review; при нехватке классов выполнен целевой поиск; проверены минимум 50 mature, 50 hype и 50 noise с балансом областей и источников | `feat/v1-07-labels` |
 | V1-08 | Историческое обогащение и feature builder | 25 сен | Оба класса получают одну схему; временные окна, unknown и утечка по времени проверены | `feat/v1-08-features` |
 | V1-09 | Модель, оценка Candidate gate и Evidence Duel | 26 сен | Grouped 5-fold отчёт, измерено качество входного фильтра и проверены контрольные early, mature, hype, noise, historical сценарии | `feat/v1-09-model` |
-| V1-10 | PostgreSQL и интеграция API/UI | частично | PostgreSQL хранит jobs и результаты, UI показывает реальный TOP-15; произвольный live-runner ещё не подключён | `feat/v1-10-integration` |
+| V1-10 | PostgreSQL и интеграция API/UI | готово | PostgreSQL хранит jobs и результаты, UI показывает реальный TOP-15; CLI и backend используют один resumable live-runner | `feat/v1-10-integration` |
 | V1-11 | Развёртывание и репетиция | частично | Чистый Docker-запуск, полный TOP-15 и restart replay проверены; остаются широкий запрос и отказ источника | `chore/v1-11-release-check` |
 | V1-12 | Квалификационный релиз | 29 сен | Commit, данные, модель, отчёт, snapshot и инструкция относятся к одной версии | `release/v1-qualification` |
 

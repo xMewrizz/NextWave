@@ -163,6 +163,55 @@ async def test_mismatched_query_fails_without_substituting_result(client: AsyncC
     assert response.status_code == 409
 
 
+async def test_live_job_uses_application_runner_and_reports_real_stages(
+    client: AsyncClient, tmp_path: Path, monkeypatch
+):
+    query = "Технологии квантовой связи"
+
+    class FakeApplication:
+        def __init__(self, *, workspace, progress, **kwargs):
+            self.workspace = Path(workspace)
+            self.progress = progress
+
+        def run(self, *, query: str, analysis_id: str):
+            del analysis_id
+            for stage, value in (
+                ("source_search", 0.10),
+                ("candidate_gate", 0.25),
+                ("enrichment", 0.60),
+                ("model", 0.72),
+                ("evidence_duel", 0.94),
+                ("result", 1.0),
+            ):
+                self.progress(stage, value, stage)
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            result = self.workspace / "result.json"
+            result.write_bytes(
+                _json(
+                    {
+                        "schema_version": "analysis-response-v1",
+                        "query": {"text": query},
+                        "summary": {},
+                        "top15": [],
+                        "candidates": [],
+                    }
+                )
+            )
+            return type("Paths", (), {"result": result})()
+
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_MODE", "live")
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_WORK_DIR", str(tmp_path / "live"))
+    monkeypatch.setattr(main, "AnalysisApplication", FakeApplication)
+    created = (await client.post("/api/analyses", json={"query": query})).json()
+    assert created["mode"] == "live"
+    job = await _wait(client, created["id"])
+    assert job["status"] == "complete"
+    assert {stage["status"] for stage in job["stage_history"]} == {"complete"}
+    response = await client.get(f"/api/analyses/{created['id']}/result")
+    assert response.status_code == 200
+    assert response.json()["query"]["text"] == query
+
+
 async def test_pending_job_is_resumed_after_process_restart(client: AsyncClient):
     store = AnalysisJobStore()
     job = store.create(QUERY)

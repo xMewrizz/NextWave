@@ -15,7 +15,7 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Jsonb
 
-from .models import AnalysisJob, AnalysisStageState
+from .models import AnalysisJob, AnalysisStageState, JobMode
 
 _JOB_ID = re.compile(r"^[0-9a-f]{12}$")
 JOB_SCHEMA_VERSION = "analysis-job-v1"
@@ -84,6 +84,13 @@ def _failed_job(job: AnalysisJob, message: str) -> AnalysisJob:
 
 
 def _running_job(job: AnalysisJob) -> AnalysisJob:
+    if job.mode == "live":
+        return _progressed_job(
+            job,
+            stage="source_search",
+            stage_label="Поиск источников",
+            progress=0.01,
+        )
     stage_history = [
         stage.model_copy(
             update={"status": "running" if stage.key == "result" else "reused"}
@@ -103,19 +110,61 @@ def _running_job(job: AnalysisJob) -> AnalysisJob:
     )
 
 
+def _progressed_job(
+    job: AnalysisJob,
+    *,
+    stage: str,
+    stage_label: str,
+    progress: float,
+) -> AnalysisJob:
+    keys = [item.key for item in job.stage_history]
+    if stage not in keys:
+        raise ValueError(f"unknown analysis stage {stage!r}")
+    current_index = keys.index(stage)
+    history = [
+        item.model_copy(
+            update={
+                "status": (
+                    "complete"
+                    if index < current_index
+                    else "running"
+                    if index == current_index
+                    else "pending"
+                )
+            }
+        )
+        for index, item in enumerate(job.stage_history)
+    ]
+    return job.model_copy(
+        update={
+            "status": "running",
+            "stage": stage,
+            "stage_label": stage_label,
+            "progress": progress,
+            "updated_at": datetime.now(UTC),
+            "stage_history": history,
+            "error": None,
+        }
+    )
+
+
 class AnalysisJobStore:
     def __init__(self, root: str | Path | None = None) -> None:
         self.root = Path(root) if root is not None else configured_job_dir()
 
     def create(
-        self, query: str, stages: list[AnalysisStageState] | None = None
+        self,
+        query: str,
+        stages: list[AnalysisStageState] | None = None,
+        *,
+        mode: JobMode = "cached_snapshot",
     ) -> AnalysisJob:
         now = datetime.now(UTC)
         job = AnalysisJob(
             schema_version=JOB_SCHEMA_VERSION,
             id=uuid.uuid4().hex[:12],
             query=query,
-            mode="cached_snapshot",
+            mode=mode,
             status="pending",
             progress=0.0,
             created_at=now,
@@ -174,6 +223,23 @@ class AnalysisJobStore:
         self.save(running)
         return running
 
+    def update_progress(
+        self,
+        job: AnalysisJob,
+        *,
+        stage: str,
+        stage_label: str,
+        progress: float,
+    ) -> AnalysisJob:
+        running = _progressed_job(
+            job,
+            stage=stage,
+            stage_label=stage_label,
+            progress=progress,
+        )
+        self.save(running)
+        return running
+
     def load_result(self, job: AnalysisJob) -> dict[str, Any]:
         if not job.result_available or not job.result_sha256:
             raise ValueError("analysis result is not available")
@@ -222,14 +288,18 @@ class PostgresAnalysisJobStore:
             )
 
     def create(
-        self, query: str, stages: list[AnalysisStageState] | None = None
+        self,
+        query: str,
+        stages: list[AnalysisStageState] | None = None,
+        *,
+        mode: JobMode = "cached_snapshot",
     ) -> AnalysisJob:
         now = datetime.now(UTC)
         job = AnalysisJob(
             schema_version=JOB_SCHEMA_VERSION,
             id=uuid.uuid4().hex[:12],
             query=query,
-            mode="cached_snapshot",
+            mode=mode,
             status="pending",
             progress=0.0,
             created_at=now,
@@ -305,6 +375,23 @@ class PostgresAnalysisJobStore:
 
     def mark_running(self, job: AnalysisJob) -> AnalysisJob:
         running = _running_job(job)
+        self.save(running)
+        return running
+
+    def update_progress(
+        self,
+        job: AnalysisJob,
+        *,
+        stage: str,
+        stage_label: str,
+        progress: float,
+    ) -> AnalysisJob:
+        running = _progressed_job(
+            job,
+            stage=stage,
+            stage_label=stage_label,
+            progress=progress,
+        )
         self.save(running)
         return running
 

@@ -54,14 +54,15 @@ intercept, значение признака после преобразован
 калибровка не выполнена, интерфейс называет число «оценкой модели», а не
 вероятностью или процентом уверенности.
 
-Backend читает тот же неизменяемый `analysis-result-v2` через read-only адаптер,
-повторно проверяет checksums и не пересчитывает score или policy. `POST
+Backend запускает тот же `AnalysisApplication`, что и CLI, а готовый
+`analysis-result-v2` читает через read-only адаптер, повторно проверяет checksums
+и не пересчитывает score или policy. `POST
 /api/analyses` создаёт сохраняемый job, `GET /api/analyses/{id}` возвращает его
 статус и этапы, а `GET /api/analyses/{id}/result` — сохранённый единый
 `analysis-response-v1`. После перезапуска незавершённый job возобновляется, а
-готовый результат повторно проверяется по SHA-256. В текущем release-контуре job
-честно переиспользует зафиксированный результат только для совпадающего запроса;
-произвольный live-runner ещё не подключён и не подменяется чужой выдачей.
+готовый результат повторно проверяется по SHA-256. Каждый live-job сохраняет 15
+неизменяемых checkpoint-этапов и после сбоя продолжает с первого незавершённого
+этапа, не повторяя уже опубликованные API- и LLM-вызовы.
 
 В Docker Compose каталог реального результата монтируется только для чтения, а
 состояние job хранится в отдельном volume. Web-страница `/result` показывает
@@ -90,6 +91,20 @@ docker compose up --build
 на `http://localhost:8000/api/result/current`. Создать сохраняемый job можно через
 `POST http://localhost:8000/api/analyses`. Каталог результата монтируется read-only;
 API не пересчитывает и не меняет model score, policy или Evidence claims.
+
+По умолчанию Compose остаётся в безопасном режиме `cached_snapshot`, чтобы
+проверка интерфейса не тратила внешние квоты. Для произвольного живого запроса:
+
+```powershell
+$env:NEXTWAVE_ANALYSIS_MODE = "live"
+docker compose up --build -d
+```
+
+Live-режиму нужны серверные `NEXTWAVE_LLM_API_KEY`,
+`NEXTWAVE_YANDEX_FOLDER_ID` и `NEXTWAVE_EXA_API_KEY`;
+`NEXTWAVE_OPENALEX_API_KEY` необязателен, но увеличивает квоту OpenAlex. Эти
+значения передаются только backend. Checkpoint-артефакты хранятся в volume
+`nextwave-analysis-work` и переживают перезапуск контейнера.
 
 ### Воспроизводимая web-репетиция
 
@@ -167,8 +182,10 @@ enrichment, point-in-time признаки, frozen inference и resumable Eviden
 Единый финальный JSON, decision policy по объединённым Evidence-страницам,
 backend/frontend и PostgreSQL-хранилище analysis jobs готовы. Production Compose
 проверен созданием задачи, выдачей результата и полным перезапуском контейнеров.
-Остаётся подключить произвольный live-runner: сейчас job честно переиспользует
-проверенный snapshot только для зафиксированного демонстрационного запроса.
+Единый resumable live-runner подключён к CLI и backend. Compose по умолчанию
+использует checked snapshot, а режим `NEXTWAVE_ANALYSIS_MODE=live` выполняет
+произвольный запрос и обновляет шесть продуктовых стадий. До релиза остаётся
+живая end-to-end репетиция нормального и широкого запросов и отказа источника.
 
 ## Документация
 
@@ -233,9 +250,19 @@ python -m nextwave query-resolve --query "Технологии в ИИ"
 требуют доступа к YandexGPT.
 Docker Compose запускает frontend, FastAPI и PostgreSQL. API сохраняет jobs и
 их точный итоговый JSON в PostgreSQL и восстанавливает их после полного рестарта.
-Полный discovery-конвейер запускается CLI-командой `discovery-run` с сохранением
-сейфа (план, результат, опись); единый application runner для произвольного
-web-запроса ещё не подключён.
+Полный продуктовый конвейер запускается одной resumable-командой:
+
+```powershell
+python -m nextwave analysis-run `
+  --query "Инфраструктурные технологии для ИИ" `
+  --analysis-id analysis-ai-001 `
+  --workspace runtime/analysis-jobs/analysis-ai-001
+```
+
+Команда и backend используют один `AnalysisApplication`: discovery, Candidate
+Gate, OpenAlex/Exa enrichment, признаки, frozen model, Evidence Duel и единый
+результат. Уже опубликованные checkpoint-артефакты сверяются по checksum и
+переиспользуются; незавершённая стадия выполняется снова.
 
 Результат содержит исходный и нормализованный запрос, варианты поиска, ширину намерения,
 провайдера, модель, рассмотренные элементы таксономии OpenAlex и выбранный `subfield` или

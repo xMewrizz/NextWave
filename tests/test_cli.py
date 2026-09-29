@@ -8,10 +8,77 @@ from pathlib import Path
 from unittest.mock import patch
 
 from nextwave.__main__ import main
+from nextwave.application import AnalysisApplicationPaths
 from nextwave.datasets import OrganizerDatasetPaths, OrganizerWorkbookError
 
 
 class CommandLineTests(unittest.TestCase):
+    @patch("nextwave.__main__._runtime_environment", return_value={"ENV": "value"})
+    @patch("nextwave.__main__.AnalysisApplication")
+    def test_analysis_run_uses_one_resumable_application(
+        self, application_type, environment
+    ) -> None:
+        application_type.return_value.run.return_value = AnalysisApplicationPaths(
+            workspace=Path("work"),
+            manifest=Path("work/analysis_application.json"),
+            result_dir=Path("work/artifacts/result"),
+            result=Path("work/artifacts/result/result.json"),
+        )
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main(
+                [
+                    "analysis-run",
+                    "--query",
+                    "Инфраструктура ИИ",
+                    "--analysis-id",
+                    "analysis-ai-001",
+                    "--workspace",
+                    "work",
+                    "--model",
+                    "model",
+                    "--env-file",
+                    "settings.env",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        environment.assert_called_once_with(Path("settings.env"))
+        _, kwargs = application_type.call_args
+        self.assertEqual(kwargs["workspace"], Path("work"))
+        self.assertEqual(kwargs["model_dir"], Path("model"))
+        self.assertEqual(kwargs["environment"], {"ENV": "value"})
+        self.assertTrue(callable(kwargs["progress"]))
+        application_type.return_value.run.assert_called_once_with(
+            query="Инфраструктура ИИ", analysis_id="analysis-ai-001"
+        )
+        self.assertIn(str(Path("work/artifacts/result/result.json")), stdout.getvalue())
+
+    @patch("nextwave.__main__._runtime_environment", return_value={})
+    @patch("nextwave.__main__.AnalysisApplication")
+    def test_analysis_run_reports_failure_without_traceback(
+        self, application_type, _environment
+    ) -> None:
+        application_type.return_value.run.side_effect = ValueError("broken checkpoint")
+
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            exit_code = main(
+                [
+                    "analysis-run",
+                    "--query",
+                    "ИИ",
+                    "--analysis-id",
+                    "analysis-ai-002",
+                    "--workspace",
+                    "work",
+                ]
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("broken checkpoint", stderr.getvalue())
+
     @patch("nextwave.__main__.build_organizer_dataset")
     def test_dataset_build_uses_default_versioned_output(self, build) -> None:
         output = Path("data/processed/organizer-positive-2026-09-15-v1")
