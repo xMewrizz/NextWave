@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from app import job_store
 from app.job_store import AnalysisJobStore
 from app.models import AnalysisStageState
 
@@ -54,3 +55,15 @@ def test_tampered_result_is_rejected(tmp_path: Path):
     (store.root / job.id / "result.json").write_text("{}\n", encoding="utf-8")
     with pytest.raises(ValueError, match="checksum mismatch"):
         store.load_result(job)
+
+
+def test_configured_store_defaults_to_filesystem(monkeypatch):
+    monkeypatch.delenv("NEXTWAVE_DATABASE_URL", raising=False)
+    assert isinstance(job_store.configured_analysis_job_store(), AnalysisJobStore)
+
+
+def test_configured_store_uses_postgres_when_configured(monkeypatch):
+    marker = object()
+    monkeypatch.setenv("NEXTWAVE_DATABASE_URL", "postgresql://example")
+    monkeypatch.setattr(job_store, "_postgres_store", lambda value: marker)
+    assert job_store.configured_analysis_job_store() is marker

@@ -145,6 +145,12 @@ async def test_job_persists_result_and_stage_history(client: AsyncClient):
     assert [item["id"] for item in listed] == [created["id"]]
 
 
+async def test_health_checks_store_and_result(client: AsyncClient):
+    response = await client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 async def test_mismatched_query_fails_without_substituting_result(client: AsyncClient):
     created = (
         await client.post("/api/analyses", json={"query": "Технологии квантовой связи"})

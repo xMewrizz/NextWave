@@ -1,11 +1,12 @@
 import asyncio
 import os
 
+import psycopg
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import pipeline
-from .job_store import AnalysisJobStore
+from .job_store import configured_analysis_job_store
 from .models import (
     AnalysisJob,
     AnalysisRequest,
@@ -40,8 +41,8 @@ def _require_synthetic_demo() -> None:
         raise HTTPException(404, "Синтетический API отключён в release mode.")
 
 
-def _store() -> AnalysisJobStore:
-    return AnalysisJobStore()
+def _store():
+    return configured_analysis_job_store()
 
 
 def _normalized_query(value: str) -> str:
@@ -101,6 +102,16 @@ def get_current_result() -> dict:
             503,
             f"Итоговый результат недоступен ({configured_result_dir()}): {error}",
         ) from error
+
+
+@app.get("/api/health")
+def get_health() -> dict[str, str]:
+    try:
+        _store().healthcheck()
+        load_result_bundle()
+    except (OSError, ValueError, psycopg.Error) as error:
+        raise HTTPException(503, "Сервис анализа не готов.") from error
+    return {"status": "ok"}
 
 
 @app.get("/api/stages")
