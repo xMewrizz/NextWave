@@ -252,7 +252,12 @@ function CandidateDetails({ candidate }: { candidate: ResultCandidate }) {
           <p className="mt-2 text-muted-foreground">{candidateAdvantage(candidate)}</p>
         </div>
       )}
-      <ClaimList title="Что подтверждает слабый сигнал" claims={candidate.signal_case} mode="support" />
+      <ClaimList
+        title="Почему это слабый сигнал"
+        claims={candidate.signal_case}
+        mode="support"
+        candidateName={candidateDisplayName(candidate)}
+      />
       <ClaimList title="Что ослабляет вывод" claims={candidate.skeptic_case} mode="skeptic" />
       {candidate.limitations.length > 0 && (
         <div>
@@ -285,7 +290,17 @@ function FactorList({ title, factors }: { title: string; factors: ResultCandidat
   )
 }
 
-function ClaimList({ title, claims, mode = 'support' }: { title: string; claims: EvidenceClaimView[]; mode?: 'support' | 'skeptic' }) {
+function ClaimList({
+  title,
+  claims,
+  mode = 'support',
+  candidateName,
+}: {
+  title: string
+  claims: EvidenceClaimView[]
+  mode?: 'support' | 'skeptic'
+  candidateName?: string
+}) {
   return (
     <div>
       <h4 className="font-medium">{title}</h4>
@@ -293,10 +308,13 @@ function ClaimList({ title, claims, mode = 'support' }: { title: string; claims:
         <p className="mt-2 text-muted-foreground">Проверяемых утверждений нет.</p>
       ) : (
         <ul className="mt-2 space-y-3">
-          {claims.map((claim) => (
+          {claims.map((claim, index) => (
             <li key={claim.claim_id} className="rounded-lg bg-muted/50 p-3">
-              <Badge variant="outline">{claimKindLabel(claim.kind)}</Badge>
-              <p className="mt-2">{claimExplanation(claim, mode)}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {mode === 'support' && <span className="text-xs font-medium">Аргумент {index + 1}</span>}
+                <Badge variant="outline">{claimKindLabel(claim.kind)}</Badge>
+              </div>
+              <p className="mt-2">{claimExplanation(claim, mode, candidateName)}</p>
               <blockquote className="mt-2 border-l-2 pl-3 text-xs text-muted-foreground">
                 {claim.quote}
               </blockquote>
@@ -325,14 +343,37 @@ function meaningfulFactors(factors: ResultCandidate['model']['top_negative_facto
   return factors.filter((factor) => Math.abs(factor.contribution) >= 0.03)
 }
 
-function claimExplanation(claim: EvidenceClaimView, mode: 'support' | 'skeptic') {
+function claimExplanation(claim: EvidenceClaimView, mode: 'support' | 'skeptic', candidateName?: string) {
   if (mode === 'skeptic' && claim.kind === 'promotional_claim') {
     return 'Источник связан с компанией, которая продвигает решение. Такое заявление не считается независимым подтверждением слабого сигнала.'
   }
   if (mode === 'skeptic' && ['adoption', 'standard', 'market'].includes(claim.kind)) {
     return 'Фрагмент указывает на внедрение, сформировавшийся рынок или стандарт. Это признак зрелости технологии, а не раннего слабого сигнала.'
   }
+  if (mode === 'support' && candidateName) return supportClaimArgument(claim, candidateName)
   return plainClaimExplanation(claim.explanation_ru)
+}
+
+function supportClaimArgument(claim: EvidenceClaimView, candidateName: string) {
+  const fact = lowerFirst(plainClaimExplanation(claim.explanation_ru).replace(/[.!?]+$/u, ''))
+  const prefixes: Record<string, string> = {
+    novelty: `Источник фиксирует новую разработку по теме «${candidateName}»`,
+    growth: `По теме «${candidateName}» заметен рост исследовательской или практической активности`,
+    research: `В пользу темы «${candidateName}» опубликовано исследование`,
+    patent: `Для темы «${candidateName}» зарегистрирована патентная разработка`,
+    prototype: `Для темы «${candidateName}» создан или испытан прототип`,
+    pilot: `Для темы «${candidateName}» запущена пилотная проверка`,
+    investment: `Тема «${candidateName}» получила раннее финансирование`,
+  }
+  const prefix = prefixes[claim.kind]
+    ?? (['article', 'journal', 'preprint', 'conference'].includes(claim.source.source_type ?? '')
+      ? `По теме «${candidateName}» вышла научная работа`
+      : `Источник зафиксировал новый практический шаг по теме «${candidateName}»`)
+  return `${prefix}. Проверяемый факт из источника: ${fact}.`
+}
+
+function lowerFirst(value: string) {
+  return value.charAt(0).toLocaleLowerCase('ru-RU') + value.slice(1)
 }
 
 function reasonText(candidate: ResultCandidate) {
@@ -408,12 +449,15 @@ function claimKindLabel(kind: string) {
 
 function sourceTypeLabel(value: string | null) {
   const labelsByType: Record<string, string> = {
+    scientific_publication: 'научная публикация',
     article: 'научная статья',
     journal: 'научный журнал',
     preprint: 'препринт',
     conference: 'материалы конференции',
     patent: 'патент',
     industry_media: 'отраслевое медиа',
+    press_release: 'пресс-релиз',
+    company_technical: 'техническая публикация компании',
     report: 'аналитический отчёт',
     vendor: 'сайт разработчика',
     other: 'публикация',
@@ -429,7 +473,14 @@ function languageLabel(value: string | null) {
 }
 
 function trustLabel(value: string) {
-  return value === 'unknown' ? 'не определён' : value
+  const labels: Record<string, string> = {
+    A: 'высокое (A)',
+    B: 'достаточное (B)',
+    C: 'ограниченное (C)',
+    D: 'низкое (D)',
+    unknown: 'не определено',
+  }
+  return labels[value] ?? value
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
