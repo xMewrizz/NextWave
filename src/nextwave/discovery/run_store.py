@@ -29,7 +29,7 @@ from .pipeline import DISCOVERY_PIPELINE_VERSION, DiscoveryPipelineResult
 
 DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION = "discovery-run-manifest-v2"
 
-# Must stay in sync with LABELING.md and labeling/contracts.py.
+# Must stay in sync with docs/LABELING.md and labeling/contracts.py.
 # Runs with any other cutoff are fine for demo, but only this date is
 # eligible for the labeling (training) export.
 LABELING_CUTOFF_DATE_ISO = "2026-09-15"

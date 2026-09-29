@@ -27,9 +27,9 @@ Swagger доступен на `http://localhost:8000/docs`.
 - React, FastAPI, PostgreSQL и resumable checkpoints;
 - Docker Compose, CI и проверка артефактов по SHA-256.
 
-Архитектурные схемы находятся в [ARCHITECTURE.md](ARCHITECTURE.md), постановка
-задачи — в [PROBLEM.md](PROBLEM.md), правила данных и оценки — в
-[REQUIREMENTS.md](REQUIREMENTS.md).
+Понятное описание метода находится в [METHODOLOGY.md](METHODOLOGY.md), численный
+отчёт — в [MODEL_REPORT.md](MODEL_REPORT.md), а технические схемы и контракты —
+в [ARCHITECTURE.md](ARCHITECTURE.md) и [REQUIREMENTS.md](REQUIREMENTS.md).
 
 ## Проверяемые числа snapshot
 
