@@ -36,7 +36,7 @@ export function TrendPage() {
           <AlertTitle>Тренд не найден</AlertTitle>
           <AlertDescription>{error ?? 'Карточки нет в этой выдаче.'}</AlertDescription>
         </Alert>
-        <Button variant="outline" className="mt-4" render={<Link to={backTo} />}>
+        <Button variant="outline" className="mt-4" nativeButton={false} render={<Link to={backTo} />}>
           <ArrowLeft /> К списку
         </Button>
       </div>
@@ -217,7 +217,7 @@ export function TrendPage() {
               )}
             </CardContent>
           </Card>
-          <Button variant="outline" className="mt-3 w-full" render={<Link to="/methodology" />}>
+          <Button variant="outline" className="mt-3 w-full" nativeButton={false} render={<Link to="/methodology" />}>
             Как считается рейтинг
           </Button>
         </aside>

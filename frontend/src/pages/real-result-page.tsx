@@ -200,5 +200,5 @@ function Stat({ label, value }: { label: string; value: number }) {
 }
 
 function Message({ children, error }: { children?: React.ReactNode; error?: string }) {
-  return <main className="mx-auto max-w-3xl px-4 py-16"><Alert variant={error ? 'destructive' : 'default'}><Info /><AlertTitle>{error ? 'Результат недоступен' : 'NextWave'}</AlertTitle><AlertDescription>{error ?? children}</AlertDescription></Alert><Button variant="outline" className="mt-4" render={<Link to="/" />}>Вернуться к запросу</Button></main>
+  return <main className="mx-auto max-w-3xl px-4 py-16"><Alert variant={error ? 'destructive' : 'default'}><Info /><AlertTitle>{error ? 'Результат недоступен' : 'NextWave'}</AlertTitle><AlertDescription>{error ?? children}</AlertDescription></Alert><Button variant="outline" className="mt-4" nativeButton={false} render={<Link to="/" />}>Вернуться к запросу</Button></main>
 }

@@ -115,7 +115,7 @@ function JobError({ title, message }: { title: string; message: string }) {
         <AlertTitle>{title}</AlertTitle>
         <AlertDescription>{message}</AlertDescription>
       </Alert>
-      <Button variant="outline" className="w-fit" render={<Link to="/" />}>
+      <Button variant="outline" className="w-fit" nativeButton={false} render={<Link to="/" />}>
         Новый запрос
       </Button>
     </Shell>

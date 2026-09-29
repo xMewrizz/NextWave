@@ -224,6 +224,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             variant="ghost"
             size="sm"
             className="ml-auto"
+            nativeButton={false}
             render={<Link to="/methodology" />}
           >
             Методология
