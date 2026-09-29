@@ -114,7 +114,15 @@ class AnalysisResultTests(unittest.TestCase):
             }
             for candidate_id in candidate_ids
         ]
-        plan = _json({"bundle": {"bundle_id": "bundle-1"}, "candidates": candidates})
+        for candidate in candidates:
+            candidate["cutoff_date"] = "2026-09-15"
+        plan = _json(
+            {
+                "bundle": {"bundle_id": "bundle-1"},
+                "cutoff_date": "2026-09-15",
+                "candidates": candidates,
+            }
+        )
         (plan_dir / "plan.json").write_bytes(plan)
         plan_manifest = {
             "schema_version": "labeling-enrichment-plan-v2",
@@ -157,6 +165,7 @@ class AnalysisResultTests(unittest.TestCase):
         feature_rows = [
             {
                 "candidate_id": candidate_id,
+                "cutoff_date": "2026-09-15",
                 "features": {"temporal_count_coverage_complete": True},
             }
             for candidate_id in candidate_ids
@@ -353,6 +362,67 @@ class AnalysisResultTests(unittest.TestCase):
         self.assertEqual(
             json.loads(first["manifest.json"])["schema_version"],
             ANALYSIS_RESULT_VERSION,
+        )
+
+    def test_historical_cutoff_comes_from_plan_and_is_recorded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._fixture(Path(tmp))
+            plan_path = paths["plan"] / "plan.json"
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            plan["cutoff_date"] = "2025-09-15"
+            for candidate in plan["candidates"]:
+                candidate["cutoff_date"] = "2025-09-15"
+            plan_raw = _json(plan)
+            plan_path.write_bytes(plan_raw)
+            plan_manifest_path = paths["plan"] / "manifest.json"
+            plan_manifest = json.loads(
+                plan_manifest_path.read_text(encoding="utf-8")
+            )
+            plan_manifest["outputs"]["plan.json"] = _digest(plan_raw)
+            plan_manifest_path.write_bytes(_json(plan_manifest))
+
+            combined_manifest_path = paths["combined"] / "manifest.json"
+            combined_manifest = json.loads(
+                combined_manifest_path.read_text(encoding="utf-8")
+            )
+            combined_manifest["plan"] = _digest(plan_raw)
+            combined_manifest_path.write_bytes(_json(combined_manifest))
+
+            feature_path = paths["features"] / "features.jsonl"
+            feature_rows = [
+                json.loads(line)
+                for line in feature_path.read_text(encoding="utf-8").splitlines()
+            ]
+            for row in feature_rows:
+                row["cutoff_date"] = "2025-09-15"
+            feature_raw = _jsonl(feature_rows)
+            feature_path.write_bytes(feature_raw)
+            feature_manifest_path = paths["features"] / "manifest.json"
+            feature_manifest = json.loads(
+                feature_manifest_path.read_text(encoding="utf-8")
+            )
+            feature_manifest["outputs"]["features.jsonl"] = _digest(feature_raw)
+            feature_manifest_raw = _json(feature_manifest)
+            feature_manifest_path.write_bytes(feature_manifest_raw)
+
+            inference_manifest_path = paths["inference"] / "manifest.json"
+            inference_manifest = json.loads(
+                inference_manifest_path.read_text(encoding="utf-8")
+            )
+            inference_manifest["inputs"]["features"] = _digest(feature_manifest_raw)
+            inference_manifest_path.write_bytes(_json(inference_manifest))
+
+            files = self._build(paths)
+
+        manifest = json.loads(files["manifest.json"])
+        summary = json.loads(files["summary.json"])
+        self.assertEqual(manifest["cutoff_date"], "2025-09-15")
+        self.assertEqual(summary["cutoff_date"], "2025-09-15")
+        self.assertEqual(len(manifest["limitations"]), 1)
+        self.assertFalse(
+            manifest["inputs"]["evidence_results"][0][
+                "cutoff_matches_analysis"
+            ]
         )
 
 

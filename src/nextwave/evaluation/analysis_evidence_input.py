@@ -21,7 +21,6 @@ from .exa_enrichment_merge import ANALYSIS_COMBINED_ENRICHMENT_VERSION
 
 ANALYSIS_EVIDENCE_INPUT_VERSION = "analysis-evidence-input-v1"
 _ANALYSIS_PLAN_VERSION = "labeling-enrichment-plan-v2"
-_CUTOFF = date(2026, 9, 15)
 _MAX_PER_CLASS = 3
 _MIN_SCORE = 40
 
@@ -82,7 +81,7 @@ def _jsonl(rows: list[dict[str, Any]]) -> bytes:
     )
 
 
-def _published(value: object, document_id: object) -> date | None:
+def _published(value: object, document_id: object, cutoff: date) -> date | None:
     if value is None:
         return None
     if not isinstance(value, str):
@@ -91,7 +90,7 @@ def _published(value: object, document_id: object) -> date | None:
         result = date.fromisoformat(value)
     except ValueError as error:
         raise ValueError(f"document {document_id!r} has invalid published_at") from error
-    if result > _CUTOFF:
+    if result > cutoff:
         raise ValueError(f"document {document_id!r} is after cutoff")
     return result
 
@@ -145,6 +144,13 @@ def build_analysis_evidence_input(
         raise ValueError("analysis plan version is not supported")
     plan_raw = _checked(plan_root, plan_manifest, "plan.json")
     plan = json.loads(plan_raw)
+    cutoff_raw = plan.get("cutoff_date")
+    if not isinstance(cutoff_raw, str):
+        raise ValueError("analysis plan has no cutoff_date")
+    try:
+        cutoff = date.fromisoformat(cutoff_raw)
+    except ValueError as error:
+        raise ValueError("analysis plan cutoff_date is invalid") from error
     raw_candidates = plan.get("candidates")
     if not isinstance(raw_candidates, list) or not raw_candidates:
         raise ValueError("analysis plan has no candidates")
@@ -265,7 +271,9 @@ def build_analysis_evidence_input(
                 "relevance_reason": reason,
                 "trust_tier": trust_tier,
                 "url": url,
-                "_published": _published(row.get("published_at"), document_id),
+                "_published": _published(
+                    row.get("published_at"), document_id, cutoff
+                ),
             }
         )
 
@@ -308,7 +316,7 @@ def build_analysis_evidence_input(
         "schema_version": LABELING_EVIDENCE_INPUT_PLAN_VERSION,
         "artifact_role": ANALYSIS_EVIDENCE_INPUT_VERSION,
         "bundle_id": plan_manifest.get("bundle_id"),
-        "cutoff_date": _CUTOFF.isoformat(),
+        "cutoff_date": cutoff.isoformat(),
         "selection_policy": {
             "mode": ANALYSIS_EVIDENCE_INPUT_VERSION,
             "shortlist_only": True,

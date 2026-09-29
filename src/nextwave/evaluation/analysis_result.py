@@ -7,6 +7,7 @@ import re
 import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,6 @@ CANDIDATES_FILENAME = "candidates.jsonl"
 TOP15_FILENAME = "top15.json"
 SUMMARY_FILENAME = "summary.json"
 _PLAN_VERSION = "labeling-enrichment-plan-v2"
-_CUTOFF = "2026-09-15"
 _SUPPORT_KINDS = {
     "novelty",
     "growth",
@@ -270,6 +270,7 @@ def _load_evidence(
     bundle_id: str,
     candidate_ids: set[str],
     documents: dict[tuple[str, str], dict[str, Any]],
+    cutoff: date,
 ) -> tuple[
     dict[str, dict[str, Any]],
     dict[str, list[dict[str, Any]]],
@@ -283,8 +284,13 @@ def _load_evidence(
         manifest, manifest_raw = _read_object(root / MANIFEST_FILENAME, "evidence manifest")
         if manifest.get("schema_version") != LABELING_EVIDENCE_LLM_RESULT_VERSION:
             raise ValueError("evidence result version is not supported")
-        if manifest.get("bundle_id") != bundle_id or manifest.get("cutoff_date") != _CUTOFF:
-            raise ValueError("evidence result belongs to another bundle or cutoff")
+        declared_cutoff_raw = manifest.get("cutoff_date")
+        try:
+            declared_cutoff = date.fromisoformat(str(declared_cutoff_raw))
+        except ValueError as error:
+            raise ValueError("evidence result has invalid cutoff_date") from error
+        if manifest.get("bundle_id") != bundle_id or declared_cutoff < cutoff:
+            raise ValueError("evidence result belongs to another bundle or earlier cutoff")
         coverage_rows = _rows(_checked(root, manifest, "coverage.jsonl"), "evidence coverage")
         claim_rows = _rows(_checked(root, manifest, "claims.jsonl"), "evidence claims")
         for row in coverage_rows:
@@ -331,6 +337,8 @@ def _load_evidence(
                 "manifest": _digest(manifest_raw),
                 "candidate_count": len(coverage_rows),
                 "claim_count": len(claim_rows),
+                "declared_cutoff_date": declared_cutoff.isoformat(),
+                "cutoff_matches_analysis": declared_cutoff == cutoff,
             }
         )
     if set(coverage) != candidate_ids:
@@ -360,6 +368,13 @@ def build_analysis_result(
         raise ValueError("analysis plan version is not supported")
     plan_raw = _checked(plan_root, plan_manifest, "plan.json")
     plan = json.loads(plan_raw)
+    cutoff_raw = plan.get("cutoff_date")
+    if not isinstance(cutoff_raw, str):
+        raise ValueError("analysis plan has no cutoff_date")
+    try:
+        cutoff = date.fromisoformat(cutoff_raw)
+    except ValueError as error:
+        raise ValueError("analysis plan cutoff_date is invalid") from error
     raw_candidates = plan.get("candidates")
     if not isinstance(raw_candidates, list) or not raw_candidates:
         raise ValueError("analysis plan has no candidates")
@@ -392,6 +407,16 @@ def build_analysis_result(
             or key in documents
         ):
             raise ValueError(f"documents line {line_number} has invalid identity")
+        published_at = row.get("published_at")
+        if published_at is not None:
+            try:
+                published = date.fromisoformat(str(published_at))
+            except ValueError as error:
+                raise ValueError(
+                    f"documents line {line_number} has invalid published_at"
+                ) from error
+            if published > cutoff:
+                raise ValueError(f"documents line {line_number} is after cutoff_date")
         documents[key] = row
 
     feature_root = Path(feature_dir)
@@ -404,6 +429,8 @@ def build_analysis_result(
     features = _indexed(feature_rows, "candidate_id", "features")
     if set(features) != candidate_ids:
         raise ValueError("feature candidates differ from analysis plan")
+    if any(row.get("cutoff_date") != cutoff.isoformat() for row in feature_rows):
+        raise ValueError("feature cutoff_date differs from analysis plan")
 
     inference_root = Path(inference_dir)
     inference_manifest, inference_manifest_raw = _read_object(
@@ -427,6 +454,7 @@ def build_analysis_result(
         bundle_id=bundle_id,
         candidate_ids=candidate_ids,
         documents=documents,
+        cutoff=cutoff,
     )
 
     results: list[dict[str, Any]] = []
@@ -595,6 +623,7 @@ def build_analysis_result(
     summary = {
         "schema_version": ANALYSIS_RESULT_VERSION,
         "source_query": next(iter(results))["source_query"],
+        "cutoff_date": cutoff.isoformat(),
         "release_status": inference_manifest.get("release_status"),
         "candidate_count": len(results),
         "status_counts": dict(sorted(status_counts.items())),
@@ -630,7 +659,7 @@ def build_analysis_result(
     manifest = {
         "schema_version": ANALYSIS_RESULT_VERSION,
         "bundle_id": bundle_id,
-        "cutoff_date": _CUTOFF,
+        "cutoff_date": cutoff.isoformat(),
         "release_status": inference_manifest.get("release_status"),
         "decision_policy_version": DECISION_POLICY_VERSION,
         "candidate_count": len(results),
@@ -640,6 +669,17 @@ def build_analysis_result(
             "obvious_identity_variants_collapsed_before_top15": True,
             "semantic_maturity_kinds_override_llm_direction": True,
         },
+        "limitations": (
+            [
+                "legacy evidence executor declared a later cutoff; all source "
+                "documents and model features were revalidated against the "
+                "analysis cutoff"
+            ]
+            if any(
+                not item["cutoff_matches_analysis"] for item in evidence_inputs
+            )
+            else []
+        ),
         "inputs": {
             "analysis_plan_manifest": _digest(plan_manifest_raw),
             "combined_result_manifest": _digest(combined_manifest_raw),

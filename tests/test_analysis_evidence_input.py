@@ -112,8 +112,13 @@ def build_dirs(
     plan_payload = (
         json.dumps(
             {
+                "cutoff_date": "2026-09-15",
                 "candidates": [
-                    {"candidate_id": cid, "search_terms": TERMS}
+                    {
+                        "candidate_id": cid,
+                        "cutoff_date": "2026-09-15",
+                        "search_terms": TERMS,
+                    }
                     for cid in candidates
                 ]
             },
