@@ -177,6 +177,57 @@ class CandidateProposalTests(unittest.TestCase):
             {"Speculative-decoding", "speculative decoding"},
         )
 
+    def test_groups_simple_plural_variants_before_gate(self) -> None:
+        documents = (document(1), document(2))
+        mentions = (
+            build_candidate_mention(
+                documents[0],
+                text="Transformer",
+                kind=CandidateMentionKind.TITLE,
+                locator="title[0:11]",
+                extractor_id="text-v1",
+            ),
+            build_candidate_mention(
+                documents[1],
+                text="transformers",
+                kind=CandidateMentionKind.TITLE,
+                locator="title[0:12]",
+                extractor_id="text-v1",
+            ),
+        )
+
+        batch = build_candidate_proposals(scope(), documents, mentions)
+
+        self.assertEqual(len(batch.proposals), 1)
+        self.assertEqual(batch.proposals[0].normalized_name, "transformer")
+        self.assertEqual(batch.proposals[0].origin_count, 2)
+        self.assertEqual(
+            {batch.proposals[0].canonical_name, *batch.proposals[0].aliases},
+            {"Transformer", "transformers"},
+        )
+
+    def test_plural_dedup_does_not_merge_semantic_or_protected_endings(self) -> None:
+        documents = tuple(document(number) for number in range(1, 7))
+        names = ("RAG", "Retrieval-Augmented Generation", "bus", "basis", "glass", "buses")
+        mentions = tuple(
+            build_candidate_mention(
+                source,
+                text=name,
+                kind=CandidateMentionKind.TITLE,
+                locator=f"title[{index}]",
+                extractor_id="text-v1",
+            )
+            for index, (source, name) in enumerate(zip(documents, names, strict=True))
+        )
+
+        batch = build_candidate_proposals(scope(), documents, mentions)
+
+        self.assertEqual(len(batch.proposals), len(names))
+        self.assertEqual(
+            {proposal.normalized_name for proposal in batch.proposals},
+            {"rag", "retrieval augmented generation", "bus", "basis", "glass", "buse"},
+        )
+
     def test_excludes_scope_terms_and_organization_names_with_reasons(self) -> None:
         documents = (document(1, organizations=("Example University",)),)
         hints = (

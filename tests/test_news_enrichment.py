@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 from datetime import UTC, datetime
+from http.client import IncompleteRead
 
 from nextwave.contracts import SourceDocument, SourceType, TrustTier
 from nextwave.sources import (
@@ -58,6 +59,11 @@ class FakeTransport:
     def get(self, url, *, headers, timeout_seconds):
         self.calls.append(url)
         return self.response
+
+
+class BrokenChunkedTransport:
+    def get(self, url, *, headers, timeout_seconds):
+        raise IncompleteRead(b"partial response")
 
 
 def enricher(response: HttpResponse) -> tuple[NewsDocumentEnricher, FakeTransport]:
@@ -138,6 +144,18 @@ class NewsDocumentEnricherTests(unittest.TestCase):
         self.assertIsNone(result.document.excerpt)
         self.assertTrue(result.candidate_text_available)
         self.assertFalse(result.supplemental_text_available)
+
+    def test_incomplete_chunked_response_becomes_network_error(self) -> None:
+        service = NewsDocumentEnricher(
+            transport=BrokenChunkedTransport(),
+            resolve_host=lambda _: ("93.184.216.34",),
+        )
+
+        result = service.enrich(news_document())
+
+        self.assertIs(result.status, NewsContentStatus.TITLE_ONLY)
+        self.assertIs(result.issue_code, NewsEnrichmentIssueCode.NETWORK_ERROR)
+        self.assertIsNone(result.http_status)
 
     def test_blocks_non_public_urls_before_request(self) -> None:
         transport = FakeTransport(HttpResponse(200, {}, b"unused"))

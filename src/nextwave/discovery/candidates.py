@@ -15,7 +15,7 @@ from nextwave.sources import OpenAlexDiscoveryHints
 from .contracts import AnalysisScope
 
 CANDIDATE_MENTION_VERSION = "candidate-mention-v1"
-CANDIDATE_PROPOSAL_VERSION = "candidate-proposal-v3"
+CANDIDATE_PROPOSAL_VERSION = "candidate-proposal-v4"
 OPENALEX_HINT_EXTRACTOR_ID = "openalex-hints-v1"
 _ORTHOGRAPHIC_SEPARATORS = re.compile(r"[-‐‑‒–—−_]+")
 
@@ -451,8 +451,30 @@ def _normalize_name(value: str) -> str:
 
 
 def orthographic_candidate_key(value: str) -> str:
-    """Group spelling variants once, before the candidate gate evaluates them."""
-    return " ".join(_ORTHOGRAPHIC_SEPARATORS.sub(" ", _normalize_name(value)).split())
+    """Group only obvious spelling variants before the candidate gate.
+
+    Besides case, whitespace, underscores, and Unicode dashes, a conservative
+    English plural rule folds a final ``s``.  Token order stays intact and no
+    abbreviations or semantic synonyms are expanded, so RAG and
+    Retrieval-Augmented Generation remain separate proposals.
+    """
+
+    normalized = " ".join(
+        _ORTHOGRAPHIC_SEPARATORS.sub(" ", _normalize_name(value)).split()
+    )
+    return " ".join(_singularize_candidate_token(token) for token in normalized.split())
+
+
+def _singularize_candidate_token(token: str) -> str:
+    if (
+        token.isascii()
+        and token.isalpha()
+        and len(token) > 3
+        and token.endswith("s")
+        and not token.endswith(("ss", "us", "is"))
+    ):
+        return token[:-1]
+    return token
 
 
 def _sortable_score(value: float | None) -> float:

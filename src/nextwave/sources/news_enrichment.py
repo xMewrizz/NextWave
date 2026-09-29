@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime
 from enum import Enum, StrEnum
 from html.parser import HTMLParser
+from http.client import HTTPException
 from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -174,7 +175,7 @@ class NewsDocumentEnricher:
                 NewsEnrichmentIssueCode.BLOCKED_URL,
                 str(error),
             )
-        except OSError as error:
+        except (OSError, HTTPException) as error:
             return self._title_only(
                 document,
                 NewsEnrichmentIssueCode.NETWORK_ERROR,
@@ -197,7 +198,7 @@ class NewsDocumentEnricher:
                 NewsEnrichmentIssueCode.BLOCKED_URL,
                 str(error),
             )
-        except OSError as error:
+        except (OSError, HTTPException) as error:
             return self._title_only(
                 document,
                 NewsEnrichmentIssueCode.NETWORK_ERROR,
