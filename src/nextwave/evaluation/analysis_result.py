@@ -362,11 +362,12 @@ def _deduplicate_results(results: list[dict[str, Any]]) -> None:
 
 
 def _main_rank_key(row: dict[str, Any]) -> tuple[Any, ...]:
-    """Rank evidence strength before insignificant model-score decimals."""
+    """Rank supported candidates first, then score and evidence strength."""
 
     score = float(row["model"]["score"])
     review = row["evidence_review"]
     return (
+        -int(int(review["support_claims"]) > 0),
         -round(score * 100),
         -int(review["independent_origins"]),
         -int(review["full_candidate_claims"]),

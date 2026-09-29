@@ -33,13 +33,42 @@ class AnalysisResultTests(unittest.TestCase):
         row = {
             "status": "watchlist",
             "model": {"score": 0.72, "threshold": 0.5},
-            "evidence_review": {"status": "complete"},
+            "evidence_review": {"status": "complete", "support_claims": 1},
         }
 
         self.assertTrue(_top15_eligible(row))
         self.assertFalse(
-            _top15_eligible({**row, "evidence_review": {"status": "failed"}})
+            _top15_eligible(
+                {
+                    **row,
+                    "evidence_review": {"status": "failed", "support_claims": 1},
+                }
+            )
         )
+
+    def test_ranking_prefers_supported_candidate_before_fallback(self) -> None:
+        unsupported = {
+            "candidate_id": "unsupported",
+            "canonical_name": "unsupported",
+            "model": {"score": 0.9},
+            "evidence_review": {
+                "support_claims": 0,
+                "independent_origins": 0,
+                "full_candidate_claims": 0,
+            },
+        }
+        supported = {
+            "candidate_id": "supported",
+            "canonical_name": "supported",
+            "model": {"score": 0.6},
+            "evidence_review": {
+                "support_claims": 1,
+                "independent_origins": 1,
+                "full_candidate_claims": 1,
+            },
+        }
+
+        self.assertLess(_main_rank_key(supported), _main_rank_key(unsupported))
 
     def test_ranking_prefers_evidence_over_insignificant_score_decimals(self) -> None:
         def row(candidate_id: str, score: float, origins: int, claims: int) -> dict:
@@ -50,6 +79,7 @@ class AnalysisResultTests(unittest.TestCase):
                 "evidence_review": {
                     "independent_origins": origins,
                     "full_candidate_claims": claims,
+                    "support_claims": claims,
                 },
             }
 
