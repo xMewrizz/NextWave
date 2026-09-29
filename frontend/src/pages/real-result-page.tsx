@@ -5,7 +5,15 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { api, type Bucket, type EvidenceClaimView, type ResultBundle, type ResultCandidate } from '@/lib/api'
+import { ModeNotice } from '@/components/mode-notice'
+import {
+  api,
+  type Bucket,
+  type EvidenceClaimView,
+  type JobMode,
+  type ResultBundle,
+  type ResultCandidate,
+} from '@/lib/api'
 import { useResource } from '@/lib/hooks'
 
 const labels: Record<Bucket, string> = {
@@ -31,10 +39,10 @@ export function RealResultPage() {
   const { data, error, loading } = useResource(api.currentResult, 'current-result-page')
   if (loading) return <Message>Загружаю проверенный результат…</Message>
   if (error || !data) return <Message error={error ?? 'Результат отсутствует'} />
-  return <ResultView data={data} />
+  return <ResultView data={data} mode="cached_snapshot" />
 }
 
-export function ResultView({ data }: { data: ResultBundle }) {
+export function ResultView({ data, mode }: { data: ResultBundle; mode: JobMode }) {
   const location = useLocation()
   const [view, setView] = useState<'top15' | 'watchlist' | 'excluded'>('top15')
   const top15Ids = useMemo(
@@ -74,7 +82,7 @@ export function ResultView({ data }: { data: ResultBundle }) {
           <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
             Результат анализа открытых источников
           </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-balance">
+          <h1 className="mt-2 text-3xl font-normal text-balance">
             {summary.source_query}
           </h1>
           <div className="mt-4 flex flex-wrap gap-2" aria-label="Разделы результата">
@@ -98,16 +106,37 @@ export function ResultView({ data }: { data: ResultBundle }) {
         <Badge variant="secondary">Анализ завершён</Badge>
       </div>
 
+      <ModeNotice mode={mode} className="mt-5" />
+      <Alert className="mt-3">
+        <Info />
+        <AlertTitle>Как читать результат</AlertTitle>
+        <AlertDescription>
+          <p>
+            Балл модели — сравнительный, а не вероятность и не уверенность: калибровки нет, поэтому доля «уверенных»
+            сигналов не показывается.{' '}
+            {summary.release_status === 'development_only'
+              ? 'Метрики модели имеют статус development_only: это диагностика на разработческой выборке, а не оценка на закрытой разметке.'
+              : `Статус метрик модели: ${summary.release_status}.`}
+          </p>
+          {!summary.main_target_met && (
+            <p className="mt-2">
+              В основной выдаче {summary.status_counts.main ?? 0} из {summary.main_target} тем. TOP-15 дополнен
+              лучшими темами из наблюдения — статус указан на каждой карточке.
+            </p>
+          )}
+        </AlertDescription>
+      </Alert>
+
       <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Названий проверено" value={summary.candidate_gate?.evaluated_proposals ?? 0} />
+        <Stat label="Названий проверено" value={summary.candidate_gate?.evaluated_proposals ?? null} />
         <Stat label="Тем после объединения" value={summary.candidate_count} />
         <Stat label="В итоговом TOP-15" value={summary.top15_count} />
         <Stat label="Уникальных документов" value={summary.processed_unique_documents} />
       </section>
 
       <section className="mt-9">
-        <h2 className="mb-1 text-xl font-semibold">
-          {view === 'top15' ? 'Финальный TOP-15' : view === 'watchlist' ? 'Темы для наблюдения' : 'Исключённые темы'}
+        <h2 className="mb-1 text-xl font-normal">
+          {view === 'top15' ? `Финальный TOP-15 (${data.top15.length} из 15)` : view === 'watchlist' ? 'Темы для наблюдения' : 'Исключённые темы'}
         </h2>
         <p className="mb-4 text-sm text-muted-foreground">
           {view === 'top15'
@@ -116,6 +145,11 @@ export function ResultView({ data }: { data: ResultBundle }) {
               ? 'Перспективные темы, которым пока не хватает полного покрытия или независимых подтверждений.'
               : 'Зрелые, рекламные, повторные и другие темы, не включённые в финальную выдачу. Для каждой сохранена причина.'}
         </p>
+        {candidates.length === 0 && (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            В этой категории тем нет.
+          </p>
+        )}
         <div className="grid gap-3">
           {candidates.map((candidate) => (
             <CandidateCard key={candidate.candidate_id} candidate={candidate} reportBase={reportBase} />
@@ -146,7 +180,7 @@ export function CandidateReportPage() {
       <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
         <div>
           <Badge variant="outline">{labels[candidate.status]}</Badge>
-          <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-balance">{candidateDisplayName(candidate)}</h1>
+          <h1 className="mt-3 text-3xl font-normal text-balance">{candidateDisplayName(candidate)}</h1>
         </div>
         {candidate.top15_rank && <Badge>#{candidate.top15_rank} в TOP-15</Badge>}
       </div>
@@ -233,9 +267,10 @@ function CandidateDetails({ candidate }: { candidate: ResultCandidate }) {
       <div>
         <h4 className="font-medium">Оценка модели</h4>
         <p className="mt-2 text-muted-foreground">
-          {(candidate.model.score * 100).toFixed(1)} из 100 — сравнительный балл, а не вероятность.
-          Рейтинг использует округлённый балл, а внутри одной группы выше ставит темы с большим числом
-          независимых источников и проверяемых фрагментов.
+          Балл модели {candidate.model.score.toLocaleString('ru-RU', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}{' '}
+          (шкала 0–1, порог {candidate.model.threshold.toLocaleString('ru-RU')}) — сравнительный балл, а не вероятность
+          и не уверенность. Рейтинг использует округлённый балл, а внутри одной группы выше ставит темы с большим
+          числом независимых источников и проверяемых фрагментов.
         </p>
         <p className="mt-2 text-muted-foreground">
           Сила подтверждения: {candidate.evidence_review.independent_origins} независимых источника и{' '}
@@ -377,7 +412,8 @@ function lowerFirst(value: string) {
 }
 
 function reasonText(candidate: ResultCandidate) {
-  return reasonDescriptions[candidate.reason] ?? candidate.reason_ru
+  const text = reasonDescriptions[candidate.reason] ?? candidate.reason_ru
+  return candidate.duplicate_of_name ? `${text} Основная карточка: «${candidate.duplicate_of_name}».` : text
 }
 
 function candidateSummary(candidate: ResultCandidate) {
@@ -483,8 +519,8 @@ function trustLabel(value: string) {
   return labels[value] ?? value
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return <Card><CardContent><div className="text-2xl font-semibold tabular-nums">{value.toLocaleString('ru-RU')}</div><div className="mt-1 text-xs text-muted-foreground">{label}</div></CardContent></Card>
+function Stat({ label, value }: { label: string; value: number | null }) {
+  return <Card><CardContent><div className="text-2xl font-normal tabular-nums">{value === null ? '—' : value.toLocaleString('ru-RU')}</div><div className="mt-1 text-xs text-muted-foreground">{label}</div></CardContent></Card>
 }
 
 function Message({ children, error }: { children?: React.ReactNode; error?: string }) {

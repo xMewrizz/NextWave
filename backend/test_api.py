@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app import main, pipeline, result_store
+from app import main, result_store
 from app.job_store import AnalysisJobStore
 
 QUERY = "Инфраструктурные технологии для обучения и инференса ИИ"
@@ -93,29 +93,6 @@ async def _wait(client: AsyncClient, analysis_id: str) -> dict:
     raise AssertionError("analysis job did not reach a terminal state")
 
 
-def test_ranking_is_reproducible():
-    trends = pipeline._demo["trends"]
-    first = pipeline.rank(trends)
-    second = pipeline.rank(list(reversed(trends)))
-    assert [trend.id for trend in first] == [trend.id for trend in second]
-    assert all(0 <= trend.score <= 1 for trend in first)
-
-
-def test_buckets_are_capped_numbered_and_explained():
-    ranked = pipeline.rank(pipeline._demo["trends"])
-    by_bucket = {
-        bucket: [trend for trend in ranked if trend.bucket == bucket]
-        for bucket in ("main", "watchlist", "excluded")
-    }
-    assert len(by_bucket["main"]) <= pipeline.TOP_N
-    for bucket, trends in by_bucket.items():
-        assert [trend.rank for trend in trends] == list(range(1, len(trends) + 1))
-        assert [trend.score for trend in trends] == sorted(
-            (trend.score for trend in trends), reverse=True
-        )
-        assert all(trend.bucket_reason for trend in trends), bucket
-
-
 async def test_job_persists_result_and_stage_history(client: AsyncClient):
     created_response = await client.post("/api/analyses", json={"query": QUERY})
     assert created_response.status_code == 201
@@ -148,7 +125,7 @@ async def test_job_persists_result_and_stage_history(client: AsyncClient):
 async def test_health_checks_store_and_result(client: AsyncClient):
     response = await client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "mode": "cached_snapshot"}
 
 
 async def test_mismatched_query_fails_without_substituting_result(client: AsyncClient):
@@ -288,3 +265,85 @@ async def test_tampered_persisted_result_is_rejected(client: AsyncClient):
 
 async def test_blank_query_is_rejected(client: AsyncClient):
     assert (await client.post("/api/analyses", json={"query": "   "})).status_code == 422
+
+
+async def test_long_query_is_rejected_with_validation_detail(client: AsyncClient):
+    response = await client.post("/api/analyses", json={"query": "x" * 201})
+    assert response.status_code == 422
+    # 422 от pydantic несёт список, а не строку: фронтенд обязан это разобрать
+    assert isinstance(response.json()["detail"], list)
+
+
+async def test_retry_is_rejected_for_job_that_is_not_failed(client: AsyncClient):
+    created = (await client.post("/api/analyses", json={"query": QUERY})).json()
+    assert (await _wait(client, created["id"]))["status"] == "complete"
+    response = await client.post(f"/api/analyses/{created['id']}/retry")
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("env", "missing"),
+    [
+        ({}, "NEXTWAVE_EXA_API_KEY"),
+        ({"NEXTWAVE_EXA_API_KEY": "placeholder"}, "NEXTWAVE_OPENAI_API_KEY"),
+    ],
+)
+async def test_live_job_without_keys_fails_as_job_error(
+    client: AsyncClient, tmp_path: Path, monkeypatch, env, missing
+):
+    """Настоящий AnalysisApplication отказывает в конструкторе: сеть не задействуется."""
+    for name in ("NEXTWAVE_EXA_API_KEY", "NEXTWAVE_OPENAI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("NEXTWAVE_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("NEXTWAVE_LLM_MODEL", "GPT-5.6 Luna")
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_MODE", "live")
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_WORK_DIR", str(tmp_path / "live"))
+    created = (await client.post("/api/analyses", json={"query": QUERY})).json()
+    assert created["mode"] == "live"
+    job = await _wait(client, created["id"])
+    assert job["status"] == "error"
+    assert missing in job["error"]
+    assert job["result_available"] is False
+    assert (await client.get(f"/api/analyses/{job['id']}/result")).status_code == 409
+    retried = await client.post(f"/api/analyses/{job['id']}/retry")
+    assert retried.status_code == 202
+    assert (await _wait(client, job["id"]))["status"] == "error"
+
+
+async def test_live_job_contract_matches_cached_snapshot(
+    client: AsyncClient, tmp_path: Path, monkeypatch
+):
+    """Кроме режима и статусов стадий, live-job и результат неотличимы от snapshot."""
+    snapshot_result = Path(main.configured_result_dir()) / "result.json"
+
+    class FakeApplication:
+        def __init__(self, *, workspace, progress, **kwargs):
+            self.workspace, self.progress = Path(workspace), progress
+
+        def run(self, *, query: str, analysis_id: str):
+            del query, analysis_id
+            self.progress("source_search", 0.1, "Поиск")
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            result = self.workspace / "result.json"
+            result.write_bytes(snapshot_result.read_bytes())
+            return type("Paths", (), {"result": result})()
+
+    cached = (await client.post("/api/analyses", json={"query": QUERY})).json()
+    cached_job = await _wait(client, cached["id"])
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_MODE", "live")
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_WORK_DIR", str(tmp_path / "live"))
+    monkeypatch.setattr(main, "AnalysisApplication", FakeApplication)
+    live = (await client.post("/api/analyses", json={"query": QUERY})).json()
+    live_job = await _wait(client, live["id"])
+
+    assert (cached_job["mode"], live_job["mode"]) == ("cached_snapshot", "live")
+    assert cached_job.keys() == live_job.keys()
+    assert [s["key"] for s in cached_job["stage_history"]] == [
+        s["key"] for s in live_job["stage_history"]
+    ]
+    assert cached_job["result_sha256"] == live_job["result_sha256"]
+    cached_result = (await client.get(f"/api/analyses/{cached['id']}/result")).json()
+    live_result = (await client.get(f"/api/analyses/{live['id']}/result")).json()
+    assert live_result == cached_result

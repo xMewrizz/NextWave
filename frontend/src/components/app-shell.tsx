@@ -15,6 +15,7 @@ import {
 import { useTheme } from 'next-themes'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { AsciiLogo } from '@/components/ascii-art'
 import { api, type JobStatus } from '@/lib/api'
 import { useResource } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
@@ -65,21 +66,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               title="Развернуть панель"
               onClick={() => setCollapsed(false)}
             >
-              <img
-                src="/nextwave_logo.svg"
-                alt=""
-                className="size-8 object-contain group-hover:hidden"
-              />
+              <AsciiLogo className="group-hover:hidden" />
               <PanelLeftOpen className="hidden size-4.5 group-hover:block" />
             </button>
           ) : (
             <>
               <Link
                 to="/"
-                className="hidden min-w-0 items-center gap-2.5 rounded-lg px-2 py-2 font-semibold tracking-[-0.02em] hover:bg-sidebar-accent md:flex"
+                className="hidden min-w-0 items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-sidebar-accent md:flex"
                 title="NextWave"
               >
-                <img src="/nextwave_logo.svg" alt="" className="size-8 shrink-0 object-contain" />
+                <AsciiLogo />
                 <span className="truncate text-sm">NextWave</span>
               </Link>
 
@@ -100,10 +97,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Link
             to="/"
             onClick={() => setMobileOpen(false)}
-            className="flex min-w-0 items-center gap-2.5 rounded-lg px-2 py-2 font-semibold tracking-[-0.02em] hover:bg-sidebar-accent md:hidden"
+            className="flex min-w-0 items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-sidebar-accent md:hidden"
             title="NextWave"
           >
-            <img src="/nextwave_logo.svg" alt="" className="size-8 shrink-0 object-contain" />
+            <AsciiLogo />
             <span className="truncate text-sm">NextWave</span>
           </Link>
 
@@ -137,9 +134,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           />
         </nav>
 
-        <div className={cn('mt-6 min-h-0 flex-1', collapsed && 'md:hidden')}>
+        <div className={cn('mt-6 flex min-h-0 flex-1 flex-col', collapsed && 'md:hidden')}>
           <p className="px-3 pb-2 text-xs font-medium text-sidebar-foreground/50">Сохранённые чаты</p>
-          <div className="h-full overflow-y-auto pb-4 [scrollbar-width:thin]">
+          <div className="min-h-0 flex-1 overflow-y-auto pb-4 [scrollbar-width:thin]">
             {history.loading && (
               <div className="space-y-2 px-2">
                 {[0, 1, 2].map((item) => (
@@ -169,8 +166,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   onClick={() => setMobileOpen(false)}
                   className={({ isActive }) =>
                     cn(
-                      'group flex min-h-10 items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-sidebar-accent',
-                      isActive && 'bg-sidebar-accent font-medium',
+                      'group flex min-h-10 items-center gap-2.5 rounded-lg border border-transparent px-3 py-2 text-sm transition-colors hover:border-sidebar-border',
+                      isActive && 'border-sidebar-border bg-sidebar-accent',
                     )
                   }
                 >
@@ -217,8 +214,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Menu />
           </Button>
-          <Link to="/" className="ml-2 flex items-center gap-2 text-sm font-semibold">
-            <img src="/nextwave_logo.svg" alt="" className="size-7 object-contain" /> NextWave
+          <Link to="/" className="ml-2 flex items-center gap-2 text-sm">
+            <AsciiLogo className="size-7" /> NextWave
           </Link>
           <Button
             variant="ghost"
@@ -259,8 +256,8 @@ function SidebarLink({
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
         cn(
-          'flex h-11 items-center gap-3 rounded-lg px-3 text-sm transition-colors hover:bg-sidebar-accent',
-          isActive && 'bg-sidebar-accent font-medium',
+          'flex h-11 items-center gap-3 rounded-lg border border-transparent px-3 text-sm transition-colors hover:border-sidebar-border',
+          isActive && 'border-sidebar-border bg-sidebar-accent',
           collapsed && 'md:justify-center md:px-0',
         )
       }
