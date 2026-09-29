@@ -102,3 +102,12 @@ python scripts/web_rehearsal.py --base-url http://127.0.0.1:8080   # 120 кан�
 docker compose restart backend
 python scripts/web_rehearsal.py --base-url http://127.0.0.1:8080 --job-id <ID из первого запуска>
 ```
+
+## API и контракт
+
+`GET /api/health` возвращает `{"status": "ok", "mode": "cached_snapshot" | "live"}`.
+Прежние synthetic `/api/coverage` и `/api/stages` удалены. Типы ответов описаны в
+`frontend/src/lib/api.ts`; `backend/test_frontend_contract.py` сверяет их с
+`backend/app/models.py` и `demo/result`. Ошибка job с кнопкой «Повторить» вызывает
+`POST /api/analyses/{id}/retry` и продолжает анализ с последнего checkpoint.
+
