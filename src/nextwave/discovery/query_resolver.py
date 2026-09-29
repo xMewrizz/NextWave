@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping
 from typing import Protocol
 from urllib.parse import urlencode
 
-from nextwave.sources import HttpTransport, UrllibHttpTransport
+from nextwave.sources import HttpTransport, UrllibHttpTransport, normalize_openalex_api_key
 
 from .contracts import (
     AnalysisScope,
@@ -23,6 +23,8 @@ from .contracts import (
 )
 from .llm import (
     LOCAL_ADAPTER_VERSION,
+    OPENAI_ADAPTER_VERSION,
+    QWEN_ADAPTER_VERSION,
     YANDEX_ADAPTER_VERSION,
     JsonHttpTransport,
     LlmProvider,
@@ -143,6 +145,11 @@ Return exactly one JSON object with these fields and no Markdown:
 
 Do not list technologies that were not present in the request. Do not narrow a broad field to
 one application. The word "technologies" does not make a broad field into one technology.
+Applied qualifiers are part of the scope and must survive normalization: industrial,
+peripheral, financial, medical and similar domain adjectives stay in normalized_query
+(for "Промышленный искусственный интеллект" use "industrial artificial intelligence",
+not "artificial intelligence"). Dropping the qualifier changes the scope; adding
+technologies the user did not name narrows it. Both are wrong.
 For both "ИИ" and "Технологии в ИИ", use normalized_query "artificial intelligence" and
 granularity "direction". For "спекулятивное декодирование", use normalized_query
 "speculative decoding" and granularity "technology". Search texts must be concise search
@@ -161,12 +168,14 @@ class OpenAlexTaxonomySource:
         *,
         transport: HttpTransport | None = None,
         contact_email: str | None = None,
+        api_key: str | None = None,
         timeout_seconds: float = 20.0,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         self._transport = transport or UrllibHttpTransport()
         self._contact_email = contact_email
+        self._api_key = normalize_openalex_api_key(api_key)
         self._timeout_seconds = timeout_seconds
 
     def search(
@@ -195,11 +204,18 @@ class OpenAlexTaxonomySource:
         parameters = urlencode(raw_parameters)
         url = f"{OPENALEX_API_ROOT}/{entity_path}?{parameters}"
         headers = {"Accept": "application/json", "User-Agent": "NextWave/0.1"}
-        response = self._transport.get(
-            url,
-            headers=headers,
-            timeout_seconds=self._timeout_seconds,
-        )
+        if self._api_key is not None:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        try:
+            response = self._transport.get(
+                url,
+                headers=headers,
+                timeout_seconds=self._timeout_seconds,
+            )
+        except Exception as error:
+            raise RuntimeError(
+                f"{type(error).__name__}: OpenAlex taxonomy request failed"
+            ) from None
         if not 200 <= response.status_code <= 299:
             raise RuntimeError(f"OpenAlex taxonomy lookup returned HTTP {response.status_code}")
         return parse_openalex_taxonomy_response(response.body, level)
@@ -397,16 +413,22 @@ def build_query_resolver_from_environment(
             transport=llm_transport,
         )
         selection = settings.selection
+    adapter_versions = {
+        LlmProvider.HUGGINGFACE: LOCAL_ADAPTER_VERSION,
+        LlmProvider.OPENAI: OPENAI_ADAPTER_VERSION,
+        LlmProvider.QWEN: QWEN_ADAPTER_VERSION,
+        LlmProvider.YANDEX: YANDEX_ADAPTER_VERSION,
+    }
     interpreter = StructuredQueryInterpreter(
         generator,
         selection=selection,
-        version=(
-            LOCAL_ADAPTER_VERSION
-            if settings.selection.provider is LlmProvider.HUGGINGFACE
-            else YANDEX_ADAPTER_VERSION
-        ),
+        version=adapter_versions[settings.selection.provider],
     )
     return QueryResolver(
         interpreter,
-        OpenAlexTaxonomySource(transport=taxonomy_transport),
+        OpenAlexTaxonomySource(
+            transport=taxonomy_transport,
+            contact_email=environment.get("NEXTWAVE_OPENALEX_MAILTO") or None,
+            api_key=normalize_openalex_api_key(environment.get("NEXTWAVE_OPENALEX_API_KEY")),
+        ),
     )

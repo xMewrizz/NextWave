@@ -9,15 +9,21 @@ WORKDIR /app/backend
 
 RUN pip install --no-cache-dir uv==0.9.18
 
-COPY pyproject.toml README.md /app/
-COPY src /app/src
 COPY backend/pyproject.toml backend/uv.lock ./
-COPY backend/app ./app
 RUN uv sync --frozen --no-dev
+
+COPY backend/app ./app
+
+WORKDIR /app/nextwave
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN uv pip install --python /app/backend/.venv/bin/python /app/nextwave
+
+WORKDIR /app/backend
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
-  CMD ["/app/backend/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/coverage', timeout=2)"]
+  CMD ["/app/backend/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
 
 CMD ["/app/backend/.venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

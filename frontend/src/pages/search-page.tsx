@@ -9,7 +9,7 @@ export function SearchPage() {
   const [query, setQuery] = useState('')
   const [starting, setStarting] = useState(false)
   const navigate = useNavigate()
-  const coverage = useResource(api.coverage, 'coverage')
+  const result = useResource(api.currentResult, 'current-result')
 
   async function start() {
     if (!query.trim() || starting) return
@@ -46,7 +46,6 @@ export function SearchPage() {
             <textarea
               value={query}
               rows={2}
-              maxLength={200}
               autoFocus
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -55,7 +54,7 @@ export function SearchPage() {
                   start()
                 }
               }}
-              placeholder="Например: агенты и LLM"
+              placeholder={result.data?.summary.source_query ?? 'Технологическое направление'}
               aria-label="Технологическое направление"
               className="block max-h-40 min-h-16 w-full resize-none bg-transparent px-2.5 py-2 text-[15px] leading-6 outline-none placeholder:text-muted-foreground/75"
             />
@@ -75,31 +74,30 @@ export function SearchPage() {
           </div>
         </form>
 
-        {coverage.data?.examples.length ? (
-          <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-2">
-            {coverage.data.examples.slice(0, 4).map((example) => (
-              <button
-                key={example}
-                type="button"
-                className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/35 hover:bg-muted hover:text-foreground"
-                onClick={() => setQuery(example)}
-              >
-                {example}
-              </button>
-            ))}
-          </div>
-        ) : null}
+        {result.data && (
+          <button
+            type="button"
+            className="mt-3 text-xs text-muted-foreground underline underline-offset-4"
+            onClick={() => setQuery(result.data!.summary.source_query)}
+          >
+            Подставить зафиксированный запрос реального прогона
+          </button>
+        )}
       </div>
 
       <div className="mx-auto mb-6 flex max-w-2xl items-center justify-center gap-2 text-center text-xs text-muted-foreground">
         <Database className="size-3.5 shrink-0" />
-        {coverage.loading && <span>Подключаем корпус данных…</span>}
-        {coverage.error && <span>Сведения о корпусе временно недоступны</span>}
-        {coverage.data && (
+        {result.loading && <span>Проверяем доступность результата…</span>}
+        {result.error && <span>Проверенный результат временно недоступен</span>}
+        {result.data ? (
           <span>
-            {coverage.data.notice ?? 'Версии и источники доступны в результатах анализа.'}
+            {result.data.summary.processed_unique_documents.toLocaleString('ru-RU')} уникальных
+            документов · проверено предложений:{' '}
+            {(result.data.summary.candidate_gate?.evaluated_proposals ?? 0).toLocaleString('ru-RU')}{' '}
+            предложений · {result.data.summary.candidate_count} кандидатов ·{' '}
+            {result.data.summary.release_status}
           </span>
-        )}
+        ) : null}
       </div>
     </div>
   )

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from nextwave.sources import HttpResponse
@@ -20,20 +21,52 @@ YANDEX_COMPLETION_ENDPOINT = (
     "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
 )
 YANDEX_ADAPTER_VERSION = "yandex-completion-v1"
+QWEN_ADAPTER_VERSION = "alibaba-model-studio-openai-v1"
+QWEN_MODEL_IDS: Mapping[str, str] = {
+    "Qwen3.6 35B-A3B": "qwen3.6-35b-a3b",
+    "Qwen3 235B": "qwen3-235b-a22b-instruct-2507",
+}
+OPENAI_ADAPTER_VERSION = "openai-chat-completions-v1"
+OPENAI_COMPLETION_ENDPOINT = "https://api.openai.com/v1/chat/completions"
+OPENAI_MODEL_IDS: Mapping[str, str] = {
+    "GPT-4.1": "gpt-4.1",
+    "GPT-5.6 Luna": "gpt-5.6-luna",
+}
 YANDEX_MODEL_URIS: Mapping[str, str] = {
-    "YandexGPT Lite 5": "yandexgpt-lite/latest",
-    "YandexGPT Pro 5": "yandexgpt/latest",
-    # Pro 5.1 идёт в URI дословно: тихой подмены на latest нет, неверный
-    # сегмент даст громкую 400 — подтвердить по консоли при первом живом вызове.
-    "YandexGPT Pro 5.1": "yandexgpt/5.1",
+    "YandexGPT Lite 5": "yandexgpt-5-lite",
+    "YandexGPT Pro 5": "yandexgpt-5-pro",
+    "YandexGPT Pro 5.1": "yandexgpt-5.1",
 }
 LOCAL_ADAPTER_VERSION = "llama-cpp-qwen3-4b-instruct-2507-q4-v1"
 _SCHEMA_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 
 
+def _normalize_qwen_base_url(value: str) -> str:
+    """Allow only direct Alibaba Model Studio HTTPS endpoints required by the brief."""
+
+    base_url = value.strip().rstrip("/")
+    parsed = urlsplit(base_url)
+    host = (parsed.hostname or "").casefold()
+    if parsed.scheme != "https" or parsed.query or parsed.fragment:
+        raise ValueError("NEXTWAVE_QWEN_BASE_URL must be an HTTPS URL")
+    if host != "dashscope-intl.aliyuncs.com" and not host.endswith(
+        ".ap-southeast-1.maas.aliyuncs.com"
+    ):
+        raise ValueError(
+            "NEXTWAVE_QWEN_BASE_URL must be a direct Alibaba Model Studio "
+            "Singapore endpoint"
+        )
+    if parsed.path != "/compatible-mode/v1":
+        raise ValueError(
+            "NEXTWAVE_QWEN_BASE_URL must end with /compatible-mode/v1"
+        )
+    return base_url
+
+
 class LlmProvider(StrEnum):
     YANDEX = "yandex"
     QWEN = "qwen"
+    OPENAI = "openai"
     GIGACHAT = "gigachat"
     HUGGINGFACE = "huggingface"
 
@@ -41,6 +74,7 @@ class LlmProvider(StrEnum):
 ALLOWED_CLOUD_MODELS: Mapping[LlmProvider, frozenset[str]] = {
     LlmProvider.YANDEX: frozenset({"YandexGPT Lite 5", "YandexGPT Pro 5", "YandexGPT Pro 5.1"}),
     LlmProvider.QWEN: frozenset({"Qwen3.6 35B-A3B", "Qwen3 235B"}),
+    LlmProvider.OPENAI: frozenset({"GPT-4.1", "GPT-5.6 Luna"}),
     LlmProvider.GIGACHAT: frozenset({"GigaChat 2 Lite", "GigaChat 2 Pro", "GigaChat 2 Max"}),
 }
 
@@ -69,20 +103,28 @@ class LlmSelection:
 
 @dataclass(frozen=True, slots=True)
 class LlmRuntimeSettings:
-    """Validated runtime settings whose secret is excluded from repr and comparison."""
+    """Validated runtime settings whose secrets are excluded from repr and comparison."""
 
     selection: LlmSelection
     api_key: str = field(default="", repr=False, compare=False)
-    yandex_folder_id: str = ""
+    yandex_folder_id: str = field(default="", repr=False, compare=False)
+    qwen_base_url: str = field(default="", repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.selection.provider is not LlmProvider.HUGGINGFACE and not self.api_key.strip():
-            raise ValueError("NEXTWAVE_LLM_API_KEY must not be blank")
+            key_name = (
+                "NEXTWAVE_OPENAI_API_KEY"
+                if self.selection.provider is LlmProvider.OPENAI
+                else "NEXTWAVE_LLM_API_KEY"
+            )
+            raise ValueError(f"{key_name} must not be blank")
         if (
             self.selection.provider is LlmProvider.YANDEX
             and not self.yandex_folder_id.strip()
         ):
             raise ValueError("NEXTWAVE_YANDEX_FOLDER_ID must not be blank")
+        if self.selection.provider is LlmProvider.QWEN:
+            _normalize_qwen_base_url(self.qwen_base_url)
 
 
 def load_llm_runtime_settings(environment: Mapping[str, str]) -> LlmRuntimeSettings:
@@ -90,8 +132,8 @@ def load_llm_runtime_settings(environment: Mapping[str, str]) -> LlmRuntimeSetti
 
     provider_value = environment.get("NEXTWAVE_LLM_PROVIDER", "").strip()
     model = environment.get("NEXTWAVE_LLM_MODEL", "").strip()
-    api_key = environment.get("NEXTWAVE_LLM_API_KEY", "").strip()
     yandex_folder_id = environment.get("NEXTWAVE_YANDEX_FOLDER_ID", "").strip()
+    qwen_base_url = environment.get("NEXTWAVE_QWEN_BASE_URL", "").strip()
     if not provider_value:
         raise ValueError("NEXTWAVE_LLM_PROVIDER is required")
     if not model:
@@ -100,11 +142,98 @@ def load_llm_runtime_settings(environment: Mapping[str, str]) -> LlmRuntimeSetti
         provider = LlmProvider(provider_value)
     except ValueError as error:
         raise ValueError(f"unknown LLM provider: {provider_value}") from error
+    api_key = _provider_api_key(environment, provider)
     return LlmRuntimeSettings(
         selection=LlmSelection(provider, model),
         api_key=api_key,
         yandex_folder_id=yandex_folder_id,
+        qwen_base_url=qwen_base_url,
     )
+
+
+def load_gate_llm_settings(environment: Mapping[str, str]) -> LlmRuntimeSettings:
+    """Read the explicit Candidate Gate model selection.
+
+    Both ``NEXTWAVE_GATE_LLM_PROVIDER`` and ``NEXTWAVE_GATE_LLM_MODEL`` must be
+    set together, or both must be absent (then the main ``NEXTWAVE_LLM_*`` pair
+    is reused for backward compatibility). Credentials are reused from the
+    server settings and never enter results, reprs or error text.
+    """
+
+    gate_provider = environment.get("NEXTWAVE_GATE_LLM_PROVIDER", "").strip()
+    gate_model = environment.get("NEXTWAVE_GATE_LLM_MODEL", "").strip()
+    if not gate_provider and not gate_model:
+        return load_llm_runtime_settings(environment)
+    if bool(gate_provider) != bool(gate_model):
+        missing = (
+            "NEXTWAVE_GATE_LLM_MODEL"
+            if gate_provider
+            else "NEXTWAVE_GATE_LLM_PROVIDER"
+        )
+        raise ValueError(
+            f"{missing} is required when the other NEXTWAVE_GATE_LLM_* variable is set"
+        )
+    yandex_folder_id = environment.get("NEXTWAVE_YANDEX_FOLDER_ID", "").strip()
+    qwen_base_url = environment.get("NEXTWAVE_QWEN_BASE_URL", "").strip()
+    try:
+        provider = LlmProvider(gate_provider)
+    except ValueError as error:
+        raise ValueError(f"unknown LLM provider: {gate_provider}") from error
+    api_key = _provider_api_key(environment, provider)
+    return LlmRuntimeSettings(
+        selection=LlmSelection(provider, gate_model),
+        api_key=api_key,
+        yandex_folder_id=yandex_folder_id,
+        qwen_base_url=qwen_base_url,
+    )
+
+
+def load_evidence_llm_settings(environment: Mapping[str, str]) -> LlmRuntimeSettings:
+    """Read the optional Evidence extraction model selection.
+
+    Both evidence variables must be set together. When both are absent the
+    main model is reused for backward compatibility. Credentials remain the
+    shared server credentials and never enter reprs or comparisons.
+    """
+
+    evidence_provider = environment.get("NEXTWAVE_EVIDENCE_LLM_PROVIDER", "").strip()
+    evidence_model = environment.get("NEXTWAVE_EVIDENCE_LLM_MODEL", "").strip()
+    if not evidence_provider and not evidence_model:
+        return load_llm_runtime_settings(environment)
+    if bool(evidence_provider) != bool(evidence_model):
+        missing = (
+            "NEXTWAVE_EVIDENCE_LLM_MODEL"
+            if evidence_provider
+            else "NEXTWAVE_EVIDENCE_LLM_PROVIDER"
+        )
+        raise ValueError(
+            f"{missing} is required when the other "
+            "NEXTWAVE_EVIDENCE_LLM_* variable is set"
+        )
+    yandex_folder_id = environment.get("NEXTWAVE_YANDEX_FOLDER_ID", "").strip()
+    qwen_base_url = environment.get("NEXTWAVE_QWEN_BASE_URL", "").strip()
+    try:
+        provider = LlmProvider(evidence_provider)
+    except ValueError as error:
+        raise ValueError(f"unknown LLM provider: {evidence_provider}") from error
+    api_key = _provider_api_key(environment, provider)
+    return LlmRuntimeSettings(
+        selection=LlmSelection(provider, evidence_model),
+        api_key=api_key,
+        yandex_folder_id=yandex_folder_id,
+        qwen_base_url=qwen_base_url,
+    )
+
+
+def _provider_api_key(
+    environment: Mapping[str, str], provider: LlmProvider
+) -> str:
+    key_name = (
+        "NEXTWAVE_OPENAI_API_KEY"
+        if provider is LlmProvider.OPENAI
+        else "NEXTWAVE_LLM_API_KEY"
+    )
+    return environment.get(key_name, "").strip()
 
 
 class JsonHttpTransport(Protocol):
@@ -234,6 +363,7 @@ class YandexCompletionJsonGenerator:
         max_output_tokens: int = 500,
         json_schema: Mapping[str, Any] | None = None,
         schema_name: str = "response",
+        server_side_json_schema: bool = False,
     ) -> None:
         if not api_key.strip():
             raise ValueError("Yandex API key must not be blank")
@@ -251,6 +381,10 @@ class YandexCompletionJsonGenerator:
             raise ValueError("schema_name must be a lowercase JSON schema identifier")
         if json_schema is not None and not isinstance(json_schema, Mapping):
             raise ValueError("json_schema must be an object")
+        if not isinstance(server_side_json_schema, bool):
+            raise ValueError("server_side_json_schema must be a bool")
+        if server_side_json_schema and json_schema is None:
+            raise ValueError("server-side JSON Schema requires json_schema")
         self.selection = selection or LlmSelection(
             LlmProvider.YANDEX, "YandexGPT Lite 5"
         )
@@ -269,19 +403,31 @@ class YandexCompletionJsonGenerator:
         self._max_output_tokens = max_output_tokens
         self._json_schema = dict(json_schema) if json_schema is not None else None
         self._schema_name = schema_name
+        self._server_side_json_schema = server_side_json_schema
 
     def __call__(self, prompt: str) -> str:
         if not prompt.strip():
             raise ValueError("prompt must not be blank")
-        # Yandex has no server-side schema enforcement: the builders reference
-        # "the response schema" in their prompts, so the schema travels in text.
         request_text = prompt
-        if self._json_schema is not None:
+        if self._json_schema is not None and not self._server_side_json_schema:
             schema_text = json.dumps(self._json_schema, ensure_ascii=False)
             request_text = (
                 f"Return only a JSON object matching this JSON Schema "
                 f"({self._schema_name}):\n{schema_text}\n\n{prompt}"
             )
+        payload: dict[str, Any] = {
+            "modelUri": self._model_uri,
+            "completionOptions": {
+                "stream": False,
+                "temperature": 0,
+                "maxTokens": str(self._max_output_tokens),
+            },
+            "messages": [{"role": "user", "text": request_text}],
+        }
+        if self._server_side_json_schema:
+            payload["jsonSchema"] = {"schema": self._json_schema}
+        else:
+            payload["jsonObject"] = True
         response = self._transport.post_json(
             YANDEX_COMPLETION_ENDPOINT,
             headers={
@@ -290,16 +436,7 @@ class YandexCompletionJsonGenerator:
                 "Content-Type": "application/json",
                 "User-Agent": "NextWave/0.1",
             },
-            payload={
-                "modelUri": self._model_uri,
-                "completionOptions": {
-                    "stream": False,
-                    "temperature": 0,
-                    "maxTokens": str(self._max_output_tokens),
-                },
-                "messages": [{"role": "user", "text": request_text}],
-                "jsonObject": True,
-            },
+            payload=payload,
             timeout_seconds=self._timeout_seconds,
         )
         if not 200 <= response.status_code <= 299:
@@ -307,6 +444,174 @@ class YandexCompletionJsonGenerator:
                 f"Yandex completion API returned HTTP {response.status_code}"
             )
         return parse_yandex_completion_text(response.body, self.selection.model)
+
+
+class QwenCompletionJsonGenerator:
+    """Call one disclosed Qwen model directly through Alibaba Model Studio."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        base_url: str,
+        selection: LlmSelection,
+        transport: JsonHttpTransport | None = None,
+        timeout_seconds: float = 120.0,
+        max_output_tokens: int = 500,
+        json_schema: Mapping[str, Any] | None = None,
+        schema_name: str = "response",
+    ) -> None:
+        if not api_key.strip():
+            raise ValueError("Qwen API key must not be blank")
+        normalized_base_url = _normalize_qwen_base_url(base_url)
+        if selection.provider is not LlmProvider.QWEN:
+            raise ValueError("Qwen adapter supports only Qwen models")
+        try:
+            model_id = QWEN_MODEL_IDS[selection.model]
+        except KeyError as error:
+            raise ValueError(
+                f"Qwen adapter has no model ID for {selection.model!r}"
+            ) from error
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        if (
+            isinstance(max_output_tokens, bool)
+            or not isinstance(max_output_tokens, int)
+            or not 1 <= max_output_tokens <= 10000
+        ):
+            raise ValueError("max_output_tokens must be between 1 and 10000")
+        if _SCHEMA_NAME.fullmatch(schema_name) is None:
+            raise ValueError("schema_name must be a lowercase JSON schema identifier")
+        if json_schema is not None and not isinstance(json_schema, Mapping):
+            raise ValueError("json_schema must be an object")
+        self.selection = selection
+        self._api_key = api_key.strip()
+        self._endpoint = f"{normalized_base_url}/chat/completions"
+        self._model_id = model_id
+        self._transport = transport or UrllibJsonHttpTransport()
+        self._timeout_seconds = timeout_seconds
+        self._max_output_tokens = max_output_tokens
+        self._json_schema = dict(json_schema) if json_schema is not None else None
+        self._schema_name = schema_name
+
+    def __call__(self, prompt: str) -> str:
+        if not prompt.strip():
+            raise ValueError("prompt must not be blank")
+        request_text = prompt
+        if self._json_schema is not None:
+            schema_text = json.dumps(self._json_schema, ensure_ascii=False)
+            request_text = (
+                f"Return only a JSON object matching this JSON Schema "
+                f"({self._schema_name}):\n{schema_text}\n\n{prompt}"
+            )
+        response = self._transport.post_json(
+            self._endpoint,
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "NextWave/0.1",
+            },
+            payload={
+                "model": self._model_id,
+                "messages": [{"role": "user", "content": request_text}],
+                "temperature": 0,
+                "max_tokens": self._max_output_tokens,
+                "response_format": {"type": "json_object"},
+            },
+            timeout_seconds=self._timeout_seconds,
+        )
+        if not 200 <= response.status_code <= 299:
+            raise RuntimeError(
+                f"Alibaba Model Studio returned HTTP {response.status_code}"
+            )
+        return parse_openai_completion_text(response.body, self.selection.model)
+
+
+class OpenAICompletionJsonGenerator:
+    """Call one disclosed model directly through the official OpenAI API."""
+
+    def __init__(
+        self,
+        api_key: str,
+        *,
+        selection: LlmSelection,
+        transport: JsonHttpTransport | None = None,
+        timeout_seconds: float = 120.0,
+        max_output_tokens: int = 500,
+        json_schema: Mapping[str, Any] | None = None,
+        schema_name: str = "response",
+    ) -> None:
+        if not api_key.strip():
+            raise ValueError("OpenAI API key must not be blank")
+        if selection.provider is not LlmProvider.OPENAI:
+            raise ValueError("OpenAI adapter supports only OpenAI models")
+        try:
+            model_id = OPENAI_MODEL_IDS[selection.model]
+        except KeyError as error:
+            raise ValueError(
+                f"OpenAI adapter has no model ID for {selection.model!r}"
+            ) from error
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        if (
+            isinstance(max_output_tokens, bool)
+            or not isinstance(max_output_tokens, int)
+            or not 1 <= max_output_tokens <= 10000
+        ):
+            raise ValueError("max_output_tokens must be between 1 and 10000")
+        if _SCHEMA_NAME.fullmatch(schema_name) is None:
+            raise ValueError("schema_name must be a lowercase JSON schema identifier")
+        if json_schema is not None and not isinstance(json_schema, Mapping):
+            raise ValueError("json_schema must be an object")
+        self.selection = selection
+        self._api_key = api_key.strip()
+        self._model_id = model_id
+        self._transport = transport or UrllibJsonHttpTransport()
+        self._timeout_seconds = timeout_seconds
+        self._max_output_tokens = max_output_tokens
+        self._json_schema = dict(json_schema) if json_schema is not None else None
+        self._schema_name = schema_name
+
+    def __call__(self, prompt: str) -> str:
+        if not prompt.strip():
+            raise ValueError("prompt must not be blank")
+        response_format: dict[str, Any] = {"type": "json_object"}
+        if self._json_schema is not None:
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": self._schema_name,
+                    "strict": True,
+                    "schema": self._json_schema,
+                },
+            }
+        payload: dict[str, Any] = {
+            "model": self._model_id,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_completion_tokens": self._max_output_tokens,
+            "response_format": response_format,
+        }
+        if self.selection.model == "GPT-5.6 Luna":
+            payload["reasoning_effort"] = "none"
+        response = self._transport.post_json(
+            OPENAI_COMPLETION_ENDPOINT,
+            headers={
+                "Accept": "application/json",
+                "Authorization": f"Bearer {self._api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "NextWave/0.1",
+            },
+            payload=payload,
+            timeout_seconds=self._timeout_seconds,
+        )
+        if not 200 <= response.status_code <= 299:
+            raise RuntimeError(f"OpenAI API returned HTTP {response.status_code}")
+        return parse_openai_completion_text(
+            response.body,
+            self.selection.model,
+            provider_name="OpenAI",
+        )
 
 
 class YandexFallbackJsonGenerator:
@@ -431,7 +736,13 @@ def build_json_generator(
     json_schema: Mapping[str, Any] = QUERY_INTERPRETATION_JSON_SCHEMA,
     schema_name: str = "query_interpretation",
     max_output_tokens: int = 500,
-) -> YandexCompletionJsonGenerator | LocalLlamaJsonGenerator:
+    server_side_json_schema: bool = False,
+) -> (
+    YandexCompletionJsonGenerator
+    | QwenCompletionJsonGenerator
+    | OpenAICompletionJsonGenerator
+    | LocalLlamaJsonGenerator
+):
     """Build the selected supported adapter without exposing credentials."""
     if settings.selection.provider is LlmProvider.HUGGINGFACE:
         return LocalLlamaJsonGenerator(
@@ -445,6 +756,26 @@ def build_json_generator(
         return YandexCompletionJsonGenerator(
             settings.api_key,
             folder_id=settings.yandex_folder_id,
+            selection=settings.selection,
+            transport=transport,
+            max_output_tokens=max_output_tokens,
+            json_schema=json_schema,
+            schema_name=schema_name,
+            server_side_json_schema=server_side_json_schema,
+        )
+    if settings.selection.provider is LlmProvider.QWEN:
+        return QwenCompletionJsonGenerator(
+            settings.api_key,
+            base_url=settings.qwen_base_url,
+            selection=settings.selection,
+            transport=transport,
+            max_output_tokens=max_output_tokens,
+            json_schema=json_schema,
+            schema_name=schema_name,
+        )
+    if settings.selection.provider is LlmProvider.OPENAI:
+        return OpenAICompletionJsonGenerator(
+            settings.api_key,
             selection=settings.selection,
             transport=transport,
             max_output_tokens=max_output_tokens,
@@ -475,6 +806,54 @@ class YandexContentFilterError(ValueError):
     for the same content, so batch splitting would only multiply spend.
     Callers must skip with honest unknown coverage instead.
     """
+
+
+def parse_openai_completion_text(
+    body: bytes, requested_model: str, *, provider_name: str = "Qwen"
+) -> str:
+    """Extract one JSON object from an OpenAI-compatible completion response."""
+
+    try:
+        payload = json.loads(body.decode())
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{provider_name} response is not valid JSON") from error
+    if not isinstance(payload, dict):
+        raise ValueError(f"{provider_name} response must be a JSON object")
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise ValueError(f"{provider_name} response must contain exactly one choice")
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        raise ValueError(f"{provider_name} response choice must be an object")
+    finish_reason = choice.get("finish_reason")
+    if finish_reason == "length":
+        raise YandexTruncationError(
+            f"{provider_name} {requested_model} response was truncated"
+        )
+    if finish_reason in {"content_filter", "content-filter"}:
+        raise YandexContentFilterError(
+            f"{provider_name} {requested_model} response was refused by content filter"
+        )
+    if finish_reason not in {None, "stop"}:
+        raise ValueError(
+            f"{provider_name} {requested_model} returned unsupported finish reason"
+        )
+    message = choice.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError(
+            f"{provider_name} response must contain non-empty message content"
+        )
+    cleaned = _strip_json_fences(content)
+    try:
+        parsed = json.loads(cleaned, strict=False)
+    except json.JSONDecodeError as error:
+        raise ValueError(
+            f"{provider_name} response content must be a JSON object"
+        ) from error
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{provider_name} response content must be a JSON object")
+    return _dump_canonical(parsed)
 
 
 def _is_wrapper_junk(value: object) -> bool:

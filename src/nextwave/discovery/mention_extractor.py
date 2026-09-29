@@ -6,7 +6,7 @@ import json
 import os
 import re
 from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from enum import Enum, StrEnum
 from typing import Any
@@ -28,7 +28,7 @@ CANDIDATE_TEXT_EXTRACTOR_VERSION = "candidate-text-extractor-v2"
 MAX_CANDIDATE_BATCH_DOCUMENTS = 8
 MAX_CANDIDATE_FIELD_CHARS = 4000
 MAX_CANDIDATE_BATCH_INPUT_CHARS = 24_000
-DEFAULT_CANDIDATE_EXTRACTION_CONCURRENCY = 3
+DEFAULT_CANDIDATE_EXTRACTION_CONCURRENCY = 6
 MAX_MENTIONS_PER_DOCUMENT = 12
 
 CANDIDATE_MENTION_JSON_SCHEMA: Mapping[str, Any] = {
@@ -326,6 +326,7 @@ class StructuredCandidateMentionExtractor:
         *,
         max_concurrency: int = DEFAULT_CANDIDATE_EXTRACTION_CONCURRENCY,
         max_input_chars: int = MAX_CANDIDATE_BATCH_INPUT_CHARS,
+        progress: Callable[[int, int], None] | None = None,
     ) -> CandidateMentionExtractionResult:
         """Extract every document in bounded, concurrently processed batches."""
 
@@ -336,11 +337,22 @@ class StructuredCandidateMentionExtractor:
             max_input_chars=max_input_chars,
         )
         if len(batches) == 1:
-            return self.extract(scope, batches[0])
+            result = self.extract(scope, batches[0])
+            if progress is not None:
+                progress(1, 1)
+            return result
 
         with ThreadPoolExecutor(max_workers=min(max_concurrency, len(batches))) as pool:
-            futures = [pool.submit(self.extract, scope, batch) for batch in batches]
-            results = [future.result() for future in futures]
+            futures = {
+                pool.submit(self.extract, scope, batch): index
+                for index, batch in enumerate(batches)
+            }
+            completed: dict[int, CandidateMentionExtractionResult] = {}
+            for done, future in enumerate(as_completed(futures), 1):
+                completed[futures[future]] = future.result()
+                if progress is not None:
+                    progress(done, len(batches))
+            results = [completed[index] for index in range(len(batches))]
 
         mentions = {
             mention.mention_id: mention

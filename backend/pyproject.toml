@@ -1,12 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "radar-backend"
 version = "0.1.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "fastapi>=0.121",
-    "nextwave-tech-radar",
-    "psycopg[binary]>=3.2",
-    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2,<4",
     "uvicorn[standard]>=0.40",
 ]
 
@@ -25,6 +27,3 @@ include = ["app*"]
 
 [tool.setuptools.package-data]
 app = ["data/*.json"]
-
-[tool.uv.sources]
-nextwave-tech-radar = { path = "..", editable = true }

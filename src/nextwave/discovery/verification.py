@@ -25,6 +25,7 @@ from nextwave.sources import (
     SnapshotManifest,
     SnapshotWriter,
     SourceQuery,
+    normalize_openalex_api_key,
     parse_openalex_response,
 )
 
@@ -103,6 +104,7 @@ class CandidateVerificationExecutor:
         *,
         transport: HttpTransport | None = None,
         contact_email: str | None = None,
+        api_key: str | None = None,
         max_groups: int = DEFAULT_VERIFICATION_MAX_GROUPS,
         max_records_per_group: int = DEFAULT_VERIFICATION_MAX_RECORDS,
         request_timeout_seconds: float = 20.0,
@@ -120,6 +122,7 @@ class CandidateVerificationExecutor:
         self._snapshot_root = snapshot_root
         self._transport = transport
         self._contact_email = contact_email
+        self._api_key = normalize_openalex_api_key(api_key)
         self._max_groups = max_groups
         self._max_records = max_records_per_group
         self._request_timeout = request_timeout_seconds
@@ -180,6 +183,7 @@ class CandidateVerificationExecutor:
         connector = OpenAlexConnector(
             transport=self._transport,
             contact_email=self._contact_email,
+            api_key=self._api_key,
             timeout_seconds=timeout_seconds,
             clock=self._clock,
         )

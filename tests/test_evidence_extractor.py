@@ -131,7 +131,7 @@ class YandexTransport:
         }
         self.assertions = (
             headers["Authorization"] == "Api-Key temporary-test-key",
-            payload["modelUri"] == "gpt://folder-1/yandexgpt-lite/latest",
+            payload["modelUri"] == "gpt://folder-1/yandexgpt-5-lite",
             payload["jsonObject"] is True,
             len(payload["messages"]) == 1,
             timeout_seconds > 0,

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { TrendSparkline } from '@/components/trend-chart'
-import { trendScore, type Bucket, type Trend } from '@/lib/api'
+import type { Bucket, Trend } from '@/lib/api'
 import { formatPeriod, percent } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -14,7 +14,7 @@ const borders: Record<Bucket, string> = {
 }
 
 export function TrendCard({ trend, to }: { trend: Trend; to: string }) {
-  const border = borders[trend.status]
+  const border = borders[trend.bucket]
   return (
     <Link to={to} className="group block">
       <Card className="transition-all group-hover:-translate-y-0.5 group-hover:ring-foreground/30 group-hover:shadow-md">
@@ -24,35 +24,33 @@ export function TrendCard({ trend, to }: { trend: Trend; to: string }) {
           </span>
 
           <div className="min-w-0 flex-1">
-            <h3 className="font-medium text-balance group-hover:underline group-hover:underline-offset-4">
-              {trend.canonical_name}
-            </h3>
+            <h3 className="font-medium text-balance group-hover:underline group-hover:underline-offset-4">{trend.title}</h3>
             <p className="mt-1 text-sm text-pretty text-muted-foreground">{trend.summary}</p>
 
             <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <Badge variant="secondary">
                 <Sparkles />
-                оценка модели {percent(trendScore(trend))}
+                рейтинг {percent(trend.score)}
               </Badge>
-              {trend.document_count !== null && <Badge variant="outline">
+              <Badge variant="outline">
                 <FileText />
                 {trend.document_count} документов
-              </Badge>}
+              </Badge>
               <Badge variant="outline">
                 <Network />
-                {trend.features.independent_source_count} независимых
+                {trend.independent_sources} независимых
               </Badge>
-              {trend.first_seen && <span className="ml-1">первое упоминание {formatPeriod(trend.first_seen)}</span>}
+              <span className="ml-1">первое упоминание {formatPeriod(trend.first_seen)}</span>
             </div>
 
             <p className={cn('mt-3 border-l-2 pl-3 text-xs text-pretty text-muted-foreground', border)}>
-              {trend.explanation}
+              {trend.bucket_reason}
             </p>
           </div>
 
-          {trend.timeline.length > 0 && <div className="hidden shrink-0 self-center sm:block">
+          <div className="hidden shrink-0 self-center sm:block">
             <TrendSparkline timeline={trend.timeline} />
-          </div>}
+          </div>
         </CardContent>
       </Card>
     </Link>

@@ -1,0 +1,69 @@
+{
+  "schema_version": "maturity-holdout-selection-v2",
+  "cutoff_date": "2026-09-15",
+  "selection_seed": "maturity-holdout-v2",
+  "source_plan": "data/development/labeling-evidence-llm-plan-maturity-recovery-v8",
+  "selection_rule": "two lowest sha256(seed|candidate_id) values per domain among candidates with a maturity task, after excluding every candidate inspected in development, frozen-eval, positive challenge, or offline diagnostic scans",
+  "holdout": [
+    {
+      "candidate_id": "team-negative-016",
+      "domain": "Edge",
+      "selection_hash_prefix": "3ce99f638eb4"
+    },
+    {
+      "candidate_id": "team-negative-002",
+      "domain": "Edge",
+      "selection_hash_prefix": "5927708bf522"
+    },
+    {
+      "candidate_id": "team-negative-032",
+      "domain": "Защита ИИ",
+      "selection_hash_prefix": "54a65e3658a8"
+    },
+    {
+      "candidate_id": "team-negative-029",
+      "domain": "Защита ИИ",
+      "selection_hash_prefix": "8a0f6bd91ec4"
+    },
+    {
+      "candidate_id": "team-negative-046",
+      "domain": "Индустриальный ИИ",
+      "selection_hash_prefix": "012399551c5e"
+    },
+    {
+      "candidate_id": "team-negative-048",
+      "domain": "Индустриальный ИИ",
+      "selection_hash_prefix": "65f90429d05b"
+    },
+    {
+      "candidate_id": "team-negative-058",
+      "domain": "Инфраструктура ИИ",
+      "selection_hash_prefix": "002d67809635"
+    },
+    {
+      "candidate_id": "team-negative-051",
+      "domain": "Инфраструктура ИИ",
+      "selection_hash_prefix": "3618484f1697"
+    },
+    {
+      "candidate_id": "team-negative-081",
+      "domain": "Роботы",
+      "selection_hash_prefix": "04c819609e79"
+    },
+    {
+      "candidate_id": "team-negative-075",
+      "domain": "Роботы",
+      "selection_hash_prefix": "2c8f3beaf208"
+    },
+    {
+      "candidate_id": "team-negative-098",
+      "domain": "Финтех",
+      "selection_hash_prefix": "393420fb8f9f"
+    },
+    {
+      "candidate_id": "team-negative-086",
+      "domain": "Финтех",
+      "selection_hash_prefix": "425e747a99c4"
+    }
+  ]
+}

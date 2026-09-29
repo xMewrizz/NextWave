@@ -30,12 +30,13 @@ def make_evidence(
     trust_level: TrustLevel = TrustLevel.B,
     direction: EvidenceDirection = EvidenceDirection.SUPPORT,
     origin_id: str | None = None,
+    source_type: SourceType = SourceType.INDUSTRY_MEDIA,
 ) -> LabelEvidence:
     return LabelEvidence(
         evidence_id=f"evidence-{number:03d}",
         direction=direction,
         kind=kind,
-        source_type=SourceType.INDUSTRY_MEDIA,
+        source_type=source_type,
         trust_level=trust_level,
         title=f"Материал {number}",
         url=f"https://example.org/{number}",
@@ -50,9 +51,45 @@ def make_evidence(
 def complete_coverage() -> SearchCoverage:
     return SearchCoverage(
         queries=("example technology", "example technology pilot"),
-        source_classes=tuple(SearchSourceClass),
+        source_classes=(
+            SearchSourceClass.SCIENTIFIC,
+            SearchSourceClass.INDUSTRY,
+        ),
         searched_at=date(2026, 9, 19),
-        notes="Проверены научные, официальные и отраслевые источники.",
+        notes="Проверены научный и отраслевой контуры.",
+    )
+
+
+def coverage_with(*classes: SearchSourceClass) -> SearchCoverage:
+    return SearchCoverage(
+        queries=("example technology", "example technology pilot"),
+        source_classes=classes,
+        searched_at=date(2026, 9, 19),
+        notes="Проверочное покрытие.",
+    )
+
+
+def hype_evidence() -> tuple:
+    return (
+        make_evidence(1, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-a"),
+        make_evidence(2, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-a"),
+        make_evidence(3, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-b"),
+    )
+
+
+def hype_decision(coverage: SearchCoverage) -> ModelLabelDecision:
+    return ModelLabelDecision(
+        decision_id="decision-hype-001",
+        candidate_id="team-negative-001",
+        review_round=ReviewRound.PRIMARY,
+        status=ReviewStatus.REVIEWED,
+        label=NegativeClass.MARKETING_HYPE,
+        rationale="Публичная волна без технической опоры.",
+        reviewer_id="reviewer-1",
+        annotated_at=date(2026, 9, 19),
+        cutoff_date=LABELING_CUTOFF_DATE,
+        evidence=hype_evidence(),
+        search_coverage=coverage,
     )
 
 
@@ -129,27 +166,171 @@ class LabelingContractTests(unittest.TestCase):
                 search_coverage=complete_coverage(),
             )
 
-    def test_reviewed_hype_accepts_three_items_from_two_origins(self) -> None:
-        evidence = (
-            make_evidence(1, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-a"),
-            make_evidence(2, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-a"),
-            make_evidence(3, kind=EvidenceKind.PUBLICITY_WAVE, origin_id="origin-b"),
+    def test_reviewed_hype_accepts_scientific_and_industry(self) -> None:
+        decision = hype_decision(complete_coverage())
+
+        self.assertEqual(decision.to_dict()["label"], "marketing_hype")
+
+    def test_reviewed_hype_rejects_missing_scientific(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "scientific and industry"
+        ):
+            hype_decision(
+                coverage_with(
+                    SearchSourceClass.INDUSTRY,
+                    SearchSourceClass.OFFICIAL,
+                )
+            )
+
+    def test_reviewed_hype_rejects_missing_industry(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "scientific and industry"
+        ):
+            hype_decision(
+                coverage_with(
+                    SearchSourceClass.SCIENTIFIC,
+                    SearchSourceClass.OFFICIAL,
+                )
+            )
+
+    def test_reviewed_hype_accepts_extra_official_class(self) -> None:
+        decision = hype_decision(
+            coverage_with(
+                SearchSourceClass.SCIENTIFIC,
+                SearchSourceClass.INDUSTRY,
+                SearchSourceClass.OFFICIAL,
+            )
         )
+
+        self.assertEqual(decision.to_dict()["label"], "marketing_hype")
+
+    def test_ab_research_mentions_do_not_equal_technical_validation(self) -> None:
         decision = ModelLabelDecision(
             decision_id="decision-hype-001",
             candidate_id="team-negative-001",
             review_round=ReviewRound.PRIMARY,
             status=ReviewStatus.REVIEWED,
             label=NegativeClass.MARKETING_HYPE,
-            rationale="Публичная волна без технической опоры.",
+            rationale=(
+                "Публикации упоминают категорию, но не проверяют заявленную "
+                "в рекламной волне способность."
+            ),
             reviewer_id="reviewer-1",
             annotated_at=date(2026, 9, 19),
             cutoff_date=LABELING_CUTOFF_DATE,
-            evidence=evidence,
+            evidence=(
+                *hype_evidence(),
+                make_evidence(
+                    4,
+                    kind=EvidenceKind.PUBLICITY_WAVE,
+                    trust_level=TrustLevel.A,
+                    origin_id="research-origin-a",
+                    source_type=SourceType.RESEARCH,
+                ),
+                make_evidence(
+                    5,
+                    kind=EvidenceKind.PUBLICITY_WAVE,
+                    trust_level=TrustLevel.B,
+                    origin_id="research-origin-b",
+                    source_type=SourceType.RESEARCH,
+                ),
+            ),
             search_coverage=complete_coverage(),
         )
 
         self.assertEqual(decision.to_dict()["label"], "marketing_hype")
+
+    def test_product_announcement_does_not_equal_confirmed_pilot(self) -> None:
+        decision = ModelLabelDecision(
+            decision_id="decision-hype-001",
+            candidate_id="team-negative-001",
+            review_round=ReviewRound.PRIMARY,
+            status=ReviewStatus.REVIEWED,
+            label=NegativeClass.MARKETING_HYPE,
+            rationale="Анонс продукта не содержит подтверждения эксплуатации клиентом.",
+            reviewer_id="reviewer-1",
+            annotated_at=date(2026, 9, 19),
+            cutoff_date=LABELING_CUTOFF_DATE,
+            evidence=(
+                *hype_evidence(),
+                make_evidence(
+                    4,
+                    kind=EvidenceKind.PUBLICITY_WAVE,
+                    trust_level=TrustLevel.A,
+                    origin_id="vendor-launch",
+                    source_type=SourceType.PRESS_RELEASE,
+                ),
+            ),
+            search_coverage=complete_coverage(),
+        )
+
+        self.assertEqual(decision.to_dict()["label"], "marketing_hype")
+
+    def test_reviewed_hype_rejects_single_ab_serial_deployment(self) -> None:
+        with self.assertRaisesRegex(ValueError, "pilot or deployment evidence"):
+            ModelLabelDecision(
+                decision_id="decision-hype-001",
+                candidate_id="team-negative-001",
+                review_round=ReviewRound.PRIMARY,
+                status=ReviewStatus.REVIEWED,
+                label=NegativeClass.MARKETING_HYPE,
+                rationale="Публичная волна, но найдено внедрение.",
+                reviewer_id="reviewer-1",
+                annotated_at=date(2026, 9, 19),
+                cutoff_date=LABELING_CUTOFF_DATE,
+                evidence=(
+                    *hype_evidence(),
+                    make_evidence(4, kind=EvidenceKind.SERIAL_DEPLOYMENT),
+                ),
+                search_coverage=complete_coverage(),
+            )
+
+    def test_counter_pilot_does_not_block_hype(self) -> None:
+        decision = ModelLabelDecision(
+            decision_id="decision-hype-001",
+            candidate_id="team-negative-001",
+            review_round=ReviewRound.PRIMARY,
+            status=ReviewStatus.REVIEWED,
+            label=NegativeClass.MARKETING_HYPE,
+            rationale="Публичная волна; источник прямо отрицает наличие пилота.",
+            reviewer_id="reviewer-1",
+            annotated_at=date(2026, 9, 19),
+            cutoff_date=LABELING_CUTOFF_DATE,
+            evidence=(
+                *hype_evidence(),
+                make_evidence(
+                    4,
+                    kind=EvidenceKind.PILOT,
+                    direction=EvidenceDirection.COUNTER,
+                ),
+            ),
+            search_coverage=complete_coverage(),
+        )
+
+        self.assertEqual(decision.to_dict()["label"], "marketing_hype")
+
+    def test_reviewed_hype_rejects_low_trust_pilot(self) -> None:
+        with self.assertRaisesRegex(ValueError, "pilot or deployment evidence"):
+            ModelLabelDecision(
+                decision_id="decision-hype-001",
+                candidate_id="team-negative-001",
+                review_round=ReviewRound.PRIMARY,
+                status=ReviewStatus.REVIEWED,
+                label=NegativeClass.MARKETING_HYPE,
+                rationale="Публичная волна, но найден пилот.",
+                reviewer_id="reviewer-1",
+                annotated_at=date(2026, 9, 19),
+                cutoff_date=LABELING_CUTOFF_DATE,
+                evidence=(
+                    *hype_evidence(),
+                    make_evidence(
+                        4,
+                        kind=EvidenceKind.PILOT,
+                        trust_level=TrustLevel.D,
+                    ),
+                ),
+                search_coverage=complete_coverage(),
+            )
 
     def test_evidence_after_cutoff_is_rejected(self) -> None:
         future = make_evidence(

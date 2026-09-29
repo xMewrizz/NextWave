@@ -1,318 +1,290 @@
-"""Final assessments → persistent storage → existing API. Fixtures are never production data."""
+"""Backend contract tests for durable analysis jobs and result delivery."""
 
 import asyncio
-import copy
+import hashlib
 import json
-import os
-import sys
-import threading
-import types
-import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from nextwave.analysis import AnalysisMetadata
-from nextwave.contracts import CandidateAssessment
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import sessionmaker
 
-from app import database, pipeline
-from app.main import _tasks, app
-from app.models import Analysis
-from generate_frontend_contracts import TARGET, render_typescript_contracts
+from app import main, pipeline, result_store
+from app.job_store import AnalysisJobStore
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "docs/examples/ml-assessments.json"
-METADATA = AnalysisMetadata(
-    method_version="contract-test-policy-v1",
-    corpus_version="contract-test-corpus-v1",
-    model_version="contract-test-model-v1",
-    feature_version="contract-test-features-v1",
-)
+QUERY = "Инфраструктурные технологии для обучения и инференса ИИ"
+
+
+def _json(value: object) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, sort_keys=True) + "\n").encode()
+
+
+def _digest(raw: bytes) -> dict[str, object]:
+    return {"size_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+
+
+def _result_fixture(root: Path) -> Path:
+    candidate = {
+        "schema_version": result_store.RESULT_SCHEMA_VERSION,
+        "candidate_id": "candidate-1",
+        "status": "main",
+        "top15_rank": 1,
+    }
+    candidates = _json(candidate)
+    top15 = _json([candidate])
+    summary = _json({"candidate_count": 1, "top15_count": 1})
+    response_value = {
+        "schema_version": result_store.RESPONSE_SCHEMA_VERSION,
+        "query": {"text": QUERY},
+        "summary": json.loads(summary),
+        "top15": json.loads(top15),
+        "candidates": [candidate],
+    }
+    response = _json(response_value)
+    manifest = {
+        "schema_version": result_store.RESULT_SCHEMA_VERSION,
+        "candidate_count": 1,
+        "top15_count": 1,
+        "outputs": {
+            "candidates.jsonl": _digest(candidates),
+            "top15.json": _digest(top15),
+            "summary.json": _digest(summary),
+            "result.json": _digest(response),
+        },
+    }
+    root.mkdir()
+    (root / "candidates.jsonl").write_bytes(candidates)
+    (root / "top15.json").write_bytes(top15)
+    (root / "summary.json").write_bytes(summary)
+    (root / "result.json").write_bytes(response)
+    (root / "manifest.json").write_bytes(_json(manifest))
+    return root
+
+
+async def _clear_tasks() -> None:
+    tasks = list(main._tasks.values())
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    main._tasks.clear()
 
 
 @pytest.fixture
-def payload():
-    return json.loads(EXAMPLE.read_text(encoding="utf-8"))
+async def client(tmp_path: Path, monkeypatch):
+    await _clear_tasks()
+    result_dir = _result_fixture(tmp_path / "result")
+    monkeypatch.setenv("NEXTWAVE_RESULT_DIR", str(result_dir))
+    monkeypatch.setenv("NEXTWAVE_JOB_DIR", str(tmp_path / "jobs"))
+    async with AsyncClient(
+        transport=ASGITransport(main.app), base_url="http://test"
+    ) as http_client:
+        yield http_client
+    await _clear_tasks()
 
 
-@pytest.fixture
-def storage(monkeypatch, tmp_path):
-    # PostgreSQL tests use a fresh isolated schema, never drop a developer's tables.
-    url = os.getenv("NEXTWAVE_TEST_DATABASE_URL")
-    admin = None
-    if url:
-        admin = create_engine(url)
-        schema = "test_" + uuid.uuid4().hex
-        with admin.begin() as connection:
-            connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"})
-    else:
-        engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'analysis.db'}")
-    monkeypatch.setattr(database, "engine", engine)
-    monkeypatch.setattr(database, "SessionLocal", sessionmaker(bind=engine, expire_on_commit=False))
-    monkeypatch.delenv("NEXTWAVE_ANALYZER_FACTORY", raising=False)
-    yield engine
-    engine.dispose()
-    if admin:
-        with admin.begin() as connection:
-            connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
-        admin.dispose()
-
-
-@pytest.fixture
-async def client(storage):
-    async with app.router.lifespan_context(app):
-        async with AsyncClient(transport=ASGITransport(app), base_url="http://test") as client:
-            yield client
-        if _tasks:
-            await asyncio.gather(*tuple(_tasks))
-
-
-@pytest.fixture
-def install_analyzer(monkeypatch):
-    def install(analyze, metadata=METADATA):
-        module = types.ModuleType("test_ml_integration")
-        module.build_analyzer = lambda: types.SimpleNamespace(metadata=metadata, analyze=analyze)
-        monkeypatch.setitem(sys.modules, module.__name__, module)
-        monkeypatch.setenv("NEXTWAVE_ANALYZER_FACTORY", "test_ml_integration:build_analyzer")
-
-    return install
-
-
-async def wait_result(client, analysis_id):
+async def _wait(client: AsyncClient, analysis_id: str) -> dict:
     for _ in range(100):
         response = await client.get(f"/api/analyses/{analysis_id}")
         assert response.status_code == 200
         body = response.json()
-        if body["status"] in {"done", "empty", "error"}:
-            assert body["finished_at"]
-            assert body["progress"] == 1
+        if body["status"] in {"complete", "error"}:
             return body
         await asyncio.sleep(0.01)
-    raise AssertionError("analysis did not finish")
+    raise AssertionError("analysis job did not reach a terminal state")
 
 
-async def start(client, query="Проверка интеграции"):
-    response = await client.post("/api/analyses", json={"query": query})
-    assert response.status_code == 201
-    assert response.json()["status"] == "pending"
-    return response.json()["id"]
+def test_ranking_is_reproducible():
+    trends = pipeline._demo["trends"]
+    first = pipeline.rank(trends)
+    second = pipeline.rank(list(reversed(trends)))
+    assert [trend.id for trend in first] == [trend.id for trend in second]
+    assert all(0 <= trend.score <= 1 for trend in first)
 
 
-def test_frontend_contract_is_generated_from_backend_models():
-    assert TARGET.read_text(encoding="utf-8") == render_typescript_contracts()
-
-
-def test_documented_api_response_matches_adapter(payload):
-    example = Analysis.model_validate_json(EXAMPLE.with_name("api-analysis.json").read_text())
-    assert example.trends == pipeline.rank(payload, example.query, METADATA)
-    assert example.model_version == METADATA.model_version
-
-
-def test_example_and_ranking_preserve_all_decisions(payload):
-    items = []
-    for index in range(17):
-        item = copy.deepcopy(payload[0])
-        item.update(candidate_id=f"main-{index:02}", status="main")
-        items.append(item)
-    ranked = pipeline.rank(items, "Проверка интеграции", METADATA)
-    assert len(ranked) == 17  # Preserve all final assessments; TOP-15 is a UI selection.
-    assert [item.rank for item in ranked] == list(range(1, 18))
-    assert ranked == pipeline.rank(items[::-1], "Проверка интеграции", METADATA)
-    assert all(item.status == "main" for item in ranked)
-    assert all(item.summary is None and item.document_count is None for item in ranked)
-    assert CandidateAssessment.model_validate(payload[0]).evidence[0].direction == "support"
-
-
-async def test_all_buckets_persist_and_get_never_runs_model(client, storage, install_analyzer, payload):
-    assessments = []
-    for status in ("main", "watchlist", "excluded"):
-        item = copy.deepcopy(payload[0])
-        item.update(candidate_id=status, status=status)
-        item["exclusion_reason"] = "mature" if status == "excluded" else None
-        item["evidence"][0]["direction"] = "counter" if status == "excluded" else "support"
-        assessments.append(item)
-    calls = []
-
-    def analyze(query):
-        calls.append(query)
-        return assessments
-
-    install_analyzer(analyze)
-    analysis_id = await start(client)
-    body = await wait_result(client, analysis_id)
-    assert body["status"] == "done"
-    assert body["started_at"]
-    assert body["notice"].startswith("В основной список прошли 1 кандидатов из 15")
-    for key, value in METADATA.model_dump().items():
-        assert body[key] == value
-    for expected in assessments:
-        card = (await client.get(f"/api/analyses/{analysis_id}/trends/{expected['candidate_id']}")).json()
-        assert {key: card[key] for key in expected} == expected
-    storage.dispose()  # Fresh DB connections still return the complete result.
-    assert (await client.get(f"/api/analyses/{analysis_id}")).json() == body
-    history = (await client.get("/api/analyses")).json()
-    assert history[0]["trend_count"] == 3
-    assert calls == ["Проверка интеграции"]
-    assert (await client.get(f"/api/analyses/{analysis_id}/trends/missing")).status_code == 404
-
-
-async def test_unavailable_is_explicit_and_no_demo(client):
-    result = await wait_result(client, await start(client, "технологии в ИИ"))
-    assert result["status"] == "error"
-    assert result["error_code"] == "model_unavailable"
-    assert "Интеграция модели недоступна" in result["notice"]
-    assert result["trends"] == []
-    coverage = (await client.get("/api/coverage")).json()
-    assert coverage["document_count"] is None
-    assert coverage["thresholds"] == {}
-
-
-async def test_empty_result_keeps_versions(client, install_analyzer):
-    install_analyzer(lambda query: [])
-    result = await wait_result(client, await start(client))
-    assert result["status"] == "empty"
-    assert result["model_version"] == METADATA.model_version
-    assert result["notice"] and result["trends"] == []
-
-
-@pytest.mark.parametrize(
-    "defect",
-    [
-        "score",
-        "nonfinite",
-        "query",
-        "version",
-        "duplicate",
-        "gate",
-        "discovery",
-        "reason",
-        "evidence",
-        "direction",
-    ],
-)
-async def test_invalid_output_is_atomic(client, install_analyzer, payload, defect):
-    item = payload[0]
-    if defect == "score":
-        item["prediction"]["weak_signal_score"] = 2
-    elif defect == "nonfinite":
-        item["features"]["publication_momentum"] = float("nan")
-    elif defect == "query":
-        item["query"] = "another run"
-    elif defect == "version":
-        item["prediction"]["model_version"] = "another model"
-    elif defect == "duplicate":
-        payload.append(copy.deepcopy(item))
-    elif defect == "gate":
-        item["status"] = "reject"
-    elif defect == "discovery":
-        payload = {"candidate_proposals": []}
-    elif defect == "reason":
-        item["status"] = "excluded"
-    elif defect == "evidence":
-        item.update(status="main", evidence=[])
-    elif defect == "direction":
-        item["evidence"][0]["direction"] = "invented"
-    install_analyzer(lambda query: payload)
-    result = await wait_result(client, await start(client))
-    assert result["error_code"] == "invalid_model_result"
-    assert result["trends"] == []
-
-
-async def test_error_does_not_leak_exception(client, install_analyzer):
-    def analyze(query):
-        raise RuntimeError("secret-api-key raw-private-data")
-
-    install_analyzer(analyze)
-    result = await wait_result(client, await start(client))
-    assert result["error_code"] == "analysis_failed"
-    assert "secret" not in json.dumps(result)
-    assert "private" not in json.dumps(result)
-
-
-async def test_running_is_persisted_without_blocking_api(client, install_analyzer):
-    release = threading.Event()
-
-    def analyze(query):
-        if not release.wait(5):
-            raise RuntimeError("test timed out")
-        return []
-
-    install_analyzer(analyze)
-    analysis_id = await start(client)
-    try:
-        for _ in range(100):
-            body = (await client.get(f"/api/analyses/{analysis_id}")).json()
-            if body["model_version"]:
-                break
-            await asyncio.sleep(0.01)
-        assert body["status"] == "running"
-        assert body["started_at"] and body["progress"] < 1
-        assert body["model_version"] == METADATA.model_version
-    finally:
-        release.set()
-    assert (await wait_result(client, analysis_id))["status"] == "empty"
-
-
-async def test_queries_and_unknown_ids(client):
-    for query in ("", "   ", "x" * 201):
-        assert (await client.post("/api/analyses", json={"query": query})).status_code == 422
-    assert (await client.get("/api/analyses/missing")).status_code == 404
-
-
-def test_restart_marks_interrupted_run(storage):
-    database.init_database()
-    database.save_analysis(
-        Analysis(
-            id="interrupted",
-            query="test",
-            status="running",
-            created_at=datetime.now(UTC),
-            **METADATA.model_dump(),
-        )
-    )
-    database.mark_interrupted_analyses()
-    result = database.get_analysis("interrupted")
-    assert result.status == "error"
-    assert result.error_code == "interrupted"
-    assert result.finished_at and result.progress == 1
-
-
-def test_existing_schema_migrates_idempotently(storage, payload):
-    # Exact pre-V1-10 columns; old JSON cards remain intact after migration.
-    card = pipeline.rank(payload, "Проверка интеграции", METADATA)[0].model_dump(mode="json")
-    card["evidence"][0].pop("direction")
-    with storage.begin() as connection:
-        connection.execute(
-            text("""
-            CREATE TABLE analyses (
-                id VARCHAR(32) PRIMARY KEY, query VARCHAR(200), status VARCHAR(16),
-                stage VARCHAR(200), progress FLOAT, notice TEXT,
-                created_at TIMESTAMP, finished_at TIMESTAMP,
-                corpus_version VARCHAR(100), method_version VARCHAR(100), trends JSON
-            )
-        """)
-        )
-        connection.execute(
-            text("""
-            INSERT INTO analyses (id, query, status, progress, created_at,
-                corpus_version, method_version, trends)
-            VALUES ('legacy', 'Проверка интеграции', 'done', 1, :created,
-                'demo-legacy', 'legacy-policy', :trends)
-        """),
-            {"created": datetime.now(UTC).isoformat(), "trends": json.dumps([card])},
-        )
-    database.init_database()
-    database.init_database()
-    assert {"started_at", "model_version", "feature_version", "error_code"} <= {
-        column["name"] for column in inspect(storage).get_columns("analyses")
+def test_buckets_are_capped_numbered_and_explained():
+    ranked = pipeline.rank(pipeline._demo["trends"])
+    by_bucket = {
+        bucket: [trend for trend in ranked if trend.bucket == bucket]
+        for bucket in ("main", "watchlist", "excluded")
     }
-    result = database.get_analysis("legacy")
-    assert result.corpus_version == "demo-legacy"
-    assert result.model_version is None
-    assert result.trends[0].evidence[0].direction is None
-    with storage.connect() as connection:
-        raw = connection.execute(text("SELECT trends FROM analyses WHERE id='legacy'")).scalar_one()
-    assert (json.loads(raw) if isinstance(raw, str) else raw) == [card]
+    assert len(by_bucket["main"]) <= pipeline.TOP_N
+    for bucket, trends in by_bucket.items():
+        assert [trend.rank for trend in trends] == list(range(1, len(trends) + 1))
+        assert [trend.score for trend in trends] == sorted(
+            (trend.score for trend in trends), reverse=True
+        )
+        assert all(trend.bucket_reason for trend in trends), bucket
+
+
+async def test_job_persists_result_and_stage_history(client: AsyncClient):
+    created_response = await client.post("/api/analyses", json={"query": QUERY})
+    assert created_response.status_code == 201
+    created = created_response.json()
+    assert created["status"] == "pending"
+    assert created["mode"] == "cached_snapshot"
+
+    job = await _wait(client, created["id"])
+    assert job["status"] == "complete"
+    assert job["progress"] == 1.0
+    assert job["result_available"] is True
+    assert [stage["key"] for stage in job["stage_history"]] == [
+        "source_search",
+        "candidate_gate",
+        "enrichment",
+        "model",
+        "evidence_duel",
+        "result",
+    ]
+    assert {stage["status"] for stage in job["stage_history"]} == {"reused"}
+
+    result_response = await client.get(f"/api/analyses/{created['id']}/result")
+    assert result_response.status_code == 200
+    assert result_response.json()["schema_version"] == "analysis-response-v1"
+
+    listed = (await client.get("/api/analyses")).json()
+    assert [item["id"] for item in listed] == [created["id"]]
+
+
+async def test_health_checks_store_and_result(client: AsyncClient):
+    response = await client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+async def test_mismatched_query_fails_without_substituting_result(client: AsyncClient):
+    created = (
+        await client.post("/api/analyses", json={"query": "Технологии квантовой связи"})
+    ).json()
+    job = await _wait(client, created["id"])
+    assert job["status"] == "error"
+    assert "live-runner" in job["error"]
+    assert job["result_available"] is False
+    response = await client.get(f"/api/analyses/{created['id']}/result")
+    assert response.status_code == 409
+
+
+async def test_live_job_uses_application_runner_and_reports_real_stages(
+    client: AsyncClient, tmp_path: Path, monkeypatch
+):
+    query = "Технологии квантовой связи"
+    observed_labels: list[str] = []
+
+    class FakeApplication:
+        def __init__(self, *, workspace, progress, **kwargs):
+            self.workspace = Path(workspace)
+            self.progress = progress
+
+        def run(self, *, query: str, analysis_id: str):
+            job_id = analysis_id.removeprefix("analysis-")
+            for stage, value, message in (
+                ("source_search", 0.10, "Извлечено 2 из 5 пачек"),
+                ("candidate_gate", 0.25, "Проверено 10 из 20 кандидатов"),
+                ("enrichment", 0.60, "Собраны документы для 8 кандидатов"),
+                ("model", 0.72, "Рассчитаны признаки"),
+                ("evidence_duel", 0.94, "Проверены доказательства"),
+                ("result", 1.0, "Результат готов"),
+            ):
+                self.progress(stage, value, message)
+                current = main._store().get(job_id)
+                assert current is not None
+                observed_labels.append(current.stage_label)
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            result = self.workspace / "result.json"
+            result.write_bytes(
+                _json(
+                    {
+                        "schema_version": "analysis-response-v1",
+                        "query": {"text": query},
+                        "summary": {},
+                        "top15": [],
+                        "candidates": [],
+                    }
+                )
+            )
+            return type("Paths", (), {"result": result})()
+
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_MODE", "live")
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_WORK_DIR", str(tmp_path / "live"))
+    monkeypatch.setattr(main, "AnalysisApplication", FakeApplication)
+    created = (await client.post("/api/analyses", json={"query": query})).json()
+    assert created["mode"] == "live"
+    job = await _wait(client, created["id"])
+    assert job["status"] == "complete"
+    assert {stage["status"] for stage in job["stage_history"]} == {"complete"}
+    assert observed_labels == [
+        "Извлечено 2 из 5 пачек",
+        "Проверено 10 из 20 кандидатов",
+        "Собраны документы для 8 кандидатов",
+        "Рассчитаны признаки",
+        "Проверены доказательства",
+        "Результат готов",
+    ]
+    response = await client.get(f"/api/analyses/{created['id']}/result")
+    assert response.status_code == 200
+    assert response.json()["query"]["text"] == query
+
+
+async def test_failed_live_job_retry_reuses_same_workspace(
+    client: AsyncClient, tmp_path: Path, monkeypatch
+):
+    query = "Технологии квантовой связи"
+    attempts: list[Path] = []
+
+    class RetryApplication:
+        def __init__(self, *, workspace, **kwargs):
+            self.workspace = Path(workspace)
+
+        def run(self, *, query: str, analysis_id: str):
+            del query, analysis_id
+            attempts.append(self.workspace)
+            if len(attempts) == 1:
+                raise ValueError("temporary source failure")
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            result = self.workspace / "result.json"
+            result.write_bytes(
+                _json({"schema_version": "analysis-response-v1", "query": {}})
+            )
+            return type("Paths", (), {"result": result})()
+
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_MODE", "live")
+    monkeypatch.setenv("NEXTWAVE_ANALYSIS_WORK_DIR", str(tmp_path / "live"))
+    monkeypatch.setattr(main, "AnalysisApplication", RetryApplication)
+    created = (await client.post("/api/analyses", json={"query": query})).json()
+    failed = await _wait(client, created["id"])
+    assert failed["status"] == "error"
+    response = await client.post(f"/api/analyses/{created['id']}/retry")
+    assert response.status_code == 202
+    completed = await _wait(client, created["id"])
+    assert completed["status"] == "complete"
+    assert attempts == [attempts[0], attempts[0]]
+
+
+async def test_pending_job_is_resumed_after_process_restart(client: AsyncClient):
+    store = AnalysisJobStore()
+    job = store.create(QUERY)
+    await _clear_tasks()
+
+    response = await client.get(f"/api/analyses/{job.id}")
+    assert response.status_code == 200
+    completed = await _wait(client, job.id)
+    assert completed["status"] == "complete"
+
+
+async def test_unknown_job_returns_404(client: AsyncClient):
+    assert (await client.get("/api/analyses/000000000000")).status_code == 404
+    assert (await client.get("/api/analyses/not-an-id")).status_code == 404
+
+
+async def test_tampered_persisted_result_is_rejected(client: AsyncClient):
+    created = (await client.post("/api/analyses", json={"query": QUERY})).json()
+    job = await _wait(client, created["id"])
+    result_path = main._store().root / job["id"] / "result.json"
+    result_path.write_text("{}\n", encoding="utf-8")
+
+    response = await client.get(f"/api/analyses/{job['id']}/result")
+    assert response.status_code == 500
+    assert "checksum mismatch" in response.json()["detail"]
+
+
+async def test_blank_query_is_rejected(client: AsyncClient):
+    assert (await client.post("/api/analyses", json={"query": "   "})).status_code == 422

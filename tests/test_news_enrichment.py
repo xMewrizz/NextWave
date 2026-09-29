@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 from datetime import UTC, datetime
+from http.client import IncompleteRead
 
 from nextwave.contracts import SourceDocument, SourceType, TrustTier
 from nextwave.sources import (
@@ -58,6 +59,11 @@ class FakeTransport:
     def get(self, url, *, headers, timeout_seconds):
         self.calls.append(url)
         return self.response
+
+
+class BrokenChunkedTransport:
+    def get(self, url, *, headers, timeout_seconds):
+        raise IncompleteRead(b"partial response")
 
 
 def enricher(response: HttpResponse) -> tuple[NewsDocumentEnricher, FakeTransport]:
@@ -139,6 +145,18 @@ class NewsDocumentEnricherTests(unittest.TestCase):
         self.assertTrue(result.candidate_text_available)
         self.assertFalse(result.supplemental_text_available)
 
+    def test_incomplete_chunked_response_becomes_network_error(self) -> None:
+        service = NewsDocumentEnricher(
+            transport=BrokenChunkedTransport(),
+            resolve_host=lambda _: ("93.184.216.34",),
+        )
+
+        result = service.enrich(news_document())
+
+        self.assertIs(result.status, NewsContentStatus.TITLE_ONLY)
+        self.assertIs(result.issue_code, NewsEnrichmentIssueCode.NETWORK_ERROR)
+        self.assertIsNone(result.http_status)
+
     def test_blocks_non_public_urls_before_request(self) -> None:
         transport = FakeTransport(HttpResponse(200, {}, b"unused"))
         service = NewsDocumentEnricher(
@@ -184,6 +202,36 @@ class NewsDocumentEnricherTests(unittest.TestCase):
             [document.document_id for document in documents],
         )
         self.assertEqual(len(transport.calls), 10)
+
+    def test_http_status_follows_response_or_absence_of_request(self) -> None:
+        paragraph = (
+            b"<article><p>This article contains enough concrete technical content "
+            b"to become an excerpt for candidate discovery and later review.</p></article>"
+        )
+        service, _ = enricher(
+            HttpResponse(200, {"content-type": "text/html"}, paragraph)
+        )
+        self.assertEqual(service.enrich(news_document()).http_status, 200)
+
+        missing, _ = enricher(HttpResponse(404, {}, b"missing"))
+        failed = missing.enrich(news_document())
+        self.assertEqual(failed.http_status, 404)
+        self.assertEqual(failed.to_dict()["http_status"], 404)
+
+        blocked_transport = FakeTransport(HttpResponse(200, {}, b"unused"))
+        blocked = NewsDocumentEnricher(
+            transport=blocked_transport,
+            resolve_host=lambda _: ("127.0.0.1",),
+        )
+        self.assertIsNone(
+            blocked.enrich(news_document(url="http://localhost/story")).http_status
+        )
+
+        existing, _ = enricher(HttpResponse(200, {}, b"unused"))
+        self.assertIsNone(
+            existing.enrich(news_document(excerpt="Provider supplied description"))
+            .http_status
+        )
 
 
 if __name__ == "__main__":

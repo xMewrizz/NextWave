@@ -37,15 +37,25 @@ def document(document_id: str) -> dict:
 
 
 def write_run_dir(
-    root: Path, run_id: str, *, group_name: str = "Alpha Tech", domain: str = "Edge"
+    root: Path,
+    run_id: str,
+    *,
+    group_name: str = "Alpha Tech",
+    domain: str = "Edge",
+    analysis_status: str = "complete",
 ) -> Path:
     group_id = f"group-{run_id}"
     document_id = f"document-{run_id}"
     plan = {
         "plan_id": f"plan-{run_id}",
         "scope": {"scope_id": f"scope-{run_id}", "raw_query": "Технологии в ИИ"},
+        "query": {"cutoff_date": CUTOFF},
     }
+    is_complete = analysis_status == "complete"
+    gate_proposals = [] if is_complete else [{"proposal_id": "p1"}]
+    gate_inputs: list = [] if is_complete else []
     result = {
+        "pipeline_version": "discovery-pipeline-v10",
         "alias_resolution": {
             "groups": [
                 {
@@ -60,8 +70,19 @@ def write_run_dir(
             ],
             "review_suggestions": [],
         },
-        "candidate_proposals": {"proposals": [], "exclusions": []},
-        "candidate_gate": {"gate_id": "gate-1", "decisions": []},
+        "candidate_proposals": {"proposals": gate_proposals, "exclusions": []},
+        "candidate_gate": {
+            "gate_id": "yandex-yandexgpt-pro-5-candidate-gate-v4",
+            "input_proposal_ids": gate_inputs,
+            "decisions": [],
+        },
+        "gate_coverage": {
+            "status": analysis_status,
+            "total_proposals": len(gate_proposals),
+            "checked_proposals": len(gate_inputs),
+            "skipped_proposals": 0 if is_complete else 1,
+            "skipped_proposal_ids": [] if is_complete else ["p1"],
+        },
         "text_extraction": {"issues": []},
         "evidence_extraction": {
             "proposals": [
@@ -97,6 +118,9 @@ def write_run_dir(
         "run_id": run_id,
         "cutoff_date": CUTOFF,
         "domain": domain,
+        "analysis_status": analysis_status,
+        "pipeline_version": "discovery-pipeline-v10",
+        "gate_id": "yandex-yandexgpt-pro-5-candidate-gate-v4",
         "counts": {},
         "outputs": [
             {"filename": "plan.json", **digest(plan_bytes)},
@@ -112,6 +136,27 @@ def write_run_dir(
 
 
 class LabelingExportTests(unittest.TestCase):
+    def test_rejects_partial_discovery_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            run_dir = write_run_dir(root, "run-partial", analysis_status="partial")
+            output = root / "export-partial"
+
+            exit_code = main(
+                [
+                    "labeling-export",
+                    "--runs",
+                    str(run_dir),
+                    "--template",
+                    str(TEMPLATE),
+                    "--output",
+                    str(output),
+                ]
+            )
+
+            self.assertEqual(exit_code, 1)
+            self.assertFalse(output.exists())
+
     def test_exports_workbook_jsonl_and_consistent_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

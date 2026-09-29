@@ -1,21 +1,31 @@
-"""Backend API models built on the canonical NextWave ML contracts."""
+"""Контракт API. Фронтенд повторяет эти типы в frontend/src/lib/api.ts."""
 
 from datetime import date, datetime
 from typing import Literal
 
-from nextwave.contracts import CandidateAssessment, CandidateStatus, SourceType
 from pydantic import BaseModel, Field
 
 AnalysisStatus = Literal["pending", "running", "done", "empty", "error"]
-Bucket = CandidateStatus
-BUCKETS = tuple(CandidateStatus)
+# main — ТОП зарождающихся; watchlist — признаки есть, доказательств мало;
+# excluded — тема не прошла проверку на новизну или зарождаемость
+Bucket = Literal["main", "watchlist", "excluded"]
+BUCKETS: tuple[Bucket, ...] = ("main", "watchlist", "excluded")
+SourceType = Literal["preprint", "journal", "patent", "vendor", "conference", "report"]
 FactorKey = Literal["growth", "novelty", "independence", "evidence"]
 
 
+class SourceRef(BaseModel):
+    title: str
+    url: str
+    source_type: SourceType
+    # None = дата публикации неизвестна; дата загрузки её не подменяет (ARCHITECTURE.md)
+    published_at: date | None = None
+
+
 class TimelinePoint(BaseModel):
-    period: str
-    documents: int = Field(ge=0)
-    share: float = Field(ge=0)
+    period: str  # YYYY-MM
+    documents: int
+    share: float = Field(description="доля документов темы в корпусе направления за период")
 
 
 class ScoreFactor(BaseModel):
@@ -31,40 +41,44 @@ class UseCase(BaseModel):
     url: str
 
 
-class Trend(CandidateAssessment):
-    """Canonical candidate plus presentation data required by the UI."""
-
-    rank: int = Field(ge=1)
-    summary: str | None = None
-    factors: list[ScoreFactor] = Field(default_factory=list)
-    problem: str | None = None
-    advantage: str | None = None
-    hypothesis: str | None = None
-    use_case: UseCase | None = None
-    first_seen: str | None = None
-    timeline: list[TimelinePoint] = Field(default_factory=list)
-    document_count: int | None = Field(default=None, ge=0)
-    limitations: list[str] = Field(default_factory=list)
+class Trend(BaseModel):
+    id: str
+    rank: int = Field(description="порядковый номер внутри своей корзины")
+    bucket: Bucket
+    bucket_reason: str = Field(description="почему кандидат попал именно в эту корзину")
+    title: str
+    summary: str
+    score: float = Field(ge=0, le=1, description="оценка для ранжирования, не вероятность успеха")
+    factors: list[ScoreFactor]
+    problem: str
+    advantage: str
+    hypothesis: str | None = Field(default=None, description="применение в банке, предположение команды")
+    use_case: UseCase
+    first_seen: str = Field(description="первое найденное упоминание в корпусе, YYYY-MM")
+    timeline: list[TimelinePoint]
+    sources: list[SourceRef]
+    document_count: int
+    independent_sources: int
+    limitations: list[str]
 
 
 class SourceStat(BaseModel):
     name: str
     source_type: SourceType
-    documents: int = Field(ge=0)
+    documents: int
 
 
 class Coverage(BaseModel):
     directions: list[str]
     examples: list[str]
-    documents_from: date | None
-    documents_to: date | None
-    document_count: int | None
+    documents_from: date
+    documents_to: date
+    document_count: int
     sources: list[SourceStat]
-    corpus_version: str | None
-    method_version: str | None
-    updated_at: datetime | None
-    thresholds: dict[str, float]
-    notice: str | None = None
+    corpus_version: str
+    method_version: str
+    updated_at: datetime
+    thresholds: dict[str, float] = Field(description="пороги отбора по корзинам, часть версии метода")
 
 
 class Stage(BaseModel):
@@ -78,15 +92,11 @@ class Analysis(BaseModel):
     status: AnalysisStatus
     stage: str | None = None
     progress: float = Field(default=0, ge=0, le=1)
-    notice: str | None = None
+    notice: str | None = Field(default=None, description="причина пустой/неполной выдачи или текст ошибки")
     created_at: datetime
-    started_at: datetime | None = None
     finished_at: datetime | None = None
-    error_code: str | None = None
     corpus_version: str
     method_version: str
-    model_version: str | None = None
-    feature_version: str | None = None
     trends: list[Trend] = Field(default_factory=list)
 
 
@@ -100,3 +110,32 @@ class AnalysisSummary(BaseModel):
 
 class AnalysisRequest(BaseModel):
     query: str = Field(min_length=1, max_length=200)
+
+
+JobStatus = Literal["pending", "running", "complete", "error"]
+JobMode = Literal["cached_snapshot", "live"]
+StageStatus = Literal["pending", "running", "complete", "reused", "error"]
+
+
+class AnalysisStageState(BaseModel):
+    key: str
+    label: str
+    status: StageStatus
+
+
+class AnalysisJob(BaseModel):
+    schema_version: Literal["analysis-job-v1"]
+    id: str
+    query: str
+    mode: JobMode
+    status: JobStatus
+    stage: str | None = None
+    stage_label: str | None = None
+    progress: float = Field(ge=0, le=1)
+    created_at: datetime
+    updated_at: datetime
+    finished_at: datetime | None = None
+    result_available: bool = False
+    result_sha256: str | None = None
+    stage_history: list[AnalysisStageState] = Field(default_factory=list)
+    error: str | None = None

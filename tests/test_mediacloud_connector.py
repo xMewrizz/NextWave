@@ -174,6 +174,27 @@ class MediaCloudRequestTests(unittest.TestCase):
             "Перспективные AND решения AND финтехе AND language:ru",
         )
 
+    def test_safe_syntax_removes_query_operators_from_long_phrase(self) -> None:
+        search_text = (
+            "CAD-native «engineering intelligence»: ИИ-суррогаты физики + "
+            "генеративное проектирование"
+        )
+        request = build_mediacloud_story_request(
+            make_query(search_texts=(search_text,)),
+            search_text=search_text,
+            collection_ids=(US_NATIONAL,),
+            languages=("en", "ru"),
+            safe_syntax=True,
+        )
+        parameters = {item.name: item.value for item in request.parameters}
+
+        self.assertEqual(
+            parameters["q"],
+            "CAD-native AND engineering AND intelligence AND ИИ-суррогаты AND "
+            "физики AND генеративное AND проектирование AND "
+            "(language:en OR language:ru)",
+        )
+
 
 class MediaCloudConnectorTests(unittest.TestCase):
     def test_success_saves_exact_story_response(self) -> None:

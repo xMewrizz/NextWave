@@ -1,0 +1,606 @@
+{
+  "candidates": [
+    {
+      "candidate_id": "organizer-001",
+      "terms": [
+        "quantum-inspired model compression"
+      ]
+    },
+    {
+      "candidate_id": "organizer-002",
+      "terms": [
+        "AI agent identity access management"
+      ]
+    },
+    {
+      "candidate_id": "organizer-003",
+      "terms": [
+        "continuous AI red teaming"
+      ]
+    },
+    {
+      "candidate_id": "organizer-004",
+      "terms": [
+        "MCP server security scanner"
+      ]
+    },
+    {
+      "candidate_id": "organizer-005",
+      "terms": [
+        "generative engineering design AI"
+      ]
+    },
+    {
+      "candidate_id": "organizer-006",
+      "terms": [
+        "autonomous procurement AI agents"
+      ]
+    },
+    {
+      "candidate_id": "organizer-007",
+      "terms": [
+        "AI data center thermal management"
+      ]
+    },
+    {
+      "candidate_id": "organizer-008",
+      "terms": [
+        "neuromorphic AI chips"
+      ]
+    },
+    {
+      "candidate_id": "organizer-009",
+      "terms": [
+        "optical circuit switching AI clusters"
+      ]
+    },
+    {
+      "candidate_id": "organizer-010",
+      "terms": [
+        "KV cache tiering NVMe"
+      ]
+    },
+    {
+      "candidate_id": "organizer-011",
+      "terms": [
+        "robot skills marketplace"
+      ]
+    },
+    {
+      "candidate_id": "organizer-012",
+      "terms": [
+        "quadruped inspection robots"
+      ]
+    },
+    {
+      "candidate_id": "organizer-013",
+      "terms": [
+        "physical AI safety certification"
+      ]
+    },
+    {
+      "candidate_id": "organizer-014",
+      "terms": [
+        "robot teleoperation data service"
+      ]
+    },
+    {
+      "candidate_id": "organizer-015",
+      "terms": [
+        "deepfake liveness detection onboarding"
+      ]
+    },
+    {
+      "candidate_id": "organizer-016",
+      "terms": [
+        "NPU microcontroller edge AI"
+      ]
+    },
+    {
+      "candidate_id": "organizer-017",
+      "terms": [
+        "event-based automotive vision sensors"
+      ]
+    },
+    {
+      "candidate_id": "organizer-018",
+      "terms": [
+        "satellite edge computing inference"
+      ]
+    },
+    {
+      "candidate_id": "organizer-019",
+      "terms": [
+        "federated learning sovereign AI"
+      ]
+    },
+    {
+      "candidate_id": "organizer-020",
+      "terms": [
+        "LLM firewall AI gateway"
+      ]
+    },
+    {
+      "candidate_id": "organizer-021",
+      "terms": [
+        "self-healing prompt injection defense"
+      ]
+    },
+    {
+      "candidate_id": "organizer-022",
+      "terms": [
+        "AI governance automation EU AI Act"
+      ]
+    },
+    {
+      "candidate_id": "organizer-023",
+      "terms": [
+        "differentially private synthetic data"
+      ]
+    },
+    {
+      "candidate_id": "organizer-024",
+      "terms": [
+        "confidential AI inference TEE"
+      ]
+    },
+    {
+      "candidate_id": "organizer-025",
+      "terms": [
+        "LLM text watermarking"
+      ]
+    },
+    {
+      "candidate_id": "organizer-026",
+      "terms": [
+        "robotics foundation models factory data"
+      ]
+    },
+    {
+      "candidate_id": "organizer-027",
+      "terms": [
+        "vision foundation models quality inspection"
+      ]
+    },
+    {
+      "candidate_id": "organizer-028",
+      "terms": [
+        "autonomous mining robot hyperspectral"
+      ]
+    },
+    {
+      "candidate_id": "organizer-029",
+      "terms": [
+        "agentic AI industrial control systems"
+      ]
+    },
+    {
+      "candidate_id": "organizer-030",
+      "terms": [
+        "adaptive autonomous robotic welding"
+      ]
+    },
+    {
+      "candidate_id": "organizer-031",
+      "terms": [
+        "AI virtual power plant trading"
+      ]
+    },
+    {
+      "candidate_id": "organizer-032",
+      "terms": [
+        "wafer-scale 3D stacked memory"
+      ]
+    },
+    {
+      "candidate_id": "organizer-033",
+      "terms": [
+        "AI compiler inference optimization"
+      ]
+    },
+    {
+      "candidate_id": "organizer-034",
+      "terms": [
+        "small modular reactor data center"
+      ]
+    },
+    {
+      "candidate_id": "organizer-035",
+      "terms": [
+        "air-gapped sovereign AI cloud"
+      ]
+    },
+    {
+      "candidate_id": "organizer-036",
+      "terms": [
+        "robotic dexterous hands"
+      ]
+    },
+    {
+      "candidate_id": "organizer-037",
+      "terms": [
+        "swarm robotics industrial agriculture"
+      ]
+    },
+    {
+      "candidate_id": "organizer-038",
+      "terms": [
+        "edge VLA inference accelerator"
+      ]
+    },
+    {
+      "candidate_id": "organizer-039",
+      "terms": [
+        "voice AI debt collection agents"
+      ]
+    },
+    {
+      "candidate_id": "organizer-040",
+      "terms": [
+        "AI native core banking"
+      ]
+    },
+    {
+      "candidate_id": "organizer-041",
+      "terms": [
+        "on-chain credit scoring"
+      ]
+    },
+    {
+      "candidate_id": "organizer-042",
+      "terms": [
+        "non-USD stablecoin cross-border FX"
+      ]
+    },
+    {
+      "candidate_id": "organizer-043",
+      "terms": [
+        "federated learning interbank AML"
+      ]
+    },
+    {
+      "candidate_id": "organizer-044",
+      "terms": [
+        "analog compute-in-memory edge AI"
+      ]
+    },
+    {
+      "candidate_id": "organizer-045",
+      "terms": [
+        "neuromorphic edge processor EDA"
+      ]
+    },
+    {
+      "candidate_id": "organizer-046",
+      "terms": [
+        "edge AI fleet orchestration"
+      ]
+    },
+    {
+      "candidate_id": "organizer-047",
+      "terms": [
+        "photonic inference processor"
+      ]
+    },
+    {
+      "candidate_id": "organizer-048",
+      "terms": [
+        "machine unlearning model remediation"
+      ]
+    },
+    {
+      "candidate_id": "organizer-049",
+      "terms": [
+        "interpretability-based AI safeguards"
+      ]
+    },
+    {
+      "candidate_id": "organizer-050",
+      "terms": [
+        "AI agent traffic cryptographic authentication"
+      ]
+    },
+    {
+      "candidate_id": "organizer-051",
+      "terms": [
+        "AI model signing SBOM"
+      ]
+    },
+    {
+      "candidate_id": "organizer-052",
+      "terms": [
+        "chain-of-thought monitoring deception"
+      ]
+    },
+    {
+      "candidate_id": "organizer-053",
+      "terms": [
+        "industrial time series foundation models"
+      ]
+    },
+    {
+      "candidate_id": "organizer-054",
+      "terms": [
+        "edge acoustic equipment diagnostics"
+      ]
+    },
+    {
+      "candidate_id": "organizer-055",
+      "terms": [
+        "AI semiconductor process control"
+      ]
+    },
+    {
+      "candidate_id": "organizer-056",
+      "terms": [
+        "edge cloud inference orchestration"
+      ]
+    },
+    {
+      "candidate_id": "organizer-057",
+      "terms": [
+        "CXL memory tiering AI inference"
+      ]
+    },
+    {
+      "candidate_id": "organizer-058",
+      "terms": [
+        "decentralized distributed AI inference"
+      ]
+    },
+    {
+      "candidate_id": "organizer-059",
+      "terms": [
+        "orbital data center space computing"
+      ]
+    },
+    {
+      "candidate_id": "organizer-060",
+      "terms": [
+        "photonic optical AI inference processor"
+      ]
+    },
+    {
+      "candidate_id": "organizer-061",
+      "terms": [
+        "autonomous underwater vehicle ocean network"
+      ]
+    },
+    {
+      "candidate_id": "organizer-062",
+      "terms": [
+        "robot insurance telemetry underwriting"
+      ]
+    },
+    {
+      "candidate_id": "organizer-063",
+      "terms": [
+        "tactile vision-language-action models"
+      ]
+    },
+    {
+      "candidate_id": "organizer-064",
+      "terms": [
+        "egocentric video robot learning"
+      ]
+    },
+    {
+      "candidate_id": "organizer-065",
+      "terms": [
+        "purpose bound money programmable payments"
+      ]
+    },
+    {
+      "candidate_id": "organizer-066",
+      "terms": [
+        "autonomous AI KYC AML agents"
+      ]
+    },
+    {
+      "candidate_id": "organizer-067",
+      "terms": [
+        "HTTP 402 machine micropayments"
+      ]
+    },
+    {
+      "candidate_id": "organizer-068",
+      "terms": [
+        "zero-knowledge KYC credentials"
+      ]
+    },
+    {
+      "candidate_id": "organizer-069",
+      "terms": [
+        "AI agent payment authorization protocols"
+      ]
+    },
+    {
+      "candidate_id": "organizer-070",
+      "terms": [
+        "AI agent liability insurance"
+      ]
+    },
+    {
+      "candidate_id": "organizer-071",
+      "terms": [
+        "tokenized money market fund collateral"
+      ]
+    },
+    {
+      "candidate_id": "organizer-072",
+      "terms": [
+        "on-device multi-step AI agents NPU"
+      ]
+    },
+    {
+      "candidate_id": "organizer-073",
+      "terms": [
+        "on-device LoRA fine-tuning smartphone"
+      ]
+    },
+    {
+      "candidate_id": "organizer-074",
+      "terms": [
+        "local small language model runtime"
+      ]
+    },
+    {
+      "candidate_id": "organizer-075",
+      "terms": [
+        "hybrid edge cloud inference routing"
+      ]
+    },
+    {
+      "candidate_id": "organizer-076",
+      "terms": [
+        "AI agent memory poisoning defense"
+      ]
+    },
+    {
+      "candidate_id": "organizer-077",
+      "terms": [
+        "LLM backdoor detection"
+      ]
+    },
+    {
+      "candidate_id": "organizer-078",
+      "terms": [
+        "LLM PLC code generation IEC 61131-3"
+      ]
+    },
+    {
+      "candidate_id": "organizer-079",
+      "terms": [
+        "AI process documentation DEXPI"
+      ]
+    },
+    {
+      "candidate_id": "organizer-080",
+      "terms": [
+        "neuromorphic edge monitoring chip"
+      ]
+    },
+    {
+      "candidate_id": "organizer-081",
+      "terms": [
+        "reinforcement learning industrial controller"
+      ]
+    },
+    {
+      "candidate_id": "organizer-082",
+      "terms": [
+        "federated learning manufacturing sites"
+      ]
+    },
+    {
+      "candidate_id": "organizer-083",
+      "terms": [
+        "3D stacked compute-in-memory DRAM"
+      ]
+    },
+    {
+      "candidate_id": "organizer-084",
+      "terms": [
+        "analog in-memory computing"
+      ]
+    },
+    {
+      "candidate_id": "organizer-085",
+      "terms": [
+        "on-chip microfluidic cooling"
+      ]
+    },
+    {
+      "candidate_id": "organizer-086",
+      "terms": [
+        "AI agent accelerator KV cache"
+      ]
+    },
+    {
+      "candidate_id": "organizer-087",
+      "terms": [
+        "superconducting cryogenic AI computing"
+      ]
+    },
+    {
+      "candidate_id": "organizer-088",
+      "terms": [
+        "simulation-to-real zero-shot robotics"
+      ]
+    },
+    {
+      "candidate_id": "organizer-089",
+      "terms": [
+        "soft robotic materials physical intelligence"
+      ]
+    },
+    {
+      "candidate_id": "organizer-090",
+      "terms": [
+        "clinical medical microrobots"
+      ]
+    },
+    {
+      "candidate_id": "organizer-091",
+      "terms": [
+        "know your agent identity"
+      ]
+    },
+    {
+      "candidate_id": "organizer-092",
+      "terms": [
+        "LLM agent trading benchmark"
+      ]
+    },
+    {
+      "candidate_id": "organizer-093",
+      "terms": [
+        "bank deposit tokens public blockchain"
+      ]
+    },
+    {
+      "candidate_id": "organizer-094",
+      "terms": [
+        "confidential computing Cortex-M TEE"
+      ]
+    },
+    {
+      "candidate_id": "organizer-095",
+      "terms": [
+        "in-sensor processing-in-pixel computing"
+      ]
+    },
+    {
+      "candidate_id": "organizer-096",
+      "terms": [
+        "speculative decoding smartphone"
+      ]
+    },
+    {
+      "candidate_id": "organizer-097",
+      "terms": [
+        "biohybrid muscle actuator robot"
+      ]
+    },
+    {
+      "candidate_id": "organizer-098",
+      "terms": [
+        "self-healing electronic skin"
+      ]
+    },
+    {
+      "candidate_id": "organizer-099",
+      "terms": [
+        "HASEL artificial muscles"
+      ]
+    },
+    {
+      "candidate_id": "organizer-100",
+      "terms": [
+        "post-quantum cryptography financial infrastructure"
+      ]
+    }
+  ],
+  "positive_candidates_sha256": "75f498a81fc991f826e81aea5c1cbb898042d2e943b62bc335097f3abff4bff2",
+  "schema_version": "labeling-enrichment-search-terms-v1"
+}

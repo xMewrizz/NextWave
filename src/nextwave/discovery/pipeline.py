@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from nextwave.contracts import SourceDocument
+from nextwave.sources import normalize_openalex_api_key
 
 from .alias_resolution import AliasResolutionResult, resolve_candidate_aliases
 from .candidate_gate import (
@@ -20,6 +21,7 @@ from .candidate_gate import (
 )
 from .candidates import (
     CandidateMention,
+    CandidateProposal,
     CandidateProposalBatch,
     build_candidate_proposals,
     build_openalex_candidate_mentions,
@@ -43,30 +45,57 @@ from .verification import (
     CandidateVerificationResult,
 )
 
-DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v6"
+DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v10"
 
 
 def split_gate_batch(
     batch: CandidateProposalBatch, max_gate_proposals: int
 ) -> tuple[CandidateProposalBatch, int]:
-    """Take the bulk-ordered head for the gate; count the skipped tail.
+    """Select a deterministic mix of proposal visibility strata for the gate.
 
-    The batch arrives sorted origins-first, so the head holds the
-    high-visibility classes the corpus needs. The tail is recorded as
-    skipped, never silently dropped.
+    Cross-source, two-to-three-origin, single-origin, and four-plus-origin
+    proposals take turns. Empty strata donate their places to the remaining
+    ones, so the cap is always filled without letting prevalence alone decide
+    which candidates are judged.
     """
 
     if max_gate_proposals < 1:
         raise ValueError("max_gate_proposals must be positive")
-    head = batch.proposals[:max_gate_proposals]
+    if len(batch.proposals) <= max_gate_proposals:
+        selected = batch.proposals
+    else:
+        strata: tuple[list[CandidateProposal], ...] = ([], [], [], [])
+        for proposal in batch.proposals:
+            strata[_gate_stratum(proposal)].append(proposal)
+        positions = [0] * len(strata)
+        selected_items: list[CandidateProposal] = []
+        while len(selected_items) < max_gate_proposals:
+            for index, stratum in enumerate(strata):
+                if positions[index] >= len(stratum):
+                    continue
+                selected_items.append(stratum[positions[index]])
+                positions[index] += 1
+                if len(selected_items) == max_gate_proposals:
+                    break
+        selected = tuple(selected_items)
     return (
         CandidateProposalBatch(
             analysis_scope_id=batch.analysis_scope_id,
-            proposals=head,
+            proposals=selected,
             exclusions=batch.exclusions,
         ),
-        len(batch.proposals) - len(head),
+        len(batch.proposals) - len(selected),
     )
+
+
+def _gate_stratum(proposal: CandidateProposal) -> int:
+    if len(proposal.connector_ids) > 1:
+        return 0
+    if 2 <= proposal.origin_count <= 3:
+        return 1
+    if proposal.origin_count <= 1:
+        return 2
+    return 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +114,29 @@ class DiscoveryPipelineResult:
     evidence_extraction: EvidenceExtractionResult
     pipeline_version: str = DISCOVERY_PIPELINE_VERSION
 
+    @property
+    def gate_skipped_proposal_ids(self) -> tuple[str, ...]:
+        checked = set(self.candidate_gate.input_proposal_ids)
+        return tuple(
+            proposal.proposal_id
+            for proposal in self.candidate_proposals.proposals
+            if proposal.proposal_id not in checked
+        )
+
+    @property
+    def gate_coverage_complete(self) -> bool:
+        return not self.gate_skipped_proposal_ids
+
+    def gate_coverage_dict(self) -> dict[str, Any]:
+        skipped = self.gate_skipped_proposal_ids
+        return {
+            "status": "complete" if not skipped else "partial",
+            "total_proposals": len(self.candidate_proposals.proposals),
+            "checked_proposals": len(self.candidate_gate.input_proposal_ids),
+            "skipped_proposals": len(skipped),
+            "skipped_proposal_ids": list(skipped),
+        }
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "plan_id": self.plan_id,
@@ -96,6 +148,7 @@ class DiscoveryPipelineResult:
             "text_extraction": (self.text_extraction.to_dict() if self.text_extraction else None),
             "candidate_proposals": self.candidate_proposals.to_dict(),
             "candidate_gate": self.candidate_gate.to_dict(),
+            "gate_coverage": self.gate_coverage_dict(),
             "alias_resolution": self.alias_resolution.to_dict(),
             "verification": self.verification.to_dict(),
             "origin_resolution": self.origin_resolution.to_dict(),
@@ -160,20 +213,34 @@ class DiscoveryPipeline:
             started,
         )
         started = time.monotonic()
+        def extraction_progress(done: int, total: int) -> None:
+            if progress is not None:
+                progress(f"[discovery] extraction_progress: {done}/{total}")
+
         text_extraction = (
-            self._text_extractor.extract_many(plan.scope, documents) if documents else None
+            self._text_extractor.extract_many(
+                plan.scope,
+                documents,
+                progress=extraction_progress,
+            )
+            if documents
+            else None
         )
+        grounded_mentions = text_extraction.mentions if text_extraction is not None else ()
         mentions_by_id = {
-            mention.mention_id: mention
+            mention.mention_id: mention for mention in grounded_mentions
+        }
+        mentions_by_id.update(
+            (
+                mention.mention_id,
+                mention,
+            )
             for mention in build_openalex_candidate_mentions(
                 scientific.documents,
                 scientific.hints,
+                grounded_mentions=grounded_mentions,
             )
-        }
-        if text_extraction is not None:
-            mentions_by_id.update(
-                (mention.mention_id, mention) for mention in text_extraction.mentions
-            )
+        )
         mentions = tuple(sorted(mentions_by_id.values(), key=lambda mention: mention.mention_id))
         report("extraction", f"{len(mentions)} mentions", started)
         started = time.monotonic()
@@ -189,20 +256,24 @@ class DiscoveryPipeline:
             started,
         )
         started = time.monotonic()
-        # Bulk order is origins-first, so the head holds the high-visibility
-        # classes the corpus needs; the tail is recorded as skipped, not judged.
         gated_proposals, gate_skipped = split_gate_batch(
             candidate_proposals, self._max_gate_proposals
         )
+        def gate_progress(phase: str, done: int, total: int) -> None:
+            if progress is not None:
+                progress(f"[discovery] gate_progress_{phase}: {done}/{total}")
+
         candidate_gate = self._candidate_gate.evaluate(
             plan.scope,
             gated_proposals,
             documents,
+            progress=gate_progress,
         )
         report(
             "gate",
             f"{len(candidate_gate.accepted_proposal_ids)} accepted "
-            f"({gate_skipped} skipped by cap {self._max_gate_proposals})",
+            f"({len(gated_proposals.proposals)} of "
+            f"{len(candidate_proposals.proposals)} checked; {gate_skipped} skipped)",
             started,
         )
         started = time.monotonic()
@@ -246,10 +317,14 @@ def build_discovery_pipeline_from_environment(
 
     from .media_executor import parse_mediacloud_collection_ids
 
+    openalex_api_key = normalize_openalex_api_key(
+        environment.get("NEXTWAVE_OPENALEX_API_KEY")
+    )
     return DiscoveryPipeline(
         OpenAlexDiscoveryExecutor(
             snapshot_root,
             contact_email=environment.get("NEXTWAVE_OPENALEX_MAILTO") or None,
+            api_key=openalex_api_key,
         ),
         MediaDiscoveryExecutor(
             snapshot_root,
@@ -261,6 +336,7 @@ def build_discovery_pipeline_from_environment(
         CandidateVerificationExecutor(
             snapshot_root,
             contact_email=environment.get("NEXTWAVE_OPENALEX_MAILTO") or None,
+            api_key=openalex_api_key,
         ),
         build_evidence_extractor_from_environment(environment),
     )

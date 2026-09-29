@@ -1,0 +1,76 @@
+{
+  "schema_version": "maturity-holdout-gold-v1",
+  "cutoff_date": "2026-09-15",
+  "selection": "config/maturity-holdout-2026-09-15-v1.json",
+  "purpose": "Frozen diagnostic labels created before any model run on this holdout. These labels describe whether the fixed evidence input proves maturity; they are not training labels and do not assert global technology maturity.",
+  "rubric": {
+    "present": "A trust-tier A or B passage directly states standardization, real adoption/deployment, or established market/infrastructure use of the candidate itself.",
+    "absent": "The fixed passages contain no qualifying direct maturity evidence.",
+    "uncertain": "The passages contain a plausible maturity hint, but the candidate relation, source trust, or real-world status is too ambiguous for a binary verdict. Excluded from metric denominators."
+  },
+  "items": [
+    {
+      "candidate_id": "team-negative-010",
+      "verdict": "uncertain",
+      "rationale": "The passages describe deployed IoT sensors and AIoT applications, but do not clearly establish that the combined AIoT candidate itself is already adopted as ordinary infrastructure."
+    },
+    {
+      "candidate_id": "team-negative-013",
+      "verdict": "absent",
+      "rationale": "The only present-tense deployment statement has unknown trust; the trust-tier A passage is future-tense."
+    },
+    {
+      "candidate_id": "team-negative-022",
+      "verdict": "absent",
+      "rationale": "The passages describe reviews, experiments, proposed uses, performance, and deployment implications rather than established adoption of autoencoders."
+    },
+    {
+      "candidate_id": "team-negative-031",
+      "verdict": "absent",
+      "rationale": "The passages propose and evaluate new auditing mechanisms; maturity statements apply to adjacent cloud or blockchain technology, not dynamic data auditing itself."
+    },
+    {
+      "candidate_id": "team-negative-037",
+      "verdict": "absent",
+      "rationale": "A broad usage claim is from an unknown-trust source; trust-tier A passages do not directly prove established deployment of the candidate."
+    },
+    {
+      "candidate_id": "team-negative-049",
+      "verdict": "absent",
+      "rationale": "The fixed passages concern experiments, prototypes, and recommendations; the title-level supplier reference is not passage evidence."
+    },
+    {
+      "candidate_id": "team-negative-061",
+      "verdict": "absent",
+      "rationale": "The passages describe an emerging paradigm, research directions, and prospective orchestration rather than established AIOps-driven orchestration."
+    },
+    {
+      "candidate_id": "team-negative-062",
+      "verdict": "absent",
+      "rationale": "The passages describe access, evaluations, possible deployment, and adoption rhetoric, but not broad established deployment, market maturity, or standardization of DeepSeek-R1."
+    },
+    {
+      "candidate_id": "team-negative-069",
+      "verdict": "absent",
+      "rationale": "The passages describe different robotic systems and research prototypes rather than maturity of the specified 5-DOF manipulator."
+    },
+    {
+      "candidate_id": "team-negative-071",
+      "verdict": "absent",
+      "rationale": "One trust-tier A review explicitly says social robots are not widely deployed and other passages describe research or limited contexts."
+    },
+    {
+      "candidate_id": "team-negative-096",
+      "verdict": "present",
+      "document_id": "document-openalex-75b830d97aa8e255",
+      "evidence_kind": "adoption",
+      "quote": "In summary, AI-driven analytics also underpin underwriting processes through automated and less biased risk assessment and increasingly personalized insurance offers.",
+      "rationale": "A trust-tier A passage directly describes AI-driven analytics as an operating component of underwriting."
+    },
+    {
+      "candidate_id": "team-negative-097",
+      "verdict": "uncertain",
+      "rationale": "A trust-tier A passage says AI innovations are reshaping payment systems, but it does not clearly establish deployment of the exact candidate AI-powered payment processing."
+    }
+  ]
+}

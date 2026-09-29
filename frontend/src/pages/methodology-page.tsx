@@ -4,8 +4,17 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api, BUCKETS } from '@/lib/api'
+import { formatDate } from '@/lib/format'
 import { useResource } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
+
+const thresholds = [
+  { key: 'novelty_min', label: 'Минимальная новизна', scale: 'percent', bucket: 'Отсеяны' },
+  { key: 'growth_min', label: 'Минимальный рост', scale: 'percent', bucket: 'Отсеяны' },
+  { key: 'evidence_min', label: 'Минимальная доказательная база', scale: 'percent', bucket: 'Наблюдение' },
+  { key: 'independent_min', label: 'Независимых источников', scale: 'count', bucket: 'Наблюдение' },
+  { key: 'documents_min', label: 'Документов по теме', scale: 'count', bucket: 'Наблюдение' },
+]
 
 const factors = [
   { name: 'Рост', check: 'Увеличивается ли доля документов темы в сопоставимых временных окнах' },
@@ -87,16 +96,17 @@ export function MethodologyPage() {
         </TableBody>
       </Table>
       <p className="mt-3 text-xs text-muted-foreground">
-        Оценку и финальный статус передаёт анализатор. Значения признаков, версия модели
-        и объяснение решения сохраняются в карточке. Неизвестные значения не заменяются нулями.
+        В демонстрационном контуре веса проверяют контракт интерфейса. Измеренные веса и пороги появятся
+        после обучения и cross-validation в V1-06.
       </p>
 
       <Separator className="my-8" />
 
       <h2 className="mb-1 text-lg font-medium">Три корзины выдачи</h2>
       <p className="mb-4 text-sm text-muted-foreground">
-        Анализатор проверяет зрелость, качество доказательств и временное покрытие,
-        затем применяет модельный порог. Карточка содержит итоговый статус и его обоснование.
+        Кандидат проходит пороги по очереди: сначала проверка на новизну и зарождаемость, затем на
+        доказательную базу. Первый непройденный порог определяет корзину, и он же попадает в причину на
+        карточке.
       </p>
       <div className="grid gap-3">
         {BUCKETS.map((bucket) => (
@@ -114,6 +124,39 @@ export function MethodologyPage() {
         ))}
       </div>
 
+      {coverage.data && (
+        <>
+          <h3 className="mt-6 mb-3 text-sm font-medium">Действующие пороги</h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Порог</TableHead>
+                <TableHead className="w-24">Значение</TableHead>
+                <TableHead className="w-32">Не прошёл —</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {thresholds.map((item) => (
+                <TableRow key={item.key}>
+                  <TableCell>{item.label}</TableCell>
+                  <TableCell className="tabular-nums">
+                    {item.scale === 'percent'
+                      ? Math.round((coverage.data!.thresholds[item.key] ?? 0) * 100)
+                      : coverage.data!.thresholds[item.key]}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{item.bucket}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Пороги меняются вместе с версией метода ({coverage.data.method_version}), поэтому выдача
+            остаётся воспроизводимой: тот же корпус и та же версия метода дают то же распределение по
+            корзинам.
+          </p>
+        </>
+      )}
+
       <Separator className="my-8" />
 
       <h2 className="mb-3 text-lg font-medium">Правила отбора</h2>
@@ -126,9 +169,23 @@ export function MethodologyPage() {
       <Separator className="my-8" />
 
       <h2 className="mb-3 text-lg font-medium">Данные и воспроизводимость</h2>
-      <p className="text-sm text-muted-foreground">
-        {coverage.data?.notice ?? coverage.error ?? 'Загрузка сведений о покрытии…'}
-      </p>
+      {coverage.data ? (
+        <Card>
+          <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
+            <Row label="Версия корпуса" value={coverage.data.corpus_version} />
+            <Row label="Версия метода" value={coverage.data.method_version} />
+            <Row label="Документов" value={String(coverage.data.document_count)} />
+            <Row label="Обновлён" value={formatDate(coverage.data.updated_at)} />
+            <Row
+              label="Период публикаций"
+              value={`${formatDate(coverage.data.documents_from)} — ${formatDate(coverage.data.documents_to)}`}
+            />
+            <Row label="Направления" value={coverage.data.directions.join(', ')} />
+          </CardContent>
+        </Card>
+      ) : (
+        <Skeleton className="h-24 w-full" />
+      )}
       <p className="mt-3 text-xs text-muted-foreground">
         Для каждого анализа сохраняются запрос, версия корпуса и метода. Повтор на тех же данных с той же
         конфигурацией даёт тот же порядок результатов.
@@ -143,5 +200,14 @@ export function MethodologyPage() {
         ))}
       </ul>
     </article>
+  )
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="text-right font-medium">{value}</span>
+    </div>
   )
 }

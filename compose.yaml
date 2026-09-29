@@ -8,13 +8,13 @@ services:
       POSTGRES_USER: nextwave
       POSTGRES_PASSWORD: ${NEXTWAVE_POSTGRES_PASSWORD:-nextwave-local}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - nextwave-postgres:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
-      test: [CMD-SHELL, "pg_isready -U nextwave -d nextwave"]
+      test: ["CMD-SHELL", "pg_isready -U nextwave -d nextwave"]
       interval: 5s
       timeout: 3s
       retries: 10
-    restart: unless-stopped
 
   backend:
     build:
@@ -23,20 +23,33 @@ services:
     env_file:
       - ./config/hackathon.env
     environment:
-      NEXTWAVE_DATABASE_URL: postgresql+psycopg://nextwave:${NEXTWAVE_POSTGRES_PASSWORD:-nextwave-local}@postgres:5432/nextwave
-      NEXTWAVE_ANALYZER_FACTORY: ${NEXTWAVE_ANALYZER_FACTORY:-}
+      NEXTWAVE_RESULT_DIR: /data/result
+      NEXTWAVE_DATABASE_URL: postgresql://nextwave:${NEXTWAVE_POSTGRES_PASSWORD:-nextwave-local}@postgres:5432/nextwave?connect_timeout=5
+      NEXTWAVE_ANALYSIS_MODE: ${NEXTWAVE_ANALYSIS_MODE:-cached_snapshot}
+      NEXTWAVE_ANALYSIS_WORK_DIR: /data/analysis-work
+      NEXTWAVE_MODEL_DIR: /data/model
+      NEXTWAVE_ANALYSIS_CUTOFF: ${NEXTWAVE_ANALYSIS_CUTOFF:-2026-09-15}
+      NEXTWAVE_LLM_API_KEY: ${NEXTWAVE_LLM_API_KEY:-}
+      NEXTWAVE_OPENAI_API_KEY: ${NEXTWAVE_OPENAI_API_KEY:-}
+      NEXTWAVE_YANDEX_FOLDER_ID: ${NEXTWAVE_YANDEX_FOLDER_ID:-}
+      NEXTWAVE_OPENALEX_API_KEY: ${NEXTWAVE_OPENALEX_API_KEY:-}
+      NEXTWAVE_EXA_API_KEY: ${NEXTWAVE_EXA_API_KEY:-}
+    volumes:
+      - ${NEXTWAVE_RESULT_DIR:-./data/development/analysis-result-aiinfra-004-unified-v2}:/data/result:ro
+      - ${NEXTWAVE_MODEL_DIR:-./data/development/model-report-development-v6}:/data/model:ro
+      - nextwave-analysis-work:/data/analysis-work
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
     healthcheck:
       test:
         - CMD
         - /app/backend/.venv/bin/python
         - -c
-        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/coverage', timeout=2)
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)
       interval: 10s
       timeout: 3s
       start_period: 10s
@@ -55,4 +68,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres_data:
+  nextwave-postgres:
+  nextwave-analysis-work:
