@@ -4,13 +4,11 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
 import { useResource } from '@/lib/hooks'
-import { formatDate } from '@/lib/format'
 
 export function SearchPage() {
   const [query, setQuery] = useState('')
   const [starting, setStarting] = useState(false)
   const navigate = useNavigate()
-  const coverage = useResource(api.coverage, 'coverage')
   const result = useResource(api.currentResult, 'current-result')
 
   async function start() {
@@ -76,20 +74,6 @@ export function SearchPage() {
           </div>
         </form>
 
-        {!result.data && coverage.data?.examples.length ? (
-          <div className="mt-4 flex max-w-2xl flex-wrap justify-center gap-2">
-            {coverage.data.examples.slice(0, 4).map((example) => (
-              <button
-                key={example}
-                type="button"
-                className="rounded-full border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-foreground/35 hover:bg-muted hover:text-foreground"
-                onClick={() => setQuery(example)}
-              >
-                {example}
-              </button>
-            ))}
-          </div>
-        ) : null}
         {result.data && (
           <button
             type="button"
@@ -103,19 +87,13 @@ export function SearchPage() {
 
       <div className="mx-auto mb-6 flex max-w-2xl items-center justify-center gap-2 text-center text-xs text-muted-foreground">
         <Database className="size-3.5 shrink-0" />
-        {coverage.loading && <span>Подключаем корпус данных…</span>}
-        {coverage.error && <span>Сведения о корпусе временно недоступны</span>}
+        {result.loading && <span>Проверяем доступность результата…</span>}
+        {result.error && <span>Проверенный результат временно недоступен</span>}
         {result.data ? (
           <span>
             {result.data.summary.processed_unique_documents.toLocaleString('ru-RU')} уникальных
             документов · {result.data.summary.candidate_count} кандидатов ·{' '}
             {result.data.summary.release_status}
-          </span>
-        ) : coverage.data ? (
-          <span>
-            {coverage.data.corpus_version.startsWith('synthetic-')
-              ? 'Синтетический UI-корпус: результаты не являются выводами модели'
-              : `${coverage.data.document_count.toLocaleString('ru-RU')} документов · корпус ${coverage.data.corpus_version} · обновлён ${formatDate(coverage.data.updated_at)}`}
           </span>
         ) : null}
       </div>
