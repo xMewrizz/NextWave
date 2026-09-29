@@ -35,6 +35,7 @@ from nextwave.labeling.evidence_llm_run import (
     LABELING_EVIDENCE_LLM_RESULT_VERSION,
     LABELING_EVIDENCE_LLM_WORK_VERSION,
     _claim_match_is_sufficient,
+    _claim_scope_normalization,
     _extractor_id,
     _maturity_quote_supports_kind,
     run_evidence_llm,
@@ -60,6 +61,28 @@ EXCERPT = (
     "and reported prototype measurements from a laboratory team."
 )
 QUOTE = "Quantum error correction with surface codes"
+
+
+class ClaimScopeInflectionTests(unittest.TestCase):
+    def test_gpu_singular_quote_supports_gpus_term(self) -> None:
+        result = _claim_scope_normalization(
+            "Enterprise GPU fleets run production workloads.",
+            "GPUs",
+            scope="full_candidate",
+            missing_components=[],
+        )
+
+        self.assertEqual(result, ("full_candidate", []))
+
+    def test_unrelated_chips_do_not_support_gpus_term(self) -> None:
+        result = _claim_scope_normalization(
+            "The company ordered 9,000 chips for its AI factory.",
+            "GPUs",
+            scope="full_candidate",
+            missing_components=[],
+        )
+
+        self.assertIsNone(result)
 
 
 def digest(payload: bytes) -> dict:
@@ -478,7 +501,7 @@ class EvidenceSchemaContractTests(unittest.TestCase):
         self.assertEqual(EVIDENCE_MAX_OUTPUT_TOKENS, 2000)
         self.assertEqual(
             EVIDENCE_EXTRACTOR_VERSION,
-            "evidence-llm-v11-general-maturity-relation",
+            "evidence-llm-v12-inflection-aware-scope",
         )
         self.assertEqual(
             LABELING_EVIDENCE_LLM_EXECUTOR_VERSION,
@@ -489,7 +512,7 @@ class EvidenceSchemaContractTests(unittest.TestCase):
         self.assertEqual(LABELING_EVIDENCE_LLM_RESULT_VERSION, "labeling-evidence-llm-result-v5")
         self.assertEqual(
             _extractor_id("yandex", "YandexGPT Lite 5"),
-            "yandex-yandexgpt-lite-5-evidence-llm-v11-general-maturity-relation",
+            "yandex-yandexgpt-lite-5-evidence-llm-v12-inflection-aware-scope",
         )
 
 
@@ -1221,7 +1244,7 @@ class ResumeTests(unittest.TestCase):
             manifest_path = root / "work" / "work_manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["extractor_id"] = manifest["extractor_id"].replace(
-                "evidence-llm-v11-general-maturity-relation",
+                EVIDENCE_EXTRACTOR_VERSION,
                 "evidence-llm-v10-specific-core",
             )
             manifest_path.write_text(

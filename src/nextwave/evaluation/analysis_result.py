@@ -56,8 +56,19 @@ _REASON_RU = {
     "insufficient_actors": "меньше двух независимых организаций или издателей",
     "insufficient_trusted_evidence": "нет подтверждающего источника доверия A/B",
     "model_below_threshold": "оценка модели ниже зафиксированного порога",
-    "passed": "пройдены модельный порог и обязательные проверки evidence",
+    "passed": "тема получила признаки слабого сигнала и подтверждена независимыми источниками",
 }
+_BENEFIT_CUES = re.compile(
+    r"ускор|повыш|сниж|уменьш|улучш|эффектив|точност|производ|эконом|"
+    r"энергосбереж|безопас|масштаб|преимуществ|faster|lower|reduce|improv|"
+    r"efficien|accur|scalab|saving|performance",
+    re.IGNORECASE,
+)
+_EXPLANATION_PREFIX = re.compile(
+    r"^Цитата\s+(?:прямо\s+)?(?:подтверждает(?:,?\s+что)?|показывает|"
+    r"определяет|называет|описывает)\s+",
+    re.IGNORECASE,
+)
 _TRAILING_ACRONYM = re.compile(r"\s*\(([^()]*)\)\s*$")
 _IDENTITY_SEPARATORS = re.compile(r"[-‐‑‒–—−_]+")
 
@@ -151,6 +162,7 @@ def _claim_view(claim: dict[str, Any], document: dict[str, Any]) -> dict[str, An
         "scope": claim["scope"],
         "quote": claim["quote"],
         "explanation_ru": claim["explanation_ru"],
+        "interpretation_generated": True,
         "source": _source(document),
     }
 
@@ -163,6 +175,32 @@ def _best_claim(
             if claim["kind"] == kind:
                 return claim
     return claims[0] if claims else None
+
+
+def _plain_explanation(value: str) -> str:
+    cleaned = _EXPLANATION_PREFIX.sub("", value.strip())
+    cleaned = re.sub(
+        r"^Цитата\s+(?:прямо\s+)?сообщает\s+об\s+",
+        "Есть сведения об ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"^Цитата\s+(?:прямо\s+)?сообщает\s+о\s+",
+        "Есть сведения о ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"^Цитата\s+", "", cleaned, flags=re.IGNORECASE)
+    return cleaned[:1].upper() + cleaned[1:] if cleaned else value.strip()
+
+
+def _benefit_claim(claims: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for claim in claims:
+        text = f"{claim.get('explanation_ru', '')} {claim.get('quote', '')}"
+        if _BENEFIT_CUES.search(text):
+            return claim
+    return None
 
 
 def _obvious_identity_key(value: str) -> str:
@@ -321,6 +359,36 @@ def _deduplicate_results(results: list[dict[str, Any]]) -> None:
             )
             row["duplicate_of"] = primary["candidate_id"]
             row["duplicate_of_name"] = primary["canonical_name"]
+
+
+def _main_rank_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    """Rank supported candidates first, then score and evidence strength."""
+
+    score = float(row["model"]["score"])
+    review = row["evidence_review"]
+    return (
+        -int(int(review["support_claims"]) > 0),
+        -round(score * 100),
+        -int(review["independent_origins"]),
+        -int(review["full_candidate_claims"]),
+        -score,
+        str(row["canonical_name"] or "").casefold(),
+        row["candidate_id"],
+    )
+
+
+def _top15_eligible(row: dict[str, Any]) -> bool:
+    """Keep the ranked list useful without overstating verification status."""
+
+    score = row["model"].get("score")
+    threshold = row["model"].get("threshold")
+    return (
+        row["status"] != CandidateStatus.EXCLUDED.value
+        and row["evidence_review"].get("status") == "complete"
+        and type(score) in {int, float}
+        and type(threshold) in {int, float}
+        and float(score) >= float(threshold)
+    )
 
 
 def _load_evidence(
@@ -621,7 +689,7 @@ def build_analysis_result(
             for claim in skeptic_claims
         ]
         description_claim = _best_claim(support, ("novelty", "research", "growth"))
-        advantage_claim = _best_claim(support, ("novelty", "growth", "prototype", "pilot"))
+        advantage_claim = _benefit_claim(support)
         case_claim = _best_claim(full_claims, _CASE_KINDS)
         explanation = prediction.get("explanation")
         if not isinstance(explanation, dict):
@@ -657,10 +725,14 @@ def build_analysis_result(
                 "grounded_ab_support": grounded_ab,
             },
             "description_ru": (
-                description_claim["explanation_ru"] if description_claim else None
+                _plain_explanation(description_claim["explanation_ru"])
+                if description_claim
+                else None
             ),
             "potential_advantage_ru": (
-                advantage_claim["explanation_ru"] if advantage_claim else None
+                _plain_explanation(advantage_claim["explanation_ru"])
+                if advantage_claim
+                else None
             ),
             "case_example": (
                 _claim_view(
@@ -682,16 +754,10 @@ def build_analysis_result(
 
     _deduplicate_results(results)
     main = [row for row in results if row["status"] == CandidateStatus.MAIN.value]
-    main.sort(
-        key=lambda row: (
-            -float(row["model"]["score"]),
-            -int(row["evidence_review"]["independent_origins"]),
-            str(row["canonical_name"] or "").casefold(),
-            row["candidate_id"],
-        )
-    )
+    ranked = [row for row in results if _top15_eligible(row)]
+    ranked.sort(key=_main_rank_key)
     top15 = []
-    for rank, row in enumerate(main[:15], 1):
+    for rank, row in enumerate(ranked[:15], 1):
         row["top15_rank"] = rank
         top15.append(row)
     by_id = {row["candidate_id"]: row for row in results}

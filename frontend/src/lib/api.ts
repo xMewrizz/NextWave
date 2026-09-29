@@ -144,6 +144,8 @@ export interface EvidenceSource {
   language: string | null
   trust_tier: string
   publisher: string | null
+  automatic_translation?: boolean
+  generated_summary?: boolean
 }
 
 export interface EvidenceClaimView {
@@ -152,6 +154,7 @@ export interface EvidenceClaimView {
   direction: string
   quote: string
   explanation_ru: string
+  interpretation_generated?: boolean
   source: EvidenceSource
 }
 
@@ -167,6 +170,7 @@ export interface ResultCandidate {
   top15_rank?: number
   description_ru: string | null
   potential_advantage_ru: string | null
+  case_example: EvidenceClaimView | null
   model: {
     score: number
     threshold: number
@@ -262,28 +266,28 @@ export const BUCKETS: {
 }[] = [
   {
     key: 'main',
-    label: 'Зарождающиеся тренды',
-    short: 'Основной список',
+    label: 'Основная выдача',
+    short: 'Основная выдача',
     description:
-      'Темы с признаками нового развития, прошедшие пороги по новизне, росту и доказательной базе. Не более 15 кандидатов, отсортированы по рейтингу.',
+      'Темы с признаками слабого сигнала и достаточными проверяемыми подтверждениями. TOP-15 строится из этой категории.',
     accent: 'text-foreground',
     dot: 'bg-foreground',
   },
   {
     key: 'watchlist',
-    label: 'Наблюдение',
-    short: 'Наблюдение',
+    label: 'Требуют наблюдения',
+    short: 'Требуют наблюдения',
     description:
-      'Признаки зарождения есть, но подтверждений пока мало: единичные публикации, зависимые источники или выводы на уровне предположений. Стоит проверить при следующем обновлении корпуса.',
+      'Тема выглядит перспективно, но пока не хватает полного покрытия, независимых источников или надёжных доказательств.',
     accent: 'text-muted-foreground',
     dot: 'bg-muted-foreground',
   },
   {
     key: 'excluded',
-    label: 'Отсеяны',
-    short: 'Отсеяны',
+    label: 'Исключены',
+    short: 'Исключены',
     description:
-      'Темы, не прошедшие проверку на новизну или зарождаемость: устоявшиеся направления и темы, доля которых в корпусе перестала расти. Показаны, чтобы отбор можно было проверить.',
+      'Зрелые, преимущественно рекламные, повторные или недостаточно релевантные темы. Они сохранены вместе с причиной решения.',
     accent: 'text-muted-foreground',
     dot: 'border border-foreground bg-transparent',
   },

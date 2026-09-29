@@ -7,8 +7,12 @@ from pathlib import Path
 
 from nextwave.evaluation.analysis_result import (
     ANALYSIS_RESULT_VERSION,
+    _benefit_claim,
     _deduplicate_results,
+    _main_rank_key,
     _obvious_identity_key,
+    _plain_explanation,
+    _top15_eligible,
     build_analysis_result,
     export_analysis_result,
 )
@@ -25,6 +29,81 @@ def _jsonl(rows: list[dict[str, object]]) -> bytes:
 
 
 class AnalysisResultTests(unittest.TestCase):
+    def test_top15_can_rank_verified_watchlist_without_calling_it_main(self) -> None:
+        row = {
+            "status": "watchlist",
+            "model": {"score": 0.72, "threshold": 0.5},
+            "evidence_review": {"status": "complete", "support_claims": 1},
+        }
+
+        self.assertTrue(_top15_eligible(row))
+        self.assertFalse(
+            _top15_eligible(
+                {
+                    **row,
+                    "evidence_review": {"status": "failed", "support_claims": 1},
+                }
+            )
+        )
+
+    def test_ranking_prefers_supported_candidate_before_fallback(self) -> None:
+        unsupported = {
+            "candidate_id": "unsupported",
+            "canonical_name": "unsupported",
+            "model": {"score": 0.9},
+            "evidence_review": {
+                "support_claims": 0,
+                "independent_origins": 0,
+                "full_candidate_claims": 0,
+            },
+        }
+        supported = {
+            "candidate_id": "supported",
+            "canonical_name": "supported",
+            "model": {"score": 0.6},
+            "evidence_review": {
+                "support_claims": 1,
+                "independent_origins": 1,
+                "full_candidate_claims": 1,
+            },
+        }
+
+        self.assertLess(_main_rank_key(supported), _main_rank_key(unsupported))
+
+    def test_ranking_prefers_evidence_over_insignificant_score_decimals(self) -> None:
+        def row(candidate_id: str, score: float, origins: int, claims: int) -> dict:
+            return {
+                "candidate_id": candidate_id,
+                "canonical_name": candidate_id,
+                "model": {"score": score},
+                "evidence_review": {
+                    "independent_origins": origins,
+                    "full_candidate_claims": claims,
+                    "support_claims": claims,
+                },
+            }
+
+        stronger_score = row("slightly-higher-score", 0.739508, 2, 3)
+        stronger_evidence = row("stronger-evidence", 0.739062, 6, 6)
+
+        self.assertLess(_main_rank_key(stronger_evidence), _main_rank_key(stronger_score))
+
+    def test_plain_explanation_removes_model_meta_language(self) -> None:
+        self.assertEqual(
+            _plain_explanation("Цитата прямо подтверждает использование фотонных ускорителей."),
+            "Использование фотонных ускорителей.",
+        )
+
+    def test_benefit_claim_requires_an_explicit_benefit(self) -> None:
+        claims = [
+            {"explanation_ru": "Наличие замкнутой системы охлаждения.", "quote": "closed loop"},
+            {
+                "explanation_ru": "Система снижает расход энергии на охлаждение.",
+                "quote": "lower energy use",
+            },
+        ]
+        self.assertIs(_benefit_claim(claims), claims[1])
+
     def test_obvious_identity_key_collapses_acronym_and_plural_variants(self) -> None:
         self.assertEqual(
             _obvious_identity_key("Digital Twins (DTw)"),

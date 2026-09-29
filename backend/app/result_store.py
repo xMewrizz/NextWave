@@ -30,7 +30,7 @@ def _read_object(path: Path, label: str) -> tuple[dict[str, Any], bytes]:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"cannot read {label}") from error
     if not isinstance(value, dict):
-        raise ValueError(f"{label} must be an object")  # noqa: TRY004 - invalid result bundle
+        raise TypeError(f"{label} must be an object")
     return value, raw
 
 
@@ -46,7 +46,7 @@ def _read_jsonl(raw: bytes, label: str) -> list[dict[str, Any]]:
         except json.JSONDecodeError as error:
             raise ValueError(f"{label} line {line_number} is invalid JSON") from error
         if not isinstance(row, dict):
-            raise ValueError(f"{label} line {line_number} must be an object")  # noqa: TRY004
+            raise TypeError(f"{label} line {line_number} must be an object")
         result.append(row)
     return result
 
@@ -84,11 +84,12 @@ def load_result_bundle(root: str | Path | None = None) -> dict[str, Any]:
     if not isinstance(top15, list) or not all(isinstance(row, dict) for row in top15):
         raise ValueError("top15 must be a list of objects")
     if not isinstance(summary, dict):
-        raise ValueError("summary must be an object")  # noqa: TRY004 - invalid result bundle
+        raise TypeError("summary must be an object")
     if not isinstance(result, dict) or result.get("schema_version") != RESPONSE_SCHEMA_VERSION:
         raise ValueError("result.json schema version is not supported")
 
     candidate_ids: set[str] = set()
+    candidates_by_id: dict[str, dict[str, Any]] = {}
     for line_number, candidate in enumerate(candidates, 1):
         candidate_id = candidate.get("candidate_id")
         if (
@@ -100,6 +101,7 @@ def load_result_bundle(root: str | Path | None = None) -> dict[str, Any]:
         if candidate.get("schema_version") != RESULT_SCHEMA_VERSION:
             raise ValueError(f"candidate {candidate_id!r} has unsupported schema")
         candidate_ids.add(candidate_id)
+        candidates_by_id[candidate_id] = candidate
 
     top15_ids = [row.get("candidate_id") for row in top15]
     if (
@@ -107,7 +109,11 @@ def load_result_bundle(root: str | Path | None = None) -> dict[str, Any]:
         or len(set(top15_ids)) != len(top15_ids)
         or any(candidate_id not in candidate_ids for candidate_id in top15_ids)
         or [row.get("top15_rank") for row in top15] != list(range(1, len(top15) + 1))
-        or any(row.get("status") != "main" for row in top15)
+        or any(row.get("status") not in {"main", "watchlist"} for row in top15)
+        or any(
+            row.get("status") != candidates_by_id[row["candidate_id"]].get("status")
+            for row in top15
+        )
     ):
         raise ValueError("top15 is inconsistent with candidates")
     if (

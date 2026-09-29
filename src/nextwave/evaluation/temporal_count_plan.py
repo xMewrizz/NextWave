@@ -134,7 +134,7 @@ def _task(
         "search_text": search_text,
         "scope_search_text": scope_search_text,
         "search_mode": (
-            "scoped_proximity_5" if entity_type == "candidate" else "boolean_scope"
+            "candidate_proximity_5" if entity_type == "candidate" else "boolean_scope"
         ),
         "window": window,
         "published_from": published_from,
@@ -283,7 +283,7 @@ def _render_temporal_count_plan(
             "languages": ["en", "ru"],
             "count_field": "meta.count",
             "population": "works_with_abstract_in_openalex",
-            "candidate_search_mode": "quoted_phrase_proximity_5_within_frozen_scope",
+            "candidate_search_mode": "quoted_phrase_proximity_5",
             "scope_search_mode": "frozen_boolean_query",
             "successful_zero": "covered_zero",
             "failure": "unknown",

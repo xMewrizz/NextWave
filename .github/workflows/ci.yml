@@ -43,13 +43,13 @@ jobs:
           python-version: "3.13"
 
       - name: Install backend and test dependencies
-        run: python -m pip install -e . ./backend httpx pytest pytest-asyncio ruff
+        run: python -m pip install . ./backend httpx pytest pytest-asyncio ruff
 
       - name: Lint backend
-        run: ruff check backend/app backend/test_api.py backend/test_job_store.py backend/test_result_store.py
+        run: ruff check backend
 
       - name: Run backend tests
-        run: python -m pytest backend/test_api.py backend/test_job_store.py backend/test_result_store.py -q
+        run: python -m pytest backend -q
 
   frontend:
     runs-on: ubuntu-latest

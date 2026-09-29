@@ -190,10 +190,10 @@ def _query_from_task(task: Mapping[str, Any], *, cutoff: date) -> SourceQuery:
     if not isinstance(scope_search_text, str) or not scope_search_text.strip():
         raise ValueError(f"temporal count task {count_id} has blank scope_search_text")
     mode = task.get("search_mode")
-    if mode == "scoped_proximity_5":
+    if mode == "candidate_proximity_5":
         if '"' in search_text:
             raise ValueError(f"temporal count task {count_id} cannot quote search_text")
-        query_expression = f'("{search_text}"~5) AND ({scope_search_text})'
+        query_expression = f'("{search_text}"~5)'
     elif mode == "boolean_scope":
         query_expression = search_text
     else:
@@ -437,17 +437,10 @@ def _candidate_features(
                 )
                 count_ids[key] = task["count_id"]
         complete = all(type(value) is int for value in counts.values())
+        # Candidate counts intentionally use the candidate phrase without the
+        # domain expression. They are therefore not a subset of scope counts,
+        # so a ratio between the two populations would be misleading.
         shares: dict[str, float | None] = {"previous": None, "recent": None}
-        if complete:
-            for window in shares:
-                denominator = counts[f"scope_{window}"]
-                numerator = counts[f"candidate_{window}"]
-                if isinstance(denominator, int) and denominator > 0 and isinstance(numerator, int):
-                    if numerator > denominator:
-                        raise ValueError(
-                            f"candidate count exceeds scope count for {candidate_id} {window}"
-                        )
-                    shares[window] = numerator / denominator
         growth = None
         share_delta = None
         if complete:

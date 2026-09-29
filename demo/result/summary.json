@@ -1,0 +1,35 @@
+{
+  "analysis_status": "insufficient_main",
+  "candidate_count": 120,
+  "candidate_gate": {
+    "evaluated_proposals": 1683
+  },
+  "candidates_model_score_gt_075": 1,
+  "confidence_available": false,
+  "confidence_note": "model_score is not calibrated; counts above 0.75 are score counters",
+  "cutoff_date": "2026-09-15",
+  "high_confidence_weak_signals": null,
+  "main_model_score_gt_075": 0,
+  "main_target": 15,
+  "main_target_met": false,
+  "processed_document_relations": 6412,
+  "processed_unique_documents": 5610,
+  "processed_unique_origins": 5164,
+  "reason_counts": {
+    "duplicate": 4,
+    "evidence_review_incomplete": 9,
+    "insufficient_origins": 44,
+    "insufficient_trusted_evidence": 3,
+    "marketing_hype": 4,
+    "mature": 36,
+    "model_below_threshold": 20
+  },
+  "release_status": "development_only",
+  "schema_version": "analysis-result-v2",
+  "source_query": "Инфраструктурные технологии для обучения и инференса ИИ",
+  "status_counts": {
+    "excluded": 64,
+    "watchlist": 56
+  },
+  "top15_count": 15
+}

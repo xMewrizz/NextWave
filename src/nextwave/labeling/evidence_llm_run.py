@@ -51,7 +51,7 @@ LABELING_EVIDENCE_LLM_RESULT_VERSION = "labeling-evidence-llm-result-v5"
 
 EVIDENCE_MAX_OUTPUT_TOKENS = 2000
 EVIDENCE_CONCURRENCY = 6
-EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v11-general-maturity-relation"
+EVIDENCE_EXTRACTOR_VERSION = "evidence-llm-v12-inflection-aware-scope"
 QUALIFICATION_EVIDENCE_PROVIDER = "yandex"
 QUALIFICATION_EVIDENCE_MODEL = "YandexGPT Pro 5.1"
 PRODUCT_EVIDENCE_PROVIDER = "openai"
@@ -686,6 +686,23 @@ def _component_tokens(value: str) -> list[str]:
     ).split()
 
 
+def _scope_token(value: str) -> str:
+    """Normalize a conservative English plural for evidence scope matching."""
+
+    if (
+        len(value) >= 4
+        and value.isascii()
+        and value.endswith("s")
+        and not value.endswith(("ss", "is"))
+    ):
+        return value[:-1]
+    return value
+
+
+def _scope_tokens(value: str) -> list[str]:
+    return [_scope_token(token) for token in _component_tokens(value)]
+
+
 def _contains_component(term: str, component: str) -> bool:
     term_tokens = _component_tokens(term)
     component_tokens = _component_tokens(component)
@@ -985,14 +1002,17 @@ def _claim_scope_normalization(
     missing_components: list[str],
     allow_explicit_alias: bool = False,
 ) -> tuple[str, list[str]] | None:
-    term_tokens = _component_tokens(matched_term)
-    quote_tokens = _component_tokens(quote)
+    term_tokens = _scope_tokens(matched_term)
+    quote_tokens = _scope_tokens(quote)
     unique_term = frozenset(term_tokens)
     unique_quote = frozenset(quote_tokens)
     full_supported = (
         bool(unique_term)
         and unique_term <= unique_quote
-        and text_supports_matched_term(quote, matched_term)
+        and any(
+            quote_tokens[index:index + len(term_tokens)] == term_tokens
+            for index in range(len(quote_tokens) - len(term_tokens) + 1)
+        )
     )
     if (
         allow_explicit_alias

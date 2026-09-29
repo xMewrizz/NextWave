@@ -61,6 +61,37 @@ def test_loads_checked_result_bundle(tmp_path: Path):
     assert bundle["top15"][0]["candidate_id"] == "candidate-1"
 
 
+def test_loads_watchlist_candidate_in_top15(tmp_path: Path):
+    root = _fixture(tmp_path / "result")
+    for filename in ("candidates.jsonl", "top15.json", "result.json"):
+        path = root / filename
+        value = path.read_text(encoding="utf-8").replace('"status": "main"', '"status": "watchlist"')
+        path.write_text(value, encoding="utf-8")
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    for filename in ("candidates.jsonl", "top15.json", "result.json"):
+        manifest["outputs"][filename] = _digest((root / filename).read_bytes())
+    (root / "manifest.json").write_bytes(_json(manifest))
+
+    bundle = result_store.load_result_bundle(root)
+
+    assert bundle["top15"][0]["status"] == "watchlist"
+
+
+def test_rejects_excluded_candidate_in_top15(tmp_path: Path):
+    root = _fixture(tmp_path / "result")
+    for filename in ("candidates.jsonl", "top15.json", "result.json"):
+        path = root / filename
+        value = path.read_text(encoding="utf-8").replace('"status": "main"', '"status": "excluded"')
+        path.write_text(value, encoding="utf-8")
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    for filename in ("candidates.jsonl", "top15.json", "result.json"):
+        manifest["outputs"][filename] = _digest((root / filename).read_bytes())
+    (root / "manifest.json").write_bytes(_json(manifest))
+
+    with pytest.raises(ValueError, match="top15 is inconsistent"):
+        result_store.load_result_bundle(root)
+
+
 def test_rejects_tampered_candidate_file(tmp_path: Path):
     root = _fixture(tmp_path / "result")
     (root / "candidates.jsonl").write_text("{}\n", encoding="utf-8")

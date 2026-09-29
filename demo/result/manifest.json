@@ -1,0 +1,64 @@
+{
+  "assumptions": {
+    "all_analysis_plan_candidates_passed_candidate_gate": true,
+    "obvious_identity_variants_collapsed_before_top15": true,
+    "semantic_maturity_kinds_override_llm_direction": true
+  },
+  "bundle_id": "bundle-b2fb754d6d02c534",
+  "candidate_count": 120,
+  "cutoff_date": "2026-09-15",
+  "decision_policy_version": "decision-policy-v2",
+  "inputs": {
+    "analysis_plan_manifest": {
+      "sha256": "a0b88674436710185133fa6cde3ce0307ed8a3c94d2e365cf166d3e6c85779b6",
+      "size_bytes": 864
+    },
+    "combined_result_manifest": {
+      "sha256": "f16767c82a967213ed9c6c368debcd912f4d0a49b7ea48a065d6706396bba543",
+      "size_bytes": 1502
+    },
+    "evidence_results": [
+      {
+        "candidate_count": 120,
+        "claim_count": 307,
+        "cutoff_matches_analysis": true,
+        "declared_cutoff_date": "2026-09-15",
+        "directory": "evidence_run-scopefix",
+        "manifest": {
+          "sha256": "9e27aae19c597075284bdb5143f7a7f3a562a887de17620dfa40ee8b72d5ac27",
+          "size_bytes": 1937
+        }
+      }
+    ],
+    "feature_manifest": {
+      "sha256": "3b51f3f5244dc18f54b98fb1a23ad0fa650978eb9ea2c941ebff1639ed5178d4",
+      "size_bytes": 1025
+    },
+    "inference_manifest": {
+      "sha256": "42e04275f2fd2c1272626598bb57aef099e727f101c089c51f9fbece6b197426",
+      "size_bytes": 1254
+    }
+  },
+  "limitations": [],
+  "outputs": {
+    "candidates.jsonl": {
+      "sha256": "ed57ee414727ed8007748ce42a8566238f1fe6d81e962582f0b34e492bc32159",
+      "size_bytes": 800320
+    },
+    "result.json": {
+      "sha256": "0d888a60ca279da01aaf5707fbc3ced6e950c15c3bc764c8ef46fb99b5762cde",
+      "size_bytes": 1123569
+    },
+    "summary.json": {
+      "sha256": "69a20463fa3ec3a696a5d6464dd31c8e055071210ca6d05600fb9e82e7d68cfe",
+      "size_bytes": 1084
+    },
+    "top15.json": {
+      "sha256": "09653374d0c4199019d65ad3b0a4d8713be539821ec6e5369ac9bf076ac48c59",
+      "size_bytes": 94210
+    }
+  },
+  "release_status": "development_only",
+  "schema_version": "analysis-result-v2",
+  "top15_count": 15
+}
