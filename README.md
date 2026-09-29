@@ -54,25 +54,31 @@ intercept, значение признака после преобразован
 калибровка не выполнена, интерфейс называет число «оценкой модели», а не
 вероятностью или процентом уверенности.
 
-Backend читает тот же неизменяемый `analysis-result-v2` через read-only адаптер
-`/api/result/current`, повторно проверяет checksums и не пересчитывает score или
-policy. В Docker Compose каталог реального результата монтируется только для
-чтения. Web-страница `/result` показывает TOP-15, все три статуса, локальные
-факторы модели, Evidence Duel, цитаты и ссылки; синтетический набор к этому пути
-не подставляется. Текущий демонстрационный запрос зафиксирован, поэтому другой
-текст не маскируется заранее рассчитанной выдачей.
-Старые synthetic `/api/analyses` и `/api/coverage` отключены по умолчанию; они
-доступны только при явном `NEXTWAVE_ENABLE_SYNTHETIC_DEMO=1` для UI-разработки.
+Backend читает тот же неизменяемый `analysis-result-v2` через read-only адаптер,
+повторно проверяет checksums и не пересчитывает score или policy. `POST
+/api/analyses` создаёт сохраняемый job, `GET /api/analyses/{id}` возвращает его
+статус и этапы, а `GET /api/analyses/{id}/result` — сохранённый единый
+`analysis-response-v1`. После перезапуска незавершённый job возобновляется, а
+готовый результат повторно проверяется по SHA-256. В текущем release-контуре job
+честно переиспользует зафиксированный результат только для совпадающего запроса;
+произвольный live-runner ещё не подключён и не подменяется чужой выдачей.
+
+В Docker Compose каталог реального результата монтируется только для чтения, а
+состояние job хранится в отдельном volume. Web-страница `/result` показывает
+TOP-15, все три статуса, локальные факторы модели, Evidence Duel, цитаты и ссылки;
+синтетический набор к этому пути не подставляется. Старые synthetic `/api/coverage`
+и `/api/stages` отключены по умолчанию и доступны только при явном
+`NEXTWAVE_ENABLE_SYNTHETIC_DEMO=1` для UI-разработки.
 
 ## Запуск проверенного web-результата
 
-Сначала должен существовать каталог `analysis-result-v2` с четырьмя файлами:
-`manifest.json`, `summary.json`, `top15.json` и `candidates.jsonl`. Backend при
+Сначала должен существовать каталог `analysis-result-v2` с пятью файлами:
+`manifest.json`, `summary.json`, `top15.json`, `candidates.jsonl` и `result.json`. Backend при
 старте повторно проверяет их размер и SHA-256; повреждённый или чужой артефакт
 не показывается.
 
 По умолчанию Compose использует
-`data/development/analysis-result-aiinfra-004-final-v2`. Другой каталог передаётся
+`data/development/analysis-result-aiinfra-004-unified-v2`. Другой каталог передаётся
 через host-переменную `NEXTWAVE_RESULT_DIR`:
 
 ```powershell
@@ -81,7 +87,8 @@ docker compose up --build
 ```
 
 После healthcheck интерфейс доступен на `http://localhost:8080/result`, API —
-на `http://localhost:8000/api/result/current`. Каталог монтируется read-only;
+на `http://localhost:8000/api/result/current`. Создать сохраняемый job можно через
+`POST http://localhost:8000/api/analyses`. Каталог результата монтируется read-only;
 API не пересчитывает и не меняет model score, policy или Evidence claims.
 
 ## Граница MVP

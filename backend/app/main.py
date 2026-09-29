@@ -1,13 +1,18 @@
 import asyncio
 import os
-import uuid
-from datetime import UTC, datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import pipeline
-from .models import Analysis, AnalysisRequest, AnalysisSummary, Coverage, Stage, Trend
+from .job_store import AnalysisJobStore
+from .models import (
+    AnalysisJob,
+    AnalysisRequest,
+    AnalysisStageState,
+    Coverage,
+    Stage,
+)
 from .result_store import configured_result_dir, load_result_bundle
 
 app = FastAPI(title="Радар зарождающихся технологий", version="0.1.0")
@@ -19,10 +24,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Демонстрационное хранилище работает в памяти одного процесса.
-# Интегрированная версия сохраняет анализы в PostgreSQL.
-_analyses: dict[str, Analysis] = {}
-_tasks: set[asyncio.Task] = set()
+_tasks: dict[str, asyncio.Task[None]] = {}
+_RESULT_STAGES = (
+    ("source_search", "Поиск источников"),
+    ("candidate_gate", "Candidate Gate"),
+    ("enrichment", "Обогащение кандидатов"),
+    ("model", "Расчёт оценки модели"),
+    ("evidence_duel", "Evidence Duel"),
+    ("result", "Формирование результата"),
+)
 
 
 def _require_synthetic_demo() -> None:
@@ -30,40 +40,48 @@ def _require_synthetic_demo() -> None:
         raise HTTPException(404, "Синтетический API отключён в release mode.")
 
 
-async def _execute(analysis: Analysis) -> None:
-    def on_stage(stage: Stage, progress: float) -> None:
-        analysis.status = "running"
-        analysis.stage = stage.label
-        analysis.progress = progress
+def _store() -> AnalysisJobStore:
+    return AnalysisJobStore()
 
+
+def _normalized_query(value: str) -> str:
+    return " ".join(value.split()).casefold()
+
+
+async def _execute(job_id: str) -> None:
+    store = _store()
+    job = store.get(job_id)
+    if job is None:
+        return
+    job = store.mark_running(job)
     try:
-        trends = await pipeline.run(analysis.query, on_stage)
-    except Exception as exc:  # noqa: BLE001 — состояние ошибки видно пользователю (US-06)
-        analysis.status = "error"
-        analysis.notice = f"Анализ прерван: {exc}"
-    else:
-        analysis.trends = trends
-        analysis.status = "done" if trends else "empty"
-        analysis.notice = _notice(trends)
-    analysis.progress = 1.0
-    analysis.stage = None
-    analysis.finished_at = datetime.now(UTC)
+        result = load_result_bundle()
+        result_query = ((result.get("query") or {}).get("text"))
+        if not isinstance(result_query, str) or _normalized_query(job.query) != _normalized_query(
+            result_query
+        ):
+            raise ValueError(
+                "для нового запроса live-runner ещё не подключён; сохранённый результат "
+                f"относится к запросу {result_query!r}"
+            )
+        stages = [
+            AnalysisStageState(key=key, label=label, status="reused")
+            for key, label in _RESULT_STAGES
+        ]
+        store.complete(job, result, stages)
+    except (OSError, ValueError) as error:
+        store.fail(job, str(error))
+    except Exception as error:  # noqa: BLE001 - background job must become terminal
+        store.fail(job, f"analysis runner failed ({type(error).__name__})")
 
 
-def _notice(trends: list[Trend]) -> str | None:
-    if not trends:
-        return (
-            "Направление вне покрытия корпуса. Доступные направления: "
-            f"{', '.join(pipeline.DIRECTIONS)}. Нерелевантная выдача не подставляется."
-        )
-    main = [t for t in trends if t.bucket == "main"]
-    if len(main) < pipeline.TOP_N:
-        return (
-            f"В основной список прошли {len(main)} кандидатов из {pipeline.TOP_N}: "
-            "остальные темы не набрали достаточной доказательной базы или истории в корпусе. "
-            "Они доступны во вкладках «Наблюдение» и «Отсеяны» с указанием причины."
-        )
-    return None
+def _schedule(job: AnalysisJob) -> None:
+    current = _tasks.get(job.id)
+    if current is not None and not current.done():
+        return
+    task = asyncio.create_task(_execute(job.id))
+    _tasks[job.id] = task
+    task.add_done_callback(lambda _task, job_id=job.id: _tasks.pop(job_id, None))
 
 
 @app.get("/api/coverage")
@@ -92,52 +110,39 @@ def get_stages() -> list[Stage]:
 
 
 @app.post("/api/analyses", status_code=201)
-async def create_analysis(body: AnalysisRequest) -> Analysis:
-    _require_synthetic_demo()
+async def create_analysis(body: AnalysisRequest) -> AnalysisJob:
     query = body.query.strip()
     if not query:
         raise HTTPException(422, "Пустой запрос не запускает анализ.")
-
-    analysis = Analysis(
-        id=uuid.uuid4().hex[:12],
-        query=query,
-        status="pending",
-        created_at=datetime.now(UTC),
-        corpus_version=pipeline.CORPUS_VERSION,
-        method_version=pipeline.METHOD_VERSION,
-    )
-    _analyses[analysis.id] = analysis
-    task = asyncio.create_task(_execute(analysis))
-    _tasks.add(task)  # без ссылки задачу может собрать сборщик мусора
-    task.add_done_callback(_tasks.discard)
-    return analysis
+    job = _store().create(query)
+    _schedule(job)
+    return job
 
 
 @app.get("/api/analyses")
-def list_analyses() -> list[AnalysisSummary]:
-    _require_synthetic_demo()
-    items = sorted(_analyses.values(), key=lambda a: a.created_at, reverse=True)
-    return [
-        AnalysisSummary(
-            id=a.id, query=a.query, status=a.status, created_at=a.created_at, trend_count=len(a.trends)
-        )
-        for a in items
-    ]
+def list_analyses() -> list[AnalysisJob]:
+    return _store().list()
 
 
 @app.get("/api/analyses/{analysis_id}")
-def get_analysis(analysis_id: str) -> Analysis:
-    _require_synthetic_demo()
-    analysis = _analyses.get(analysis_id)
-    if analysis is None:
-        raise HTTPException(404, "Анализ не найден. Возможно, сервер был перезапущен.")
-    return analysis
+async def get_analysis(analysis_id: str) -> AnalysisJob:
+    try:
+        job = _store().get(analysis_id)
+    except ValueError as error:
+        raise HTTPException(500, str(error)) from error
+    if job is None:
+        raise HTTPException(404, "Анализ не найден.")
+    if job.status in {"pending", "running"}:
+        _schedule(job)
+    return job
 
 
-@app.get("/api/analyses/{analysis_id}/trends/{trend_id}")
-def get_trend(analysis_id: str, trend_id: str) -> Trend:
-    analysis = get_analysis(analysis_id)
-    trend = next((t for t in analysis.trends if t.id == trend_id), None)
-    if trend is None:
-        raise HTTPException(404, "Тренд не найден в этой выдаче.")
-    return trend
+@app.get("/api/analyses/{analysis_id}/result")
+async def get_analysis_result(analysis_id: str) -> dict:
+    job = await get_analysis(analysis_id)
+    if job.status != "complete":
+        raise HTTPException(409, "Результат анализа ещё не готов.")
+    try:
+        return _store().load_result(job)
+    except ValueError as error:
+        raise HTTPException(500, str(error)) from error

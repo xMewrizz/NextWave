@@ -8,8 +8,10 @@ services:
       - ./config/hackathon.env
     environment:
       NEXTWAVE_RESULT_DIR: /data/result
+      NEXTWAVE_JOB_DIR: /data/jobs
     volumes:
-      - ${NEXTWAVE_RESULT_DIR:-./data/development/analysis-result-aiinfra-004-final-v2}:/data/result:ro
+      - ${NEXTWAVE_RESULT_DIR:-./data/development/analysis-result-aiinfra-004-unified-v2}:/data/result:ro
+      - nextwave-jobs:/data/jobs
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
@@ -35,3 +37,6 @@ services:
       backend:
         condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  nextwave-jobs:

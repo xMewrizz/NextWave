@@ -27,6 +27,14 @@ def _fixture(root: Path) -> Path:
     candidates = _json(candidate)
     top15 = _json([candidate])
     summary = _json({"candidate_count": 1, "top15_count": 1})
+    result_value = {
+        "schema_version": result_store.RESPONSE_SCHEMA_VERSION,
+        "query": {"text": "Инфраструктурные технологии для обучения и инференса ИИ"},
+        "summary": json.loads(summary),
+        "top15": json.loads(top15),
+        "candidates": [candidate],
+    }
+    result = _json(result_value)
     manifest = {
         "schema_version": result_store.RESULT_SCHEMA_VERSION,
         "candidate_count": 1,
@@ -35,12 +43,14 @@ def _fixture(root: Path) -> Path:
             "candidates.jsonl": _digest(candidates),
             "top15.json": _digest(top15),
             "summary.json": _digest(summary),
+            "result.json": _digest(result),
         },
     }
     root.mkdir()
     (root / "candidates.jsonl").write_bytes(candidates)
     (root / "top15.json").write_bytes(top15)
     (root / "summary.json").write_bytes(summary)
+    (root / "result.json").write_bytes(result)
     (root / "manifest.json").write_bytes(_json(manifest))
     return root
 
@@ -64,7 +74,7 @@ async def test_api_serves_configured_result(tmp_path: Path, monkeypatch):
     async with AsyncClient(transport=ASGITransport(app), base_url="http://test") as client:
         response = await client.get("/api/result/current")
     assert response.status_code == 200
-    assert response.json()["schema_version"] == result_store.RESULT_SCHEMA_VERSION
+    assert response.json()["schema_version"] == result_store.RESPONSE_SCHEMA_VERSION
 
 
 async def test_api_returns_503_for_missing_result(tmp_path: Path, monkeypatch):

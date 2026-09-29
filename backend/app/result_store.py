@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import Any
 
 RESULT_SCHEMA_VERSION = "analysis-result-v2"
+RESPONSE_SCHEMA_VERSION = "analysis-response-v1"
 DEFAULT_RESULT_DIR = (
     Path(__file__).resolve().parents[2]
     / "data"
     / "development"
-    / "analysis-result-aiinfra-004-final-v2"
+    / "analysis-result-aiinfra-004-unified-v2"
 )
 
 
@@ -73,15 +74,19 @@ def load_result_bundle(root: str | Path | None = None) -> dict[str, Any]:
     )
     top15_raw = _checked(result_root, manifest, "top15.json")
     summary_raw = _checked(result_root, manifest, "summary.json")
+    result_raw = _checked(result_root, manifest, "result.json")
     try:
         top15 = json.loads(top15_raw.decode("utf-8"))
         summary = json.loads(summary_raw.decode("utf-8"))
+        result = json.loads(result_raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("result JSON is invalid") from error
     if not isinstance(top15, list) or not all(isinstance(row, dict) for row in top15):
         raise ValueError("top15 must be a list of objects")
     if not isinstance(summary, dict):
         raise ValueError("summary must be an object")
+    if not isinstance(result, dict) or result.get("schema_version") != RESPONSE_SCHEMA_VERSION:
+        raise ValueError("result.json schema version is not supported")
 
     candidate_ids: set[str] = set()
     for line_number, candidate in enumerate(candidates, 1):
@@ -112,11 +117,10 @@ def load_result_bundle(root: str | Path | None = None) -> dict[str, Any]:
         or summary.get("top15_count") != len(top15)
     ):
         raise ValueError("result totals are inconsistent")
-
-    return {
-        "schema_version": RESULT_SCHEMA_VERSION,
-        "manifest": manifest,
-        "summary": summary,
-        "top15": top15,
-        "candidates": candidates,
-    }
+    if (
+        result.get("summary") != summary
+        or result.get("top15") != top15
+        or result.get("candidates") != candidates
+    ):
+        raise ValueError("result.json differs from checked component files")
+    return result
