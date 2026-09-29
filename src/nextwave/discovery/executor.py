@@ -153,6 +153,12 @@ class OpenAlexDiscoveryResult:
         }
 
 
+# Повторы при временных сбоях (сеть, 429, 5xx): живой прогон 22.09.2026 показал,
+# что OpenAlex режет частые запросы лимитом. Все попытки попадают в опись.
+OPENALEX_MAX_ATTEMPTS = 3
+OPENALEX_RETRY_BACKOFF_SECONDS = (5.0, 15.0)
+
+
 def build_openalex_search_schedule(query: SourceQuery) -> tuple[OpenAlexSearchStep, ...]:
     """Prioritize complementary channels without multiplying every synonym."""
 
@@ -180,15 +186,69 @@ class OpenAlexDiscoveryExecutor:
         snapshot_root: Path = Path("runtime") / "snapshots",
         *,
         transport: HttpTransport | None = None,
-        api_key: str | None = None,
+        contact_email: str | None = None,
         clock: Callable[[], datetime] | None = None,
         monotonic: Callable[[], float] | None = None,
+        sleeper: Callable[[float], None] | None = None,
     ) -> None:
         self._snapshot_root = snapshot_root
         self._transport = transport
-        self._api_key = api_key
+        self._contact_email = contact_email
         self._clock = clock or (lambda: datetime.now(UTC))
         self._monotonic = monotonic or time.monotonic
+        self._sleeper = sleeper
+
+    def _run_with_retries(
+        self,
+        make_run: Callable[[int], ConnectorRun],
+    ) -> tuple[tuple[ConnectorRun, ...], ConnectorRun]:
+        """Repeat one connector call while the failure is retryable.
+
+        Every attempt is returned: attempts are real requests, so the caller
+        appends all of them to the snapshot manifest and usage counters.
+        """
+
+        attempts: list[ConnectorRun] = []
+        for index in range(OPENALEX_MAX_ATTEMPTS):
+            run = make_run(index + 1)
+            attempts.append(run)
+            if index >= OPENALEX_MAX_ATTEMPTS - 1:
+                return tuple(attempts), run
+            if (
+                run.status is ConnectorStatus.SUCCESS
+                or run.error is None
+                or not run.error.retryable
+            ):
+                return tuple(attempts), run
+            backoff = OPENALEX_RETRY_BACKOFF_SECONDS[
+                min(index, len(OPENALEX_RETRY_BACKOFF_SECONDS) - 1)
+            ]
+            (self._sleeper or time.sleep)(backoff)
+        return tuple(attempts), attempts[-1]
+
+    def _page_fetch(
+        self,
+        connector: OpenAlexConnector,
+        query: SourceQuery,
+        writer: SnapshotWriter,
+        *,
+        channel: RetrievalChannel,
+        search_text: str | None,
+        page_index: int,
+        per_page: int,
+    ) -> Callable[[int], ConnectorRun]:
+        def fetch(attempt: int) -> ConnectorRun:
+            return connector.run_page(
+                query,
+                writer,
+                channel=channel,
+                search_text=search_text,
+                page_index=page_index,
+                per_page=per_page,
+                attempt=attempt,
+            )
+
+        return fetch
 
     def execute(self, plan: DiscoveryPlan) -> OpenAlexDiscoveryResult:
         budget = _openalex_budget(plan)
@@ -199,7 +259,7 @@ class OpenAlexDiscoveryExecutor:
         writer = SnapshotWriter(self._snapshot_root, snapshot_id)
         connector = OpenAlexConnector(
             transport=self._transport,
-            api_key=self._api_key,
+            contact_email=self._contact_email,
             timeout_seconds=budget.request_timeout_seconds,
             clock=self._clock,
         )
@@ -212,6 +272,7 @@ class OpenAlexDiscoveryExecutor:
         returned_records = 0
         accepted_records = 0
         duplicate_documents = 0
+        pages_fetched = 0
         stop_reason = DiscoveryStopReason.CHANNELS_EXHAUSTED
 
         schedule = build_openalex_search_schedule(plan.query)
@@ -219,7 +280,7 @@ class OpenAlexDiscoveryExecutor:
             if len(runs) >= budget.max_requests:
                 stop_reason = DiscoveryStopReason.REQUEST_BUDGET
                 break
-            if len(runs) >= budget.max_pages:
+            if pages_fetched >= budget.max_pages:
                 stop_reason = DiscoveryStopReason.PAGE_BUDGET
                 break
             if len(documents_by_origin) >= budget.max_documents:
@@ -230,21 +291,25 @@ class OpenAlexDiscoveryExecutor:
                 break
 
             remaining_documents = budget.max_documents - len(documents_by_origin)
-            run = connector.run_page(
-                plan.query,
-                writer,
-                channel=step.channel,
-                search_text=step.search_text,
-                page_index=step.page_index,
-                per_page=min(100, remaining_documents),
+            attempts, run = self._run_with_retries(
+                self._page_fetch(
+                    connector,
+                    plan.query,
+                    writer,
+                    channel=step.channel,
+                    search_text=step.search_text,
+                    page_index=step.page_index,
+                    per_page=min(100, remaining_documents),
+                )
             )
-            runs.append(run)
+            runs.extend(attempts)
             elapsed_exhausted = self._monotonic() - started >= budget.max_elapsed_seconds
             if run.status is not ConnectorStatus.SUCCESS or run.artifact is None:
                 if elapsed_exhausted:
                     stop_reason = DiscoveryStopReason.ELAPSED_BUDGET
                     break
                 continue
+            pages_fetched += 1
 
             parsed = parse_openalex_response(
                 writer.read_response(run.artifact),
@@ -311,7 +376,7 @@ class OpenAlexDiscoveryExecutor:
         usage = DiscoveryBudgetUsage(
             connector_id=ConnectorId.OPENALEX,
             requests_used=len(runs),
-            pages_used=len(runs),
+            pages_used=pages_fetched,
             returned_records=returned_records,
             accepted_records=accepted_records,
             unique_documents=len(documents_by_origin),

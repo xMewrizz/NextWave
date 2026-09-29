@@ -256,7 +256,7 @@ class CandidateProposalTests(unittest.TestCase):
             text="speculative decoding",
             kind=CandidateMentionKind.HEADLINE,
             locator="title[0:20]",
-            extractor_id="openai-gpt-4.1-candidate-text-v1",
+            extractor_id="yandex-yandexgpt-lite-5-candidate-text-v1",
         )
 
         proposal = build_candidate_proposals(
@@ -283,7 +283,7 @@ class CandidateProposalTests(unittest.TestCase):
             text="Speculative Decoding",
             kind=CandidateMentionKind.TITLE,
             locator="title[0:20]",
-            extractor_id="openai-gpt-4.1-candidate-text-v1",
+            extractor_id="yandex-yandexgpt-lite-5-candidate-text-v1",
         )
         mismatched = type(mention)(
             mention_id=mention.mention_id,

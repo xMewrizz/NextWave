@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,7 @@ from nextwave.contracts import SourceDocument
 
 from .alias_resolution import AliasResolutionResult, resolve_candidate_aliases
 from .candidate_gate import (
+    DEFAULT_GATE_MAX_PROPOSALS,
     CandidateGateResult,
     StructuredCandidateGate,
     build_candidate_gate_from_environment,
@@ -42,6 +44,29 @@ from .verification import (
 )
 
 DISCOVERY_PIPELINE_VERSION = "discovery-pipeline-v6"
+
+
+def split_gate_batch(
+    batch: CandidateProposalBatch, max_gate_proposals: int
+) -> tuple[CandidateProposalBatch, int]:
+    """Take the bulk-ordered head for the gate; count the skipped tail.
+
+    The batch arrives sorted origins-first, so the head holds the
+    high-visibility classes the corpus needs. The tail is recorded as
+    skipped, never silently dropped.
+    """
+
+    if max_gate_proposals < 1:
+        raise ValueError("max_gate_proposals must be positive")
+    head = batch.proposals[:max_gate_proposals]
+    return (
+        CandidateProposalBatch(
+            analysis_scope_id=batch.analysis_scope_id,
+            proposals=head,
+            exclusions=batch.exclusions,
+        ),
+        len(batch.proposals) - len(head),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,15 +114,38 @@ class DiscoveryPipeline:
         candidate_gate: StructuredCandidateGate,
         verification_executor: CandidateVerificationExecutor,
         evidence_extractor: StructuredEvidenceExtractor,
+        *,
+        max_gate_proposals: int = DEFAULT_GATE_MAX_PROPOSALS,
     ) -> None:
+        if max_gate_proposals < 1:
+            raise ValueError("max_gate_proposals must be positive")
         self._scientific_executor = scientific_executor
         self._media_executor = media_executor
         self._text_extractor = text_extractor
         self._candidate_gate = candidate_gate
+        self._max_gate_proposals = max_gate_proposals
         self._verification_executor = verification_executor
         self._evidence_extractor = evidence_extractor
 
-    def execute(self, plan: DiscoveryPlan) -> DiscoveryPipelineResult:
+    def execute(
+        self,
+        plan: DiscoveryPlan,
+        *,
+        progress: Callable[[str], None] | None = None,
+    ) -> DiscoveryPipelineResult:
+        """Execute the pipeline, optionally reporting timed stage lines.
+
+        The callback receives one ``[discovery] <stage>: <detail> (<s>s)`` line
+        per stage, so a live run shows where minutes go instead of silence.
+        Timing never affects results and defaults to off (tests stay silent).
+        """
+
+        def report(stage: str, detail: str, started_at: float) -> None:
+            if progress is not None:
+                elapsed = time.monotonic() - started_at
+                progress(f"[discovery] {stage}: {detail} ({elapsed:.1f}s)")
+
+        started = time.monotonic()
         with ThreadPoolExecutor(max_workers=2) as pool:
             scientific_future = pool.submit(self._scientific_executor.execute, plan)
             media_future = pool.submit(self._media_executor.execute, plan)
@@ -105,6 +153,13 @@ class DiscoveryPipeline:
             media = media_future.result()
 
         documents = _merge_documents(scientific.documents, media.documents)
+        report(
+            "sources",
+            f"{len(documents)} documents "
+            f"({len(scientific.documents)} scientific, {len(media.documents)} media)",
+            started,
+        )
+        started = time.monotonic()
         text_extraction = (
             self._text_extractor.extract_many(plan.scope, documents) if documents else None
         )
@@ -120,24 +175,52 @@ class DiscoveryPipeline:
                 (mention.mention_id, mention) for mention in text_extraction.mentions
             )
         mentions = tuple(sorted(mentions_by_id.values(), key=lambda mention: mention.mention_id))
+        report("extraction", f"{len(mentions)} mentions", started)
+        started = time.monotonic()
         candidate_proposals = build_candidate_proposals(
             plan.scope,
             documents,
             mentions,
         )
+        report(
+            "proposals",
+            f"{len(candidate_proposals.proposals)} proposals, "
+            f"{len(candidate_proposals.exclusions)} excluded",
+            started,
+        )
+        started = time.monotonic()
+        # Bulk order is origins-first, so the head holds the high-visibility
+        # classes the corpus needs; the tail is recorded as skipped, not judged.
+        gated_proposals, gate_skipped = split_gate_batch(
+            candidate_proposals, self._max_gate_proposals
+        )
         candidate_gate = self._candidate_gate.evaluate(
             plan.scope,
-            candidate_proposals,
+            gated_proposals,
             documents,
         )
-        alias_resolution = resolve_candidate_aliases(candidate_proposals, candidate_gate)
+        report(
+            "gate",
+            f"{len(candidate_gate.accepted_proposal_ids)} accepted "
+            f"({gate_skipped} skipped by cap {self._max_gate_proposals})",
+            started,
+        )
+        started = time.monotonic()
+        alias_resolution = resolve_candidate_aliases(gated_proposals, candidate_gate)
+        report("aliases", f"{len(alias_resolution.groups)} groups", started)
+        started = time.monotonic()
         verification = self._verification_executor.execute(plan, alias_resolution)
+        report("verification", f"{verification.requests_used} requests", started)
+        started = time.monotonic()
         origin_resolution = resolve_candidate_origins(
             plan, alias_resolution, verification, documents
         )
+        report("origins", f"{len(origin_resolution.candidates)} candidates", started)
+        started = time.monotonic()
         evidence_extraction = self._evidence_extractor.extract(
             alias_resolution, origin_resolution, media.enrichment
         )
+        report("evidence", f"{len(evidence_extraction.proposals)} proposals", started)
         return DiscoveryPipelineResult(
             plan_id=plan.plan_id,
             scientific=scientific,
@@ -166,7 +249,7 @@ def build_discovery_pipeline_from_environment(
     return DiscoveryPipeline(
         OpenAlexDiscoveryExecutor(
             snapshot_root,
-            api_key=environment.get("NEXTWAVE_OPENALEX_API_KEY") or None,
+            contact_email=environment.get("NEXTWAVE_OPENALEX_MAILTO") or None,
         ),
         MediaDiscoveryExecutor(
             snapshot_root,
@@ -177,7 +260,7 @@ def build_discovery_pipeline_from_environment(
         build_candidate_gate_from_environment(environment),
         CandidateVerificationExecutor(
             snapshot_root,
-            api_key=environment.get("NEXTWAVE_OPENALEX_API_KEY") or None,
+            contact_email=environment.get("NEXTWAVE_OPENALEX_MAILTO") or None,
         ),
         build_evidence_extractor_from_environment(environment),
     )

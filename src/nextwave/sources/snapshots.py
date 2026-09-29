@@ -6,10 +6,39 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from .contracts import ConnectorRequest, RawResponseArtifact, SnapshotManifest
+
+
+def publish_staging(
+    staging: Path, final: Path, *, attempts: int = 5, pause_seconds: float = 0.5
+) -> Path:
+    """Atomically promote a staging directory, surviving transient OS locks.
+
+    Antivirus, search indexing or cloud sync can briefly lock fresh files, so a
+    single os.replace may fail with WinError 5 on Windows even when everything
+    is correct. Only permission errors are retried; anything else (disk full,
+    missing paths) fails immediately. A live run on 22.09.2026 died exactly
+    this way after 10 billed minutes, with all data intact in staging.
+    """
+
+    if attempts < 1:
+        raise ValueError("attempts must be positive")
+    if pause_seconds < 0:
+        raise ValueError("pause_seconds must not be negative")
+    last_error: PermissionError | None = None
+    for _ in range(attempts):
+        try:
+            os.replace(staging, final)
+            return final
+        except PermissionError as error:
+            last_error = error
+            time.sleep(pause_seconds)
+    assert last_error is not None
+    raise last_error
 
 
 class SnapshotWriter:
@@ -103,7 +132,7 @@ class SnapshotWriter:
             + "\n"
         ).encode("utf-8")
         (self._staging_path / "manifest.json").write_bytes(manifest_bytes)
-        os.replace(self._staging_path, self.final_path)
+        publish_staging(self._staging_path, self.final_path)
         self._finalized = True
         return self.final_path
 

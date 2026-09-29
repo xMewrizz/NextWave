@@ -23,10 +23,12 @@ from .contracts import (
 )
 from .llm import (
     LOCAL_ADAPTER_VERSION,
-    OPENAI_ADAPTER_VERSION,
+    YANDEX_ADAPTER_VERSION,
     JsonHttpTransport,
     LlmProvider,
     LlmSelection,
+    YandexCompletionJsonGenerator,
+    YandexFallbackJsonGenerator,
     build_json_generator,
     load_llm_runtime_settings,
 )
@@ -158,13 +160,13 @@ class OpenAlexTaxonomySource:
         self,
         *,
         transport: HttpTransport | None = None,
-        api_key: str | None = None,
+        contact_email: str | None = None,
         timeout_seconds: float = 20.0,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         self._transport = transport or UrllibHttpTransport()
-        self._api_key = api_key
+        self._contact_email = contact_email
         self._timeout_seconds = timeout_seconds
 
     def search(
@@ -181,17 +183,18 @@ class OpenAlexTaxonomySource:
         select_fields = ["id", "display_name", "works_count"]
         if level is TaxonomyLevel.TOPIC:
             select_fields.append("description")
-        parameters = urlencode(
-            {
-                "per-page": str(MAX_TAXONOMY_CANDIDATES),
-                "search": normalized_query,
-                "select": ",".join(select_fields),
-            }
-        )
+        raw_parameters = {
+            "per-page": str(MAX_TAXONOMY_CANDIDATES),
+            "search": normalized_query,
+            "select": ",".join(select_fields),
+        }
+        if self._contact_email is not None:
+            if not self._contact_email.strip() or "@" not in self._contact_email:
+                raise ValueError("contact_email must be a non-blank email address")
+            raw_parameters["mailto"] = self._contact_email.strip()
+        parameters = urlencode(raw_parameters)
         url = f"{OPENALEX_API_ROOT}/{entity_path}?{parameters}"
         headers = {"Accept": "application/json", "User-Agent": "NextWave/0.1"}
-        if self._api_key:
-            headers["Authorization"] = f"Bearer {self._api_key}"
         response = self._transport.get(
             url,
             headers=headers,
@@ -366,17 +369,41 @@ def build_query_resolver_from_environment(
     """Build the configured live resolver without logging or serializing credentials."""
 
     settings = load_llm_runtime_settings(os.environ if environment is None else environment)
-    generator = build_json_generator(
-        settings,
-        transport=llm_transport,
-    )
+    if (
+        settings.selection.provider is LlmProvider.YANDEX
+        and settings.selection.model == "YandexGPT Lite 5"
+    ):
+        # Lite is the only selection with a proven stronger fallback:
+        # Lite mangles JSON keys on some inputs while Pro answers cleanly.
+        # The wrapper reports the model that answered last, so manifests stay
+        # truthful.
+        lite = YandexCompletionJsonGenerator(
+            settings.api_key,
+            folder_id=settings.yandex_folder_id,
+            selection=settings.selection,
+            transport=llm_transport,
+        )
+        pro = YandexCompletionJsonGenerator(
+            settings.api_key,
+            folder_id=settings.yandex_folder_id,
+            selection=LlmSelection(LlmProvider.YANDEX, "YandexGPT Pro 5"),
+            transport=llm_transport,
+        )
+        generator: Callable[[str], str] = YandexFallbackJsonGenerator((lite, pro))
+        selection: LlmSelection | YandexFallbackJsonGenerator = generator
+    else:
+        generator = build_json_generator(
+            settings,
+            transport=llm_transport,
+        )
+        selection = settings.selection
     interpreter = StructuredQueryInterpreter(
         generator,
-        selection=settings.selection,
+        selection=selection,
         version=(
             LOCAL_ADAPTER_VERSION
             if settings.selection.provider is LlmProvider.HUGGINGFACE
-            else OPENAI_ADAPTER_VERSION
+            else YANDEX_ADAPTER_VERSION
         ),
     )
     return QueryResolver(

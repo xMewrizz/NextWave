@@ -4,14 +4,13 @@ import json
 import unittest
 from collections.abc import Mapping
 from typing import Any
+from urllib.error import URLError
 
 from nextwave.discovery import (
-    OPENAI_RESPONSES_ENDPOINT,
     LlmProvider,
     LlmSelection,
-    OpenAIResponsesJsonGenerator,
+    UrllibJsonHttpTransport,
     load_llm_runtime_settings,
-    parse_openai_output_text,
 )
 from nextwave.discovery.llm import LocalLlamaJsonGenerator, build_json_generator
 from nextwave.discovery.local_llm import LOCAL_MODEL_ID
@@ -35,32 +34,9 @@ class FakeJsonTransport:
         return self.response
 
 
-def response_body(*, model: str = "gpt-4.1-2025-04-14") -> bytes:
-    return json.dumps(
-        {
-            "id": "resp_test",
-            "model": model,
-            "output": [
-                {"type": "reasoning", "id": "reasoning_test"},
-                {
-                    "type": "message",
-                    "content": [
-                        {
-                            "type": "output_text",
-                            "text": '{"normalized_query":"artificial intelligence"}',
-                        }
-                    ],
-                },
-            ],
-        }
-    ).encode()
-
-
 class LlmSelectionTests(unittest.TestCase):
     def test_accepts_models_explicitly_listed_in_the_hackathon_specification(self) -> None:
         approved = (
-            (LlmProvider.OPENAI, "gpt-4.1"),
-            (LlmProvider.OPENAI, "gpt-5.6-luna"),
             (LlmProvider.YANDEX, "YandexGPT Lite 5"),
             (LlmProvider.YANDEX, "YandexGPT Pro 5"),
             (LlmProvider.YANDEX, "YandexGPT Pro 5.1"),
@@ -77,10 +53,10 @@ class LlmSelectionTests(unittest.TestCase):
 
     def test_rejects_unapproved_cloud_model(self) -> None:
         with self.assertRaisesRegex(ValueError, "not approved"):
-            LlmSelection(LlmProvider.OPENAI, "gpt-5-mini")
+            LlmSelection(LlmProvider.YANDEX, "YandexGPT Ultra")
 
     def test_rejects_automatic_routing_for_cloud_and_local_providers(self) -> None:
-        for provider in (LlmProvider.OPENAI, LlmProvider.HUGGINGFACE):
+        for provider in (LlmProvider.YANDEX, LlmProvider.HUGGINGFACE):
             with self.subTest(provider=provider):
                 with self.assertRaisesRegex(ValueError, "automatic model selection"):
                     LlmSelection(provider, "auto")
@@ -93,13 +69,14 @@ class LlmSelectionTests(unittest.TestCase):
     def test_runtime_settings_do_not_expose_api_key_in_repr(self) -> None:
         settings = load_llm_runtime_settings(
             {
-                "NEXTWAVE_LLM_PROVIDER": "openai",
-                "NEXTWAVE_LLM_MODEL": "gpt-4.1",
+                "NEXTWAVE_LLM_PROVIDER": "yandex",
+                "NEXTWAVE_LLM_MODEL": "YandexGPT Lite 5",
                 "NEXTWAVE_LLM_API_KEY": "temporary-secret",
+                "NEXTWAVE_YANDEX_FOLDER_ID": "folder-1",
             }
         )
 
-        self.assertEqual(settings.selection.model, "gpt-4.1")
+        self.assertEqual(settings.selection.model, "YandexGPT Lite 5")
         self.assertNotIn("temporary-secret", repr(settings))
 
     def test_runtime_settings_require_an_explicit_provider_model_and_key(self) -> None:
@@ -109,9 +86,10 @@ class LlmSelectionTests(unittest.TestCase):
             "NEXTWAVE_LLM_API_KEY",
         ):
             environment = {
-                "NEXTWAVE_LLM_PROVIDER": "openai",
-                "NEXTWAVE_LLM_MODEL": "gpt-4.1",
+                "NEXTWAVE_LLM_PROVIDER": "yandex",
+                "NEXTWAVE_LLM_MODEL": "YandexGPT Lite 5",
                 "NEXTWAVE_LLM_API_KEY": "temporary-secret",
+                "NEXTWAVE_YANDEX_FOLDER_ID": "folder-1",
             }
             environment.pop(missing)
             with self.subTest(missing=missing):
@@ -173,93 +151,47 @@ class LocalLlamaJsonGeneratorTests(unittest.TestCase):
             generator("Interpret AI")
 
 
-class OpenAIResponsesJsonGeneratorTests(unittest.TestCase):
-    def test_sends_strict_schema_without_putting_key_in_payload(self) -> None:
-        transport = FakeJsonTransport(HttpResponse(200, {}, response_body()))
-        generator = OpenAIResponsesJsonGenerator(
-            "temporary-secret",
-            transport=transport,
-            timeout_seconds=12,
+class UrllibTransportRetryTests(unittest.TestCase):
+    def test_network_failures_retry_with_backoff_then_succeed(self) -> None:
+        response = HttpResponse(200, {"Content-Type": "application/json"}, b"{}")
+        calls: list[str] = []
+        pauses: list[float] = []
+        transport = UrllibJsonHttpTransport(sleeper=pauses.append)
+
+        def flaky_post_once(url, *, headers, payload, timeout_seconds):
+            calls.append(url)
+            if len(calls) < 3:
+                raise URLError("temporary DNS failure")
+            return response
+
+        transport._post_once = flaky_post_once
+        result = transport.post_json(
+            "https://example.org/api",
+            headers={},
+            payload={},
+            timeout_seconds=5.0,
         )
 
-        result = generator("Normalize this query")
+        self.assertIs(result, response)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(pauses, [5.0, 15.0])
 
-        url, headers, payload, timeout = transport.calls[0]
-        self.assertEqual(result, '{"normalized_query":"artificial intelligence"}')
-        self.assertEqual(url, OPENAI_RESPONSES_ENDPOINT)
-        self.assertEqual(headers["Authorization"], "Bearer temporary-secret")
-        self.assertEqual(payload["model"], "gpt-4.1")
-        self.assertFalse(payload["store"])
-        self.assertTrue(payload["text"]["format"]["strict"])
-        self.assertNotIn("temporary-secret", json.dumps(payload))
-        self.assertEqual(timeout, 12)
+    def test_persistent_outage_fails_loudly_after_three_attempts(self) -> None:
+        pauses: list[float] = []
+        transport = UrllibJsonHttpTransport(sleeper=pauses.append)
 
-    def test_accepts_a_task_specific_strict_schema_and_output_budget(self) -> None:
-        transport = FakeJsonTransport(HttpResponse(200, {}, response_body()))
-        schema = {
-            "type": "object",
-            "properties": {"documents": {"type": "array"}},
-            "required": ["documents"],
-            "additionalProperties": False,
-        }
-        generator = OpenAIResponsesJsonGenerator(
-            "temporary-secret",
-            transport=transport,
-            json_schema=schema,
-            schema_name="candidate_mentions",
-            max_output_tokens=2000,
-        )
+        def dead_post_once(url, *, headers, payload, timeout_seconds):
+            raise URLError("no route to host")
 
-        generator("Extract grounded mentions")
-
-        payload = transport.calls[0][2]
-        self.assertEqual(payload["max_output_tokens"], 2000)
-        self.assertEqual(payload["text"]["format"]["name"], "candidate_mentions")
-        self.assertEqual(payload["text"]["format"]["schema"], schema)
-
-    def test_refuses_other_approved_models_until_their_adapter_is_implemented(self) -> None:
-        with self.assertRaisesRegex(ValueError, "supports only"):
-            OpenAIResponsesJsonGenerator(
-                "temporary-secret",
-                selection=LlmSelection(LlmProvider.OPENAI, "gpt-5.6-luna"),
+        transport._post_once = dead_post_once
+        with self.assertRaisesRegex(RuntimeError, "after 3 attempts"):
+            transport.post_json(
+                "https://example.org/api",
+                headers={},
+                payload={},
+                timeout_seconds=5.0,
             )
-
-    def test_does_not_expose_error_body_or_secret_on_http_failure(self) -> None:
-        transport = FakeJsonTransport(
-            HttpResponse(401, {}, b'{"error":{"message":"temporary-secret"}}')
-        )
-        generator = OpenAIResponsesJsonGenerator("temporary-secret", transport=transport)
-
-        with self.assertRaisesRegex(RuntimeError, "HTTP 401") as caught:
-            generator("Normalize this query")
-
-        self.assertNotIn("temporary-secret", str(caught.exception))
-
-    def test_reports_billing_error_code_without_exposing_error_text(self) -> None:
-        transport = FakeJsonTransport(
-            HttpResponse(
-                429,
-                {},
-                b'{"error":{"code":"credit_balance_exhausted","message":"temporary-secret"}}',
-            )
-        )
-        generator = OpenAIResponsesJsonGenerator("temporary-secret", transport=transport)
-
-        with self.assertRaisesRegex(RuntimeError, "credit_balance_exhausted") as caught:
-            generator("Return a short answer")
-
-        self.assertNotIn("temporary-secret", str(caught.exception))
-
-
-class OpenAIResponseParserTests(unittest.TestCase):
-    def test_scans_message_items_instead_of_assuming_first_output(self) -> None:
-        result = parse_openai_output_text(response_body(), "gpt-4.1")
-
-        self.assertEqual(result, '{"normalized_query":"artificial intelligence"}')
-
-    def test_rejects_an_unexpected_served_model(self) -> None:
-        with self.assertRaisesRegex(ValueError, "unexpected model"):
-            parse_openai_output_text(response_body(model="gpt-5-mini"), "gpt-4.1")
+        self.assertEqual(pauses, [5.0, 15.0])
 
 
 if __name__ == "__main__":

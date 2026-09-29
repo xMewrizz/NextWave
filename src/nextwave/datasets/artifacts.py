@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
+from nextwave.sources import publish_staging
+
 from .organizer_xlsx import ParsedOrganizerDataset
 
 POSITIVE_CANDIDATES_FILENAME = "positive_candidates.jsonl"
@@ -74,7 +76,7 @@ def publish_artifact_bundle(
     try:
         for filename, content in files.items():
             (staging / filename).write_bytes(content)
-        staging.replace(target)
+        publish_staging(staging, target)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
         raise

@@ -168,6 +168,34 @@ class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
             [("speculative-decoding", 0.9), ("draft-model", 0.8)],
         )
 
+    def test_retryable_channel_failure_retries_with_backoff(self) -> None:
+        transport = SequenceTransport(
+            [
+                HttpResponse(
+                    429, {"Content-Type": "application/json"}, b'{"error":"limit"}'
+                ),
+                response(work("W1", doi="10.1234/one")),
+                response(),
+                response(),
+                response(),
+            ]
+        )
+        pauses: list[float] = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+                sleeper=pauses.append,
+            ).execute(plan())
+
+        self.assertEqual(result.usage.requests_used, 5)
+        self.assertEqual(pauses, [5.0])
+        self.assertEqual(len(result.documents), 1)
+        self.assertEqual(result.documents[0].title, "Work W1")
+
     def test_executes_bounded_channels_deduplicates_and_publishes_snapshot(self) -> None:
         transport = SequenceTransport(
             [
@@ -259,9 +287,13 @@ class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
         transport = SequenceTransport(
             [
                 HttpResponse(429, {"Content-Type": "application/json"}, b'{"error":"limit"}'),
+                HttpResponse(429, {"Content-Type": "application/json"}, b'{"error":"limit"}'),
+                HttpResponse(429, {"Content-Type": "application/json"}, b'{"error":"limit"}'),
+                response(),
                 response(),
             ]
         )
+        pauses: list[float] = []
 
         with tempfile.TemporaryDirectory() as directory:
             result = OpenAlexDiscoveryExecutor(
@@ -269,11 +301,13 @@ class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
                 transport=transport,
                 clock=lambda: NOW,
                 monotonic=lambda: 0.0,
+                sleeper=pauses.append,
             ).execute(plan(max_pages=2))
 
         self.assertIs(result.status, SnapshotStatus.PARTIAL)
-        self.assertEqual(len(result.manifest.runs), 2)
+        self.assertEqual(len(result.manifest.runs), 5)
         self.assertEqual(result.manifest.runs[0].error.code, "http_429")
+        self.assertEqual(pauses, [5.0, 15.0])
         self.assertEqual(result.usage.returned_records, 0)
         self.assertIs(result.usage.stop_reason, DiscoveryStopReason.PAGE_BUDGET)
 

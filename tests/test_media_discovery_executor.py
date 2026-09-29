@@ -184,6 +184,7 @@ class MediaDiscoveryExecutorTests(unittest.TestCase):
         primary = SequenceTransport(
             HttpResponse(429, {"Content-Type": "application/json"}, b'{"error":"limit"}'),
             HttpResponse(429, {"Content-Type": "application/json"}, b'{"error":"limit"}'),
+            HttpResponse(429, {"Content-Type": "application/json"}, b'{"error":"limit"}'),
         )
         fallback = SequenceTransport(gdelt_response())
 
@@ -229,6 +230,33 @@ class MediaDiscoveryExecutorTests(unittest.TestCase):
         self.assertEqual(result.enrichment, ())
         self.assertEqual(fallback.calls, [])
 
+    def test_retryable_mediacloud_failure_retries_with_backoff(self) -> None:
+        primary = SequenceTransport(
+            HttpResponse(429, {"Content-Type": "application/json"}, b'{"error":"limit"}'),
+            mediacloud_response(mediacloud_story(1)),
+        )
+        fallback = SequenceTransport(gdelt_response())
+        pauses: list[float] = []
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = MediaDiscoveryExecutor(
+                Path(directory),
+                mediacloud_api_key="temporary-key",
+                mediacloud_transport=primary,
+                gdelt_transport=fallback,
+                news_enricher=StubNewsEnricher(),
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+                mediacloud_min_interval_seconds=0,
+                sleeper=pauses.append,
+            ).execute(plan())
+
+        self.assertIs(result.provider_used, ConnectorId.MEDIACLOUD)
+        self.assertEqual(len(result.documents), 1)
+        self.assertEqual(len(primary.calls), 2)
+        self.assertEqual(pauses, [5.0])
+        self.assertEqual(fallback.calls, [])
+
     def test_missing_primary_key_uses_gdelt_without_ui_configuration(self) -> None:
         fallback = SequenceTransport(gdelt_response())
 
@@ -248,8 +276,13 @@ class MediaDiscoveryExecutorTests(unittest.TestCase):
             MediaFallbackReason.PRIMARY_UNCONFIGURED,
         )
 
-    def test_collection_ids_are_optional_but_strict_when_configured(self) -> None:
-        self.assertEqual(parse_mediacloud_collection_ids({}), ())
+    def test_collection_ids_default_to_documented_pair_when_unconfigured(self) -> None:
+        # Живой прогон 22.09.2026: story-list без ss/cs всегда отвечает 422,
+        # поэтому пустая конфигурация даёт дефолтный охват, а не пустой кортеж.
+        self.assertEqual(
+            parse_mediacloud_collection_ids({}),
+            (34412234, 34412118),
+        )
         self.assertEqual(
             parse_mediacloud_collection_ids(
                 {"NEXTWAVE_MEDIACLOUD_COLLECTION_IDS": "34412234, 34412118"}
