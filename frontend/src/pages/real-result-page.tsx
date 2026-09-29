@@ -37,13 +37,24 @@ export function RealResultPage() {
 export function ResultView({ data }: { data: ResultBundle }) {
   const location = useLocation()
   const [view, setView] = useState<'top15' | 'watchlist' | 'excluded'>('top15')
+  const top15Ids = useMemo(
+    () => new Set(data.top15.map((candidate) => candidate.candidate_id)),
+    [data.top15],
+  )
+  const remainingWatchlistCount = useMemo(
+    () => data.candidates.filter(
+      (candidate) => candidate.status === 'watchlist' && !top15Ids.has(candidate.candidate_id),
+    ).length,
+    [data.candidates, top15Ids],
+  )
   const candidates = useMemo(
     () => view === 'top15'
       ? [...data.top15].sort(compareCandidates)
       : data.candidates
-          .filter((candidate) => candidate.status === view)
+          .filter((candidate) => candidate.status === view
+            && (view !== 'watchlist' || !top15Ids.has(candidate.candidate_id)))
           .sort(compareCandidates),
-    [data, view],
+    [data, top15Ids, view],
   )
   const summary = data.summary
   const reportBase = location.pathname.startsWith('/analyses/')
@@ -52,7 +63,7 @@ export function ResultView({ data }: { data: ResultBundle }) {
 
   const views = [
     { key: 'top15' as const, label: 'TOP-15', count: summary.top15_count },
-    { key: 'watchlist' as const, label: 'Наблюдение', count: summary.status_counts.watchlist ?? 0 },
+    { key: 'watchlist' as const, label: 'Наблюдение', count: remainingWatchlistCount },
     { key: 'excluded' as const, label: 'Исключены', count: summary.status_counts.excluded ?? 0 },
   ]
 
