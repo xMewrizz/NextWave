@@ -92,7 +92,7 @@ class DecisionPolicyResult:
 
 
 def apply_decision_policy(value: DecisionPolicyInput) -> DecisionPolicyResult:
-    """Apply the frozen precedence documented in REQUIREMENTS.md."""
+    """Apply the frozen precedence documented in docs/REQUIREMENTS.md."""
 
     if value.gate_decision == "reject":
         return _result(value, CandidateStatus.EXCLUDED, PolicyReason.GATE_REJECT)
