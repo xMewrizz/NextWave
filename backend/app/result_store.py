@@ -30,7 +30,7 @@ def _read_object(path: Path, label: str) -> tuple[dict[str, Any], bytes]:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError(f"cannot read {label}") from error
     if not isinstance(value, dict):
-        raise ValueError(f"{label} must be an object")
+        raise ValueError(f"{label} must be an object")  # noqa: TRY004 - invalid result bundle
     return value, raw
 
 
@@ -46,7 +46,7 @@ def _read_jsonl(raw: bytes, label: str) -> list[dict[str, Any]]:
         except json.JSONDecodeError as error:
             raise ValueError(f"{label} line {line_number} is invalid JSON") from error
         if not isinstance(row, dict):
-            raise ValueError(f"{label} line {line_number} must be an object")
+            raise ValueError(f"{label} line {line_number} must be an object")  # noqa: TRY004
         result.append(row)
     return result
 
@@ -84,7 +84,7 @@ def load_result_bundle(root: str | Path | None = None) -> dict[str, Any]:
     if not isinstance(top15, list) or not all(isinstance(row, dict) for row in top15):
         raise ValueError("top15 must be a list of objects")
     if not isinstance(summary, dict):
-        raise ValueError("summary must be an object")
+        raise ValueError("summary must be an object")  # noqa: TRY004 - invalid result bundle
     if not isinstance(result, dict) or result.get("schema_version") != RESPONSE_SCHEMA_VERSION:
         raise ValueError("result.json schema version is not supported")
 

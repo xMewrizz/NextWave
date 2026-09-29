@@ -2,10 +2,10 @@
 
 ## API, интерфейс и PostgreSQL
 
-Compose запускает API, web-интерфейс и PostgreSQL 16 с постоянным volume `postgres_data`.
-Таблица `analyses` создаётся или совместимо обновляется при старте backend.
-Без ML-фабрики API доступен, но запуск анализа возвращает `error/model_unavailable`.
-Подключение реального вычислительного кода описано в [ML_INTEGRATION.md](docs/ML_INTEGRATION.md).
+Compose запускает API, web-интерфейс и PostgreSQL 16 с постоянным volume `nextwave-postgres`.
+Backend хранит analysis jobs в PostgreSQL. По умолчанию он выдаёт проверенный snapshot
+для совпадающего запроса. Для произвольных запросов установите `NEXTWAVE_ANALYSIS_MODE=live`;
+настройка и необходимые ключи описаны в [README.md](README.md#запуск-проверенного-web-результата).
 Для локального стенда задан пароль `nextwave-local`; его можно переопределить через
 `NEXTWAVE_POSTGRES_PASSWORD` (URL-safe значение). PostgreSQL не публикует порт наружу.
 
@@ -17,7 +17,8 @@ docker compose up --build
 
 Интерфейс будет доступен на `http://localhost:8080`, API — на `http://localhost:8000`.
 
-Compose автоматически передаёт backend временный Media Cloud token из `config/hackathon.env`; регистрация и ручной ввод ключа для проверки приватного хакатонного репозитория не требуются. Переменная недоступна frontend-контейнеру. После завершения оценки token отзывается.
+Compose передаёт backend настройки из `config/hackathon.env`; секреты для live-анализа
+задаются переменными окружения и не попадают во frontend.
 В PowerShell порты можно изменить переменными `FRONTEND_PORT` и `BACKEND_PORT`:
 
 ```powershell
@@ -41,7 +42,9 @@ Backend:
 ```bash
 docker build -f backend/Dockerfile -t nextwave-backend .
 docker run --rm -p 8000:8000 \
-  -e NEXTWAVE_DATABASE_URL -e NEXTWAVE_ANALYZER_FACTORY nextwave-backend
+  -e NEXTWAVE_DATABASE_URL -e NEXTWAVE_ANALYSIS_MODE \
+  -e NEXTWAVE_RESULT_DIR=/data/result -v /path/to/analysis-result-v2:/data/result:ro \
+  nextwave-backend
 ```
 
 Frontend при отдельном развёртывании должен знать адрес backend. В PowerShell:
