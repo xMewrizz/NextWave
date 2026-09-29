@@ -816,6 +816,7 @@ class CommandLineTests(unittest.TestCase):
             candidates=Path("out/candidates.jsonl"),
             top15=Path("out/top15.json"),
             summary=Path("out/summary.json"),
+            result=Path("out/result.json"),
             manifest=Path("out/manifest.json"),
         )
         with redirect_stdout(io.StringIO()):

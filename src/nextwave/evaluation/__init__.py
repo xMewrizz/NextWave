@@ -19,6 +19,7 @@ from .analysis_inference import (
     export_analysis_inference,
 )
 from .analysis_result import (
+    ANALYSIS_RESPONSE_VERSION,
     ANALYSIS_RESULT_VERSION,
     AnalysisResultPaths,
     build_analysis_result,
@@ -110,6 +111,7 @@ __all__ = [
     "build_analysis_inference",
     "export_analysis_inference",
     "ANALYSIS_RESULT_VERSION",
+    "ANALYSIS_RESPONSE_VERSION",
     "AnalysisResultPaths",
     "build_analysis_result",
     "export_analysis_result",

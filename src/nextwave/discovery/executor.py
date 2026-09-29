@@ -286,8 +286,11 @@ class OpenAlexDiscoveryExecutor:
         pages_fetched = 0
         stop_reason = DiscoveryStopReason.CHANNELS_EXHAUSTED
 
-        schedule = build_openalex_search_schedule(plan.query)
-        for step in schedule:
+        schedule = list(build_openalex_search_schedule(plan.query))
+        schedule_index = 0
+        while schedule_index < len(schedule):
+            step = schedule[schedule_index]
+            schedule_index += 1
             if len(runs) >= budget.max_requests:
                 stop_reason = DiscoveryStopReason.REQUEST_BUDGET
                 break
@@ -330,6 +333,8 @@ class OpenAlexDiscoveryExecutor:
             )
             returned_records += parsed.total_records
             accepted_records += parsed.accepted_records
+            if parsed.total_records >= min(100, remaining_documents):
+                schedule.append(replace(step, page_index=step.page_index + 1))
             hint_issues.extend(
                 DiscoveryHintIssue(
                     connector_id=ConnectorId.OPENALEX,

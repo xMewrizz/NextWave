@@ -115,6 +115,40 @@ class OpenAlexSearchScheduleTests(unittest.TestCase):
 
 
 class OpenAlexDiscoveryExecutorTests(unittest.TestCase):
+    def test_full_page_continues_same_channel_after_first_wave(self) -> None:
+        first_page = [
+            work(f"W{index}", doi=f"10.1234/{index}")
+            for index in range(100)
+        ]
+        second_page = [
+            work(f"W{index}", doi=f"10.1234/{index}")
+            for index in range(100, 200)
+        ]
+        transport = SequenceTransport(
+            [
+                response(*first_page),
+                response(),
+                response(),
+                response(),
+                response(*second_page),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            result = OpenAlexDiscoveryExecutor(
+                Path(directory),
+                transport=transport,
+                clock=lambda: NOW,
+                monotonic=lambda: 0.0,
+            ).execute(plan(max_requests=6, max_pages=5, max_documents=500))
+
+        requested_pages = [
+            parse_qs(urlparse(call[0]).query)["page"] for call in transport.calls
+        ]
+        self.assertEqual(requested_pages, [["1"], ["1"], ["1"], ["1"], ["2"]])
+        self.assertEqual(result.usage.pages_used, 5)
+        self.assertIs(result.usage.stop_reason, DiscoveryStopReason.PAGE_BUDGET)
+
     def test_merges_discovery_hints_when_channels_return_the_same_origin(self) -> None:
         transport = SequenceTransport(
             [

@@ -28,9 +28,12 @@ from .exa_enrichment_merge import ANALYSIS_COMBINED_ENRICHMENT_VERSION
 from .feature_table import FEATURES_FILENAME, MANIFEST_FILENAME, _digest
 
 ANALYSIS_RESULT_VERSION = "analysis-result-v2"
+ANALYSIS_RESPONSE_VERSION = "analysis-response-v1"
 CANDIDATES_FILENAME = "candidates.jsonl"
 TOP15_FILENAME = "top15.json"
 SUMMARY_FILENAME = "summary.json"
+RESULT_FILENAME = "result.json"
+MINIMUM_MAIN_TARGET = 15
 _PLAN_VERSION = "labeling-enrichment-plan-v2"
 _SUPPORT_KINDS = {
     "novelty",
@@ -64,6 +67,7 @@ class AnalysisResultPaths:
     candidates: Path
     top15: Path
     summary: Path
+    result: Path
     manifest: Path
 
 
@@ -629,6 +633,11 @@ def build_analysis_result(
         "status_counts": dict(sorted(status_counts.items())),
         "reason_counts": dict(sorted(reason_counts.items())),
         "top15_count": len(top15),
+        "main_target": MINIMUM_MAIN_TARGET,
+        "main_target_met": len(main) >= MINIMUM_MAIN_TARGET,
+        "analysis_status": (
+            "complete" if len(main) >= MINIMUM_MAIN_TARGET else "insufficient_main"
+        ),
         "processed_document_relations": len(document_rows),
         "processed_unique_documents": len(unique_documents),
         "processed_unique_origins": len(unique_origins),
@@ -651,10 +660,31 @@ def build_analysis_result(
     summary_bytes = (
         json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     ).encode("utf-8")
+    result_bytes = (
+        json.dumps(
+            {
+                "schema_version": ANALYSIS_RESPONSE_VERSION,
+                "query": {
+                    "text": summary["source_query"],
+                    "cutoff_date": cutoff.isoformat(),
+                },
+                "status": summary["analysis_status"],
+                "main_target": MINIMUM_MAIN_TARGET,
+                "summary": summary,
+                "top15": top15,
+                "candidates": results,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode("utf-8")
     files = {
         CANDIDATES_FILENAME: candidate_bytes,
         TOP15_FILENAME: top15_bytes,
         SUMMARY_FILENAME: summary_bytes,
+        RESULT_FILENAME: result_bytes,
     }
     manifest = {
         "schema_version": ANALYSIS_RESULT_VERSION,
@@ -719,5 +749,6 @@ def export_analysis_result(
         candidates=root / CANDIDATES_FILENAME,
         top15=root / TOP15_FILENAME,
         summary=root / SUMMARY_FILENAME,
+        result=root / RESULT_FILENAME,
         manifest=root / MANIFEST_FILENAME,
     )

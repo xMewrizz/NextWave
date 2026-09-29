@@ -144,6 +144,13 @@ class DiscoveryPlanTests(unittest.TestCase):
                 budgets=(openalex, openalex),
             )
 
+    def test_default_openalex_budget_supports_adaptive_paging(self) -> None:
+        openalex = DEFAULT_DISCOVERY_BUDGETS[0]
+        self.assertEqual(openalex.max_requests, 30)
+        self.assertEqual(openalex.max_pages, 20)
+        self.assertEqual(openalex.max_documents, 1000)
+        self.assertEqual(openalex.max_elapsed_seconds, 300.0)
+
     def test_rejects_plan_without_required_openalex(self) -> None:
         optional_openalex = DiscoveryBudget(
             connector_id=ConnectorId.OPENALEX,

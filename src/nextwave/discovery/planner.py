@@ -17,11 +17,11 @@ DEFAULT_DISCOVERY_BUDGETS = (
     DiscoveryBudget(
         connector_id=ConnectorId.OPENALEX,
         required=True,
-        max_requests=6,
-        max_pages=4,
-        max_documents=400,
+        max_requests=30,
+        max_pages=20,
+        max_documents=1000,
         request_timeout_seconds=30.0,
-        max_elapsed_seconds=90.0,
+        max_elapsed_seconds=300.0,
     ),
     DiscoveryBudget(
         connector_id=ConnectorId.MEDIACLOUD,

@@ -286,8 +286,16 @@ class AnalysisResultTests(unittest.TestCase):
         self.assertIsNone(rows["candidate-main"]["model"]["confidence"])
         self.assertEqual(rows["candidate-main"]["top15_rank"], 1)
         summary = json.loads(files["summary.json"])
+        unified = json.loads(files["result.json"])
         self.assertFalse(summary["confidence_available"])
         self.assertIsNone(summary["high_confidence_weak_signals"])
+        self.assertEqual(summary["main_target"], 15)
+        self.assertFalse(summary["main_target_met"])
+        self.assertEqual(summary["analysis_status"], "insufficient_main")
+        self.assertEqual(unified["status"], "insufficient_main")
+        self.assertEqual(unified["summary"], summary)
+        self.assertEqual(len(unified["candidates"]), 4)
+        self.assertEqual(len(unified["top15"]), 1)
 
     def test_maturity_kind_overrides_counter_direction(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

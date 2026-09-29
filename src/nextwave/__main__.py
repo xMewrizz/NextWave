@@ -1436,6 +1436,7 @@ def _run_analysis_result(
     print(f"Кандидаты: {paths.candidates}")
     print(f"TOP-15: {paths.top15}")
     print(f"Сводка: {paths.summary}")
+    print(f"Единый JSON: {paths.result}")
     print(f"Manifest: {paths.manifest}")
     return 0
 
