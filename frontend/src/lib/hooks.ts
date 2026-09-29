@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, TERMINAL, type Analysis } from '@/lib/api'
+import { api, JOB_TERMINAL, TERMINAL, type Analysis, type AnalysisJob } from '@/lib/api'
 
 export interface Resource<T> {
   data: T | null
@@ -44,6 +44,36 @@ export function useAnalysis(id: string | undefined): Resource<Analysis> {
         if (!TERMINAL.includes(data.status)) timer = setTimeout(poll, 400)
       } catch (e) {
         if (alive) setState({ data: null, error: (e as Error).message, loading: false })
+      }
+    }
+
+    poll()
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [id])
+
+  return state
+}
+
+/** Опрос сохраняемого backend job до терминального состояния. */
+export function useAnalysisJob(id: string | undefined): Resource<AnalysisJob> {
+  const [state, setState] = useState<Resource<AnalysisJob>>({ data: null, error: null, loading: true })
+
+  useEffect(() => {
+    if (!id) return
+    let timer: number
+    let alive = true
+
+    const poll = async () => {
+      try {
+        const data = await api.analysisJob(id)
+        if (!alive) return
+        setState({ data, error: null, loading: false })
+        if (!JOB_TERMINAL.includes(data.status)) timer = setTimeout(poll, 500)
+      } catch (error) {
+        if (alive) setState({ data: null, error: (error as Error).message, loading: false })
       }
     }
 

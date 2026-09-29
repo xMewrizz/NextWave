@@ -114,7 +114,11 @@ async def create_analysis(body: AnalysisRequest) -> AnalysisJob:
     query = body.query.strip()
     if not query:
         raise HTTPException(422, "Пустой запрос не запускает анализ.")
-    job = _store().create(query)
+    stages = [
+        AnalysisStageState(key=key, label=label, status="pending")
+        for key, label in _RESULT_STAGES
+    ]
+    job = _store().create(query, stages)
     _schedule(job)
     return job
 

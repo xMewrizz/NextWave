@@ -15,15 +15,14 @@ import {
 import { useTheme } from 'next-themes'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
-import { api, type AnalysisStatus } from '@/lib/api'
+import { api, type JobStatus } from '@/lib/api'
 import { useResource } from '@/lib/hooks'
 import { cn } from '@/lib/utils'
 
-const statusIcon: Record<AnalysisStatus, typeof Clock3> = {
+const statusIcon: Record<JobStatus, typeof Clock3> = {
   pending: Clock3,
   running: Clock3,
-  done: Check,
-  empty: CircleAlert,
+  complete: Check,
   error: CircleAlert,
 }
 

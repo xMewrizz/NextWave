@@ -98,6 +98,34 @@ export interface AnalysisSummary {
   trend_count: number
 }
 
+export type JobStatus = 'pending' | 'running' | 'complete' | 'error'
+export type JobMode = 'cached_snapshot' | 'live'
+export type StageStatus = 'pending' | 'running' | 'complete' | 'reused' | 'error'
+
+export interface AnalysisStageState {
+  key: string
+  label: string
+  status: StageStatus
+}
+
+export interface AnalysisJob {
+  schema_version: 'analysis-job-v1'
+  id: string
+  query: string
+  mode: JobMode
+  status: JobStatus
+  stage: string | null
+  stage_label: string | null
+  progress: number
+  created_at: string
+  updated_at: string
+  finished_at: string | null
+  result_available: boolean
+  result_sha256: string | null
+  stage_history: AnalysisStageState[]
+  error: string | null
+}
+
 export interface ModelFactor {
   feature_name: string
   label_ru: string
@@ -178,13 +206,17 @@ export interface ResultSummary {
 }
 
 export interface ResultBundle {
-  schema_version: string
+  schema_version: 'analysis-response-v1'
+  query: { text: string; cutoff_date: string }
+  status: string
+  main_target: number
   summary: ResultSummary
   top15: ResultCandidate[]
   candidates: ResultCandidate[]
 }
 
 export const TERMINAL: AnalysisStatus[] = ['done', 'empty', 'error']
+export const JOB_TERMINAL: JobStatus[] = ['complete', 'error']
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -201,10 +233,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   coverage: () => request<Coverage>('/coverage'),
   stages: () => request<Stage[]>('/stages'),
-  history: () => request<AnalysisSummary[]>('/analyses'),
+  history: () => request<AnalysisJob[]>('/analyses'),
   analysis: (id: string) => request<Analysis>(`/analyses/${id}`),
+  analysisJob: (id: string) => request<AnalysisJob>(`/analyses/${id}`),
+  analysisResult: (id: string) => request<ResultBundle>(`/analyses/${id}/result`),
   startAnalysis: (query: string) =>
-    request<Analysis>('/analyses', { method: 'POST', body: JSON.stringify({ query }) }),
+    request<AnalysisJob>('/analyses', { method: 'POST', body: JSON.stringify({ query }) }),
   currentResult: () => request<ResultBundle>('/result/current'),
 }
 

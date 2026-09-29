@@ -39,7 +39,9 @@ class AnalysisJobStore:
     def __init__(self, root: str | Path | None = None) -> None:
         self.root = Path(root) if root is not None else configured_job_dir()
 
-    def create(self, query: str) -> AnalysisJob:
+    def create(
+        self, query: str, stages: list[AnalysisStageState] | None = None
+    ) -> AnalysisJob:
         now = datetime.now(UTC)
         job = AnalysisJob(
             schema_version=JOB_SCHEMA_VERSION,
@@ -50,6 +52,7 @@ class AnalysisJobStore:
             progress=0.0,
             created_at=now,
             updated_at=now,
+            stage_history=list(stages or []),
         )
         self.save(job)
         return job
@@ -125,6 +128,12 @@ class AnalysisJobStore:
         return failed
 
     def mark_running(self, job: AnalysisJob) -> AnalysisJob:
+        stage_history = [
+            stage.model_copy(
+                update={"status": "running" if stage.key == "result" else "reused"}
+            )
+            for stage in job.stage_history
+        ]
         running = job.model_copy(
             update={
                 "status": "running",
@@ -132,6 +141,7 @@ class AnalysisJobStore:
                 "stage_label": "Проверка сохранённого результата",
                 "progress": 0.95,
                 "updated_at": datetime.now(UTC),
+                "stage_history": stage_history,
                 "error": None,
             }
         )

@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { api, type Bucket, type EvidenceClaimView, type ResultCandidate } from '@/lib/api'
+import { api, type Bucket, type EvidenceClaimView, type ResultBundle, type ResultCandidate } from '@/lib/api'
 import { percent } from '@/lib/format'
 import { useResource } from '@/lib/hooks'
 
@@ -18,17 +18,20 @@ const labels: Record<Bucket, string> = {
 
 export function RealResultPage() {
   const { data, error, loading } = useResource(api.currentResult, 'current-result-page')
+  if (loading) return <Message>Загружаю проверенный результат…</Message>
+  if (error || !data) return <Message error={error ?? 'Результат отсутствует'} />
+  return <ResultView data={data} />
+}
+
+export function ResultView({ data }: { data: ResultBundle }) {
   const [bucket, setBucket] = useState<Bucket>('main')
   const candidates = useMemo(
     () =>
-      (data?.candidates ?? [])
+      data.candidates
         .filter((candidate) => candidate.status === bucket)
         .sort((a, b) => b.model.score - a.model.score || a.candidate_id.localeCompare(b.candidate_id)),
     [bucket, data],
   )
-
-  if (loading) return <Message>Загружаю проверенный результат…</Message>
-  if (error || !data) return <Message error={error ?? 'Результат отсутствует'} />
   const summary = data.summary
 
   return (

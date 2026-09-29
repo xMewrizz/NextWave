@@ -17,11 +17,8 @@ export function SearchPage() {
     if (!query.trim() || starting) return
     setStarting(true)
     try {
-      if (!result.data) throw new Error('Проверенный результат ещё не загружен сервером')
-      if (query.trim().toLocaleLowerCase('ru-RU') !== result.data.summary.source_query.toLocaleLowerCase('ru-RU')) {
-        throw new Error(`Демонстрационный live-прогон зафиксирован для запроса «${result.data.summary.source_query}»`)
-      }
-      navigate('/result')
+      const analysis = await api.startAnalysis(query.trim())
+      navigate(`/analyses/${analysis.id}`)
     } catch (e) {
       toast.error('Не удалось запустить анализ', { description: (e as Error).message })
       setStarting(false)
